@@ -502,7 +502,7 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
         } else await route.continue();
       });
       await tab.getByRole("button", { name: "Löschen von marker rückgängig" }).click();
-      await tab.getByRole("status").getByText("Antwort verloren").waitFor();
+      await tab.getByRole("tabpanel", { name: "Variablen" }).getByRole("status").getByText("Antwort verloren").waitFor();
       await tab.reload();
       await tab.getByRole("tab", { name: "Variablen" }).click();
       await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).click();

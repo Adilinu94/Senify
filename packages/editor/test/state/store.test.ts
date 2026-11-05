@@ -235,6 +235,22 @@ describe("external async history", () => {
     expect(() => store.undo()).toThrow(/serverseitig|extern/i);
     expect(store.document.nodes["head000001"]?.props["text"]).toBe("Neu");
   });
+
+  it("setzt bei einer Wiederherstellung die ursprüngliche Order und verschiebt die folgenden Regeln", () => {
+    const rule = (id: string, order: number) => ({ id, name: id, kind: "class" as const, selector: `.${id}`, order, styles: {}, contextStyles: {} });
+    const store = new EditorStore({
+      document: {
+        version: 2, rootNodeId: "root", nodes: { root: { id: "root", primitive: "root", props: {} } },
+        styleRules: [rule("r-a", 0), rule("r-c", 1), rule("r-b", 7)],
+      },
+    });
+    store.reconcileStyleRuleOrderShift(1, 1, "r-b");
+    expect(store.document.styleRules.map((entry) => [entry.id, entry.order])).toEqual([
+      ["r-a", 0],
+      ["r-b", 1],
+      ["r-c", 2],
+    ]);
+  });
 });
 
 describe("store selection", () => {

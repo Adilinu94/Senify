@@ -25,6 +25,23 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       expect(seed.status).toBe(200);
       const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
       const waitForFrame = () => tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
+      const recoverHistory = async () => {
+        const readCheckpoint = () => tab.evaluate(`(() => {
+          const key = Object.keys(sessionStorage).find((key) => key.startsWith("senify:editor-history:") && key.endsWith(location.hash.split("/").at(-1) ?? ""));
+          return key ? sessionStorage.getItem(key) : null;
+        })()`);
+        const checkpoint = await readCheckpoint();
+        expect(await tab.locator('.senify-canvas__button[data-action="undo"]').isDisabled()).toBe(true);
+        await tab.getByRole("tab", { name: "Variablen", exact: true }).click();
+        await tab.locator('[data-variable-status]').getByText("Der gespeicherte Verlauf passt nicht", { exact: false }).waitFor();
+        await tab.getByRole("button", { name: "Prüfung beenden …", exact: true }).click();
+        await tab.getByRole("button", { name: "Weiter prüfen", exact: true }).click();
+        expect(await readCheckpoint()).toBe(checkpoint);
+        await tab.getByRole("button", { name: "Prüfung beenden …", exact: true }).click();
+        await tab.getByRole("button", { name: "Prüfung beenden und Editorstand laden", exact: true }).click();
+        await tab.locator('[data-variable-status]').getByText("Prüfung beendet. Der aktuelle Editorstand wurde geladen.", { exact: true }).waitFor();
+        await tab.getByRole("tab", { name: "Bearbeiten", exact: true }).click();
+      };
       await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
       await waitForFrame();
       const frame = () => tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame();
@@ -137,6 +154,9 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
       await expect.poll(() => color("frame00001"), { timeout: 15000 }).toBe("rgb(68, 85, 102)");
       await expect.poll(() => color("frame00002")).toBe("rgb(68, 85, 102)");
+      // The other page changed the shared registry: its predecessor checkpoint
+      // must be explicitly abandoned, not silently reused or overwritten.
+      await recoverHistory();
       await node("frame00001").click();
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("button", { name: "cta", exact: true }).click();
@@ -271,6 +291,7 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       expect(secondRule.status).toBe(201);
       await tab.reload();
       await waitForFrame();
+      await recoverHistory();
       await tab.locator('.senify-canvas__button[data-action="device"][data-device="desktop"]').click();
       await node("frame00003").click();
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();

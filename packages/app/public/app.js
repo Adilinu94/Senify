@@ -1,5 +1,6 @@
 // Senify program shell: a dependency-free hash-router SPA over the local
 // engine API (proxied same-origin by the app server).
+import { createVariableHistory } from "./variable-history.js";
 
 const view = document.getElementById("view");
 const toasts = document.getElementById("toasts");
@@ -6271,7 +6272,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   let pendingVariableOperation = null;
   try {
     const saved = JSON.parse(window.sessionStorage.getItem(pendingVariableKey) ?? "null");
-    if (saved && ["delete", "restore", "rename"].includes(saved.action) && ["color", "spacing"].includes(saved.group) &&
+    if (saved && saved.format !== 2 && saved.action === "rename" && ["color", "spacing"].includes(saved.group) &&
         typeof saved.name === "string" && typeof saved.body?.receiptId === "string" &&
         (saved.action !== "rename" || typeof saved.body?.newName === "string") &&
         Number.isInteger(saved.body?.baseThemeVersion) && saved.body?.pageContext?.pageId === pageId &&
@@ -6280,6 +6281,32 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       pendingVariableOperation = saved;
     }
   } catch { /* Storage can be unavailable or contain invalid data. */ }
+  let variableHistory = null;
+  const openVariableDeletePanels = new Set();
+  variableHistory = createVariableHistory({
+    session, api, storage: window.sessionStorage, editor,
+    hasPendingLegacyRename: () => pendingVariableOperation !== null,
+    getTheme: () => siteTheme,
+    setTheme: (latest) => {
+      siteTheme = latest.theme;
+      siteThemeVersion = latest.version;
+      canvas.setTheme(latest.theme, latest.css);
+      inspector.setTheme(latest.theme);
+      lastVariableDeletion = null;
+      lastVariableRename = null;
+      rememberVariableHistory();
+    },
+    onChange: () => {
+      if (!variableHistory || variableSaving) return;
+      const state = variableHistory.state();
+      const status = variablesHost.querySelector("[data-variable-status]");
+      if (status && ["running", "rejected"].includes(state.status)) {
+        status.textContent = state.message;
+        for (const button of variablesHost.querySelectorAll("button")) button.disabled = state.status === "running";
+      } else renderVariables();
+    },
+    isActive: () => canvasHost.isConnected,
+  });
   function renderVariables() {
     variablesHost.replaceChildren();
     variablesHost.append(el("h2", { text: "Globale Variablen" }), el("p", { class: "canvas-view__variables-help", text: "Variablen gelten für das gesamte Projekt." }));
@@ -6304,7 +6331,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     };
     search.addEventListener("input", () => { variableQuery = search.value; filterVariables(); });
     variablesHost.append(search, noMatches);
-    const status = el("span", { role: "status", "aria-live": "polite" });
+    const status = el("span", { role: "status", "aria-live": "polite", "data-variable-status": "true" });
     const reload = el("button", { type: "button", text: "Variablen neu laden" });
     reload.hidden = true;
     const statusBar = el("div", { class: "canvas-view__variables-status" }, status, reload);
@@ -6346,7 +6373,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     });
     const saveVariable = async (group, name, value, button) => {
       if (variableSaving) return;
-      if (pendingVariableOperation) { status.textContent = "Bitte zuerst den ausstehenden Variablenvorgang prüfen."; return; }
+      if (pendingVariableOperation || variableHistory.pending()) { status.textContent = "Bitte zuerst den ausstehenden Variablenvorgang prüfen."; return; }
       if (session.saveState().unsupported.length > 0) { status.textContent = "Bitte zuerst nicht speicherbare Editoränderungen klären."; return; }
       if (group === "spacing" && !window.CSS.supports("padding", value)) {
         status.textContent = "Bitte einen gültigen Abstand eingeben, zum Beispiel 16px oder 1rem.";
@@ -6386,7 +6413,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       }
     };
     const canChangeVariable = (operation = null) => {
-      if (pendingVariableOperation && pendingVariableOperation !== operation) {
+      if ((pendingVariableOperation && pendingVariableOperation !== operation) || variableHistory.pending()) {
         status.textContent = "Bitte zuerst den ausstehenden Variablenvorgang prüfen.";
         return false;
       }
@@ -6420,10 +6447,16 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
 
     const runVariableOperation = async (operation) => {
       if (!canChangeVariable(operation)) return;
+      if (operation.action !== "rename" && !operation.uncertain) {
+        await variableHistory.start(operation);
+        return;
+      }
+      variableSaving = true;
       try {
         beginVariableExternalHistory(operation);
         window.sessionStorage.setItem(pendingVariableKey, JSON.stringify(operation));
       } catch (error) {
+        variableSaving = false;
         // A failed retry preflight does not resolve an earlier unknown write.
         if (!operation.uncertain) failVariableExternalHistory(operation);
         status.textContent = error?.message?.includes("externer Vorgang")
@@ -6539,18 +6572,22 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       }
     };
     const showPendingVariableRetry = () => {
-      if (!pendingVariableOperation || statusBar.querySelector("[data-variable-retry]")) return;
+      if ((!pendingVariableOperation && !variableHistory.pending()) || statusBar.querySelector("[data-variable-retry]")) return;
       const retry = el("button", { type: "button", text: "Ausstehenden Variablenvorgang prüfen", "data-variable-retry": "true" });
+      const checkpointOnly = variableHistory.recoveryOnly();
+      retry.hidden = checkpointOnly;
       const stop = el("button", { type: "button", text: "Prüfung beenden …" });
       const confirm = el("button", { type: "button", text: "Prüfung beenden und Editorstand laden" });
       const cancel = el("button", { type: "button", text: "Weiter prüfen" });
       const warning = el("div", { hidden: true },
-        el("p", { text: "Der Vorgang könnte ausgeführt worden sein. Die Zuordnung zum Rückgängig geht verloren und die Editor-History wird geleert. Offene Editoränderungen müssen vorher gespeichert oder geklärt sein." }), confirm, cancel);
-      retry.addEventListener("click", () => void runVariableOperation(pendingVariableOperation));
+        el("p", { text: checkpointOnly
+          ? "Der gespeicherte Verlauf wird bewusst verworfen und der aktuelle Editorstand geladen. Separate ältere Belege bleiben erhalten. Offene Editoränderungen müssen vorher gespeichert oder geklärt sein."
+          : "Der Vorgang könnte ausgeführt worden sein. Die Zuordnung zum Rückgängig geht verloren und die Editor-History wird geleert. Offene Editoränderungen müssen vorher gespeichert oder geklärt sein." }), confirm, cancel);
+      retry.addEventListener("click", () => { if (variableHistory.pending()) void variableHistory.retry(); else void runVariableOperation(pendingVariableOperation); });
       stop.addEventListener("click", () => { warning.hidden = false; stop.hidden = true; });
       cancel.addEventListener("click", () => { warning.hidden = true; stop.hidden = false; });
       confirm.addEventListener("click", async () => {
-        if (!pendingVariableOperation || variableSaving) return;
+        if ((!pendingVariableOperation && !variableHistory.pending()) || variableSaving || variableHistory.state().status === "running") return;
         const before = session.saveState();
         if (before.pending > 0 || before.unsupported.length > 0 || ["saving", "conflict", "error"].includes(before.status)) {
           status.textContent = "Bitte zuerst offene Editoränderungen speichern oder ihren Konflikt klären.";
@@ -6558,7 +6595,9 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         }
         const originalDocument = session.document;
         const originalVersion = session.version;
-        const originalOperation = pendingVariableOperation;
+        const originalOperation = pendingVariableOperation ?? variableHistory.pending();
+        const originalThemeVersion = siteThemeVersion;
+        const originalVersions = session.pipeline.externalVersions();
         variableSaving = true;
         for (const item of variablesHost.querySelectorAll("button")) item.disabled = true;
         status.textContent = "Editorstand wird geladen …";
@@ -6568,20 +6607,21 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
             throw new Error("Der aktuelle Editorstand konnte nicht geladen werden.");
           }
           const after = session.saveState();
-          if (pendingVariableOperation !== originalOperation || session.document !== originalDocument || session.version !== originalVersion || after.pending > 0 || after.unsupported.length > 0 || ["saving", "conflict", "error"].includes(after.status)) {
+          if (!canvasHost.isConnected || (pendingVariableOperation ?? variableHistory.pending()) !== originalOperation || session.document !== originalDocument || session.version !== originalVersion || siteThemeVersion !== originalThemeVersion || after.pending > 0 || after.unsupported.length > 0 || ["saving", "conflict", "error"].includes(after.status)) {
             throw new Error("Der Editorstand hat sich inzwischen geändert. Bitte offene Änderungen prüfen und erneut versuchen.");
           }
           const loaded = editor.loadDocument(fresh.draft, { styleRules: registry.rules }).document;
-          window.sessionStorage.removeItem(variableHistoryKey);
-          window.sessionStorage.removeItem(pendingVariableKey);
-          failVariableExternalHistory(originalOperation);
-          pendingVariableOperation = null;
-          lastVariableDeletion = null;
-          lastVariableRename = null;
-          session.replaceDocument(loaded, fresh.draftVersion, registry.version);
-          session.acceptThemeVersion(theme.version);
-          siteTheme = theme.theme;
-          siteThemeVersion = theme.version;
+          if (!variableHistory.abandon({ original: originalDocument, base: originalVersions, document: loaded,
+            next: { pageVersion: fresh.draftVersion, registryVersion: registry.version, themeVersion: theme.version },
+            pendingId: originalOperation.externalHistoryId,
+            beforeCommit: () => {
+              if (!checkpointOnly) window.sessionStorage.removeItem(variableHistoryKey);
+              pendingVariableOperation = null;
+              if (!checkpointOnly) { lastVariableDeletion = null; lastVariableRename = null; }
+              siteTheme = theme.theme;
+              siteThemeVersion = theme.version;
+            },
+          })) throw new Error("Der Editorstand hat sich inzwischen geändert. Bitte offene Änderungen prüfen und erneut versuchen.");
           canvas.setTheme(theme.theme, theme.css);
           inspector.setTheme(theme.theme);
           setVersion(fresh.draftVersion);
@@ -6601,6 +6641,12 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     if (pendingVariableOperation) beginVariableExternalHistory(pendingVariableOperation);
     showPendingVariableRetry();
     if (pendingVariableOperation) status.textContent = "Ein Variablenvorgang wurde noch nicht bestätigt. Bitte prüfe ihn.";
+    else status.textContent = variableHistory.state().message;
+    if (variableHistory.state().status === "unresolved") {
+      const reloadEditor = el("button", { type: "button", text: "Editorstand laden (offene Änderungen verwerfen)" });
+      reloadEditor.addEventListener("click", () => void reloadDraft());
+      variablesHost.append(reloadEditor);
+    }
     const newVariableOperation = (action, group, name, receiptId) => ({
       action, group, name,
       body: { receiptId, baseThemeVersion: siteThemeVersion, pageContext: { pageId, baseDraftVersion: session.version } },
@@ -6615,6 +6661,18 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         if (entry.restored && variableDrafts.has(`${entry.group}.${entry.name}`)) { status.textContent = "Bitte den geänderten Wert vor dem Löschen speichern."; return; }
         operation ??= newVariableOperation(entry.restored ? "delete" : "restore", entry.group, entry.name, entry.restored ? window.crypto.randomUUID() : entry.receiptId);
         void runVariableOperation(operation);
+      });
+      variablesHost.append(undo);
+    }
+    const sharedNavigation = variableHistory.navigation();
+    if (sharedNavigation) {
+      const label = sharedNavigation.action === "restore" ? `Löschen von ${sharedNavigation.name} rückgängig` : `Löschen von ${sharedNavigation.name} wiederholen`;
+      const undo = el("button", { type: "button", text: label, "aria-label": label });
+      undo.disabled = !sharedNavigation.available;
+      undo.addEventListener("click", () => {
+        if (!canChangeVariable()) return;
+        if (sharedNavigation.action === "delete" && variableDrafts.has(`${sharedNavigation.group}.${sharedNavigation.name}`)) { status.textContent = "Bitte den geänderten Wert vor dem Löschen speichern."; return; }
+        void (sharedNavigation.direction === "undo" ? session.undoAsync() : session.redoAsync());
       });
       variablesHost.append(undo);
     }
@@ -6688,15 +6746,18 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       row.append(button, panel);
     };
     const appendDelete = (row, group, name) => {
+      const panelKey = `${group}.${name}`;
       const label = group === "color" ? "Farbe" : "Abstand";
       const button = el("button", { type: "button", text: "Löschen …", "aria-label": `${label} ${name} löschen` });
       const confirm = el("button", { type: "button", text: "Variable löschen", "aria-label": `${label} ${name} löschen bestätigen` });
       const cancel = el("button", { type: "button", text: "Abbrechen", "aria-label": `Löschen von ${label} ${name} abbrechen` });
-      const panel = el("div", { class: "canvas-view__variable-delete", hidden: true },
+      const panel = el("div", { class: "canvas-view__variable-delete" },
         el("p", { text: "Nur ohne erkannte direkte Verweise. Externe oder dynamische Verweise können fehlen. Rückgängig ist möglich, solange Theme, Klassen und Seiten unverändert bleiben." }), confirm, cancel);
+      panel.hidden = !openVariableDeletePanels.has(panelKey);
+      button.hidden = !panel.hidden;
       let operation = null;
-      button.addEventListener("click", () => { panel.hidden = false; button.hidden = true; });
-      cancel.addEventListener("click", () => { operation = null; panel.hidden = true; button.hidden = false; });
+      button.addEventListener("click", () => { openVariableDeletePanels.add(panelKey); panel.hidden = false; button.hidden = true; });
+      cancel.addEventListener("click", () => { openVariableDeletePanels.delete(panelKey); operation = null; panel.hidden = true; button.hidden = false; });
       confirm.addEventListener("click", () => {
         if (variableDrafts.has(`${group}.${name}`)) { status.textContent = "Bitte den geänderten Wert vor dem Löschen speichern."; return; }
         if (!canChangeVariable()) return;
@@ -6762,6 +6823,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     });
     variablesHost.append(el("h3", { text: "Farben" }), list, el("div", { class: "canvas-view__variable-create" }, name, value, add), el("h3", { text: "Abstände" }), spacingList, el("div", { class: "canvas-view__variable-create" }, spacingName, spacingValue, addSpacing));
     filterVariables();
+    if (variableHistory.state().status === "running") for (const button of variablesHost.querySelectorAll("button")) button.disabled = true;
   }
   renderVariables();
   inspector.setTab(savedUi.tab);
@@ -6919,6 +6981,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     if (!overflowHost.contains(event.target)) setOverflowOpen(false);
   };
   const cleanup = () => {
+    variableHistory.dispose();
     document.removeEventListener("pointerdown", closeOverflowOnOutsidePointer);
     if (overflowButton.isConnected) setOverflowOpen(false);
     if (activeToolbarMenuCleanup === cleanup) activeToolbarMenuCleanup = null;

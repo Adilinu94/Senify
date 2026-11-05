@@ -1,10 +1,12 @@
-import { HistoryStack, isHistoryData, type HistorySnapshot } from "../history.ts";
+import { HistoryStack, isHistoryData, type HistoryEntry, type HistorySnapshot } from "../history.ts";
 import { parseEditorMutation } from "@senify/engine/browser";
-import { STATE_ORDER } from "@senify/widget-engine";
+import { STATE_ORDER, type StyleRule } from "@senify/widget-engine";
 import { validateDocument } from "./consistency.ts";
 import { cloneDocument, type EditorDocument } from "./document.ts";
 import { applyDocumentPatch, applyDocumentPatches, type DocumentPatch } from "./patches.ts";
 import type { ExternalVersions } from "./persist.ts";
+
+export type ClassDeletionHistoryReceipt = { entryId: string; receiptId: string };
 
 export type SessionHistoryCheckpoint = {
   format: 1;
@@ -13,7 +15,30 @@ export type SessionHistoryCheckpoint = {
   versions: ExternalVersions;
   document: EditorDocument;
   history: HistorySnapshot;
+  classDeletionReceipts?: ClassDeletionHistoryReceipt[];
 };
+
+export function globalDeletionRule(entry: HistoryEntry): StyleRule | undefined {
+  const patch = entry.op === "deleteStyleRule" ? (entry.undoPatch as unknown as DocumentPatch[]).find((item) => item.patch === "upsertStyleRule") : undefined;
+  return patch?.patch === "upsertStyleRule" && patch.rule.kind === "class" && patch.rule.scope === undefined ? patch.rule : undefined;
+}
+
+// A locally replayable global deletion still needs its server-side receipt.
+// Reject older incomplete checkpoints rather than exposing unsaveable Undo.
+export function checkedClassDeletionReceipts(input: unknown, history: HistorySnapshot): Map<string, string> {
+  const entries = history.entries.filter((entry) => globalDeletionRule(entry) !== undefined);
+  const receipts = input ?? [];
+  if (!Array.isArray(receipts) || receipts.length !== entries.length) throw new Error("Unvollständige Klassenlöschbelege im History-Checkpoint");
+  const result = new Map<string, string>();
+  for (const receipt of receipts) {
+    if (!record(receipt) || typeof receipt["entryId"] !== "string" || typeof receipt["receiptId"] !== "string" ||
+        !/^[a-zA-Z0-9_-]+$/.test(receipt["receiptId"]) || result.has(receipt["entryId"]) || !entries.some((entry) => entry.id === receipt["entryId"])) {
+      throw new Error("Ungültiger Klassenlöschbeleg im History-Checkpoint");
+    }
+    result.set(receipt["entryId"], receipt["receiptId"]);
+  }
+  return result;
+}
 
 function sortedData(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortedData);
@@ -135,6 +160,22 @@ export function checkedEditorHistory(input: unknown, document: EditorDocument): 
     if (!entry.external) future = step(future, entry.mutations as unknown as DocumentPatch[], entry.undoPatch as unknown as DocumentPatch[]);
   }
   return snapshot;
+}
+
+// Use the live stack's branch/limit rules for both preflight and reload recovery.
+// Receipt ownership follows the retained entries, never the discarded future.
+export function checkpointAfterExternalCommit(checkpoint: SessionHistoryCheckpoint, entry: HistoryEntry, versions = checkpoint.versions): SessionHistoryCheckpoint {
+  if (entry.status !== "pending" || !entry.external || entry.op !== "external" || checkpoint.history.entries.some((item) => item.id === entry.id)) throw new Error("Ungültiger neuer Verlaufsschritt");
+  checkedEditorHistory({ format: 1, entries: [{ ...entry, status: "committed" }], cursor: 1 }, checkpoint.document);
+  const history = checkedEditorHistory(checkpoint.history, checkpoint.document);
+  const receipts = checkedClassDeletionReceipts(checkpoint.classDeletionReceipts, history);
+  const stack = new HistoryStack({ idFactory: () => entry.id, now: () => entry.at });
+  stack.restore(history);
+  stack.beginExternal({ ...entry, op: entry.op });
+  stack.commitExternal(entry.id, { versionAfter: versions.pageVersion });
+  const next = stack.snapshot();
+  return { ...structuredClone(checkpoint), versions: structuredClone(versions), history: next,
+    classDeletionReceipts: [...receipts].filter(([id]) => next.entries.some((item) => item.id === id)).map(([entryId, receiptId]) => ({ entryId, receiptId })) };
 }
 
 export function matchingHistoryCheckpoint(input: unknown, pageId: string, siteId: string, versions: ExternalVersions, document: EditorDocument): SessionHistoryCheckpoint | null {

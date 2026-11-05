@@ -3,6 +3,7 @@ import {
   conflictDialogModel,
   createComponent,
   createSavePipeline,
+  EditorStore,
   patchesToPending,
   setComponentOverride,
   type SaveRequest,
@@ -34,7 +35,7 @@ function harness(script: Scripted = () => ({ status: 200, body: { newDraftVersio
   return { store, pipeline, requests };
 }
 
-const rule = (id: string, name: string, styles: Record<string, unknown> = {}) => ({
+const rule = (id: string, name: string, styles: import("@senify/widget-engine").DeviceValueMap = {}) => ({
   id,
   name,
   kind: "class" as const,
@@ -452,6 +453,68 @@ describe("save pipeline", () => {
     expect(createBody["styles"]).toEqual({ color: "#fff" });
   });
 
+  it("übernimmt nach einem Reorder die vom Server normalisierte Reihenfolge in die lokale Teilmenge", async () => {
+    const store = new EditorStore({
+      document: {
+        version: 2,
+        rootNodeId: "root",
+        nodes: { root: { id: "root", primitive: "root", props: {} } },
+        styleRules: [
+          { ...rule("r-cta", "cta", { color: "#fff" }), order: 4 },
+          { ...rule("r-second", "second", { color: "#f00" }), order: 5 },
+        ],
+      },
+    });
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR,
+      knownRuleIds: ["r-cta", "r-second"], styleRegistryVersion: 1,
+      request: async (request) => request.path.endsWith("/reorder")
+        ? { status: 200, body: { rules: [
+          { ...rule("r-hidden", "hidden"), order: 0 },
+          { ...rule("r-second", "second", { color: "#f00" }), order: 1 },
+          { ...rule("r-cta", "cta", { color: "#fff" }), order: 2 },
+        ], version: 2 } }
+        : { status: 200, body: {} },
+    });
+    store.apply({ op: "reorderStyleRule", id: "r-cta", index: 1 });
+    await pipeline.flush();
+    // The registry is site-wide: the hidden scoped rule occupies order 0, so
+    // this page's subset must keep 1 and 2, not a compacted 0 and 1.
+    expect(store.document.styleRules.map((entry) => [entry.id, entry.order])).toEqual(
+      [["r-second", 1], ["r-cta", 2]],
+    );
+    expect(store.document.styleRules.map((entry) => entry.styles)).toEqual([
+      { color: "#f00" },
+      { color: "#fff" },
+    ]);
+  });
+
+  it("verschiebt nach dem Löschen einer Regel die Order der nachfolgenden Regeln", async () => {
+    const store = new EditorStore({
+      document: {
+        version: 2,
+        rootNodeId: "root",
+        nodes: { root: { id: "root", primitive: "root", props: {} } },
+        styleRules: [
+          { ...rule("r-a", "a"), order: 0 },
+          { ...rule("r-b", "b"), order: 1 },
+          { ...rule("r-c", "c"), order: 2 },
+        ],
+      },
+    });
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR,
+      knownRuleIds: ["r-a", "r-b", "r-c"], styleRegistryVersion: 1,
+      request: async (request) => ({ status: 200, body: { version: 2, pageDraftVersion: 2, receiptId: (request.body as { receiptId: string }).receiptId } }),
+    });
+    store.apply({ op: "deleteStyleRule", id: "r-b" });
+    await pipeline.flush();
+    expect(store.document.styleRules.map((entry) => [entry.id, entry.order])).toEqual([
+      ["r-a", 0],
+      ["r-c", 1],
+    ]);
+  });
+
   it("creates a scoped rule with its node and patches it without a scope (ticket 02 point 5)", async () => {
     const { store, pipeline, requests } = harness();
     store.apply({
@@ -501,9 +564,9 @@ describe("save pipeline", () => {
     expect(patchBody["states"]).toEqual({ hover: { color: "#ff0000" } });
     expect(patchBody).toMatchObject({
       replaceStyleValues: true,
-      stylePriorities: {},
-      statePriorities: {},
-      contextStylePriorities: {},
+      stylePriorities: null,
+      statePriorities: null,
+      contextStylePriorities: null,
     });
   });
 

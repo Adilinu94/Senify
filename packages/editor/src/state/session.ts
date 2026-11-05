@@ -22,6 +22,7 @@ import {
   type SavePipeline,
   type SaveState,
   type SaveTransport,
+  type ExternalVersions,
 } from "./persist.ts";
 import type { EditorDocument } from "./document.ts";
 import { ExternalHistoryController, type ExternalHistoryRunner, type ExternalHistoryState } from "./external-history.ts";
@@ -69,6 +70,7 @@ export class EditorSession {
   #ui: EditorUiState;
   readonly #listeners = new Set<() => void>();
   #disposed = false;
+  #confirming = false;
   readonly #externalHistory: ExternalHistoryController;
 
   constructor(options: EditorSessionOptions) {
@@ -156,7 +158,7 @@ export class EditorSession {
   historyCheckpoint(): SessionHistoryCheckpoint | null {
     const save = this.saveState();
     if (this.#disposed || this.pendingExternalId !== null || save.pending > 0 || save.unsupported.length > 0 || ["saving", "conflict", "error"].includes(save.status)) return null;
-    return structuredClone({ format: 1, pageId: this.pageId, siteId: this.siteId, versions: this.pipeline.externalVersions(), document: this.document, history: this.store.history.snapshot() });
+    return structuredClone({ format: 1, pageId: this.pageId, siteId: this.siteId, versions: this.pipeline.externalVersions(), document: this.document, history: this.store.history.snapshot(), classDeletionReceipts: this.pipeline.historyDeletionReceipts() });
   }
 
   restoreHistoryCheckpoint(input: unknown): boolean {
@@ -164,8 +166,7 @@ export class EditorSession {
     try {
       const checkpoint = matchingHistoryCheckpoint(input, this.pageId, this.siteId, this.pipeline.externalVersions(), this.document);
       if (checkpoint === null) return false;
-      this.store.restoreHistory(checkpoint.history);
-      return true;
+      return this.pipeline.restoreHistory(checkpoint.history, checkpoint.classDeletionReceipts);
     } catch { return false; }
   }
 
@@ -179,6 +180,43 @@ export class EditorSession {
 
   failExternalAction(id: string): HistoryEntry | null {
     return this.store.failExternalAction(id);
+  }
+
+  // For document-preserving external actions. Observers see the new versions
+  // and committed entry together, never an intermediate request base.
+  confirmExternalAction(id: string, document: EditorDocument, base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>): boolean {
+    if (this.#disposed) return false;
+    this.#confirming = true;
+    try {
+      return this.pipeline.confirmExternalAction(id, document, base, next);
+    } finally { this.#confirming = false; this.#emit(); }
+  }
+
+  // The application must first confirm its idempotent request and all server
+  // contents. A pending request alone is not authority to rebind a checkpoint.
+  // This only imports into the fresh, empty session created by a reload.
+  confirmExternalHistoryRecovery(id: string, input: unknown, base: Readonly<ExternalVersions>): boolean {
+    if (this.#disposed || this.pendingExternalId !== id || this.store.history.size !== 0) return false;
+    let checkpoint: SessionHistoryCheckpoint;
+    try {
+      const next = (input as SessionHistoryCheckpoint)?.versions;
+      if (!next) return false;
+      const matched = matchingHistoryCheckpoint(input, this.pageId, this.siteId, next, this.document);
+      if (matched === null) return false;
+      checkpoint = matched;
+    } catch { return false; }
+    this.#confirming = true;
+    try {
+      return this.pipeline.confirmExternalHistoryRecovery(id, checkpoint.history, base, checkpoint.versions, checkpoint.classDeletionReceipts);
+    } finally { this.#confirming = false; this.#emit(); }
+  }
+
+  resetExternalHistory(id: string, original: EditorDocument, base: Readonly<ExternalVersions>, document: EditorDocument, next: Readonly<ExternalVersions>, beforeCommit: () => void): boolean {
+    if (this.#disposed) return false;
+    this.#confirming = true;
+    try {
+      return this.pipeline.resetExternalHistory(id, original, base, document, next, beforeCommit);
+    } finally { this.#confirming = false; this.#emit(); }
   }
 
   select(id: string | null): void {
@@ -291,7 +329,7 @@ export class EditorSession {
   }
 
   #emit(): void {
-    if (this.#disposed || this.#externalHistory.isCommitting) return;
+    if (this.#disposed || this.#confirming || this.#externalHistory.isCommitting) return;
     for (const listener of [...this.#listeners]) listener();
   }
 

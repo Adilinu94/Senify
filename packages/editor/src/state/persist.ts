@@ -34,6 +34,7 @@ import type { EditorStore, EditorStoreAction } from "./store.ts";
 import type { HistoryDirection } from "../history.ts";
 import { validateDocument } from "./consistency.ts";
 import { randomId } from "./ids.ts";
+import { checkedClassDeletionReceipts, checkedEditorHistory, globalDeletionRule, type ClassDeletionHistoryReceipt } from "./history-checkpoint.ts";
 
 export type SaveRequest = {
   method: "POST" | "PATCH" | "DELETE";
@@ -143,6 +144,8 @@ export type SavePipelineOptions = {
 export type SavePipeline = {
   state(): SaveState;
   externalVersions(): ExternalVersions;
+  historyDeletionReceipts(): ClassDeletionHistoryReceipt[];
+  restoreHistory(history: unknown, classDeletionReceipts?: unknown): boolean;
   subscribe(listener: SaveListener): () => void;
   // Resend after a conflict. Without a version the one parsed from the `409`
   // is used; if that is unknown too, the pipeline stays paused.
@@ -153,6 +156,9 @@ export type SavePipeline = {
   acceptStyleRegistry(version: number, ruleIds: Iterable<string>): void;
   acceptThemeVersion(version: number): void;
   acceptExternalVersions(basePageVersion: number, baseThemeVersion: number, pageVersion: number, themeVersion: number): boolean;
+  confirmExternalAction(id: string, document: EditorDocument, base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>): boolean;
+  confirmExternalHistoryRecovery(id: string, history: unknown, base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>, classDeletionReceipts?: unknown): boolean;
+  resetExternalHistory(id: string, original: EditorDocument, base: Readonly<ExternalVersions>, document: EditorDocument, next: Readonly<ExternalVersions>, beforeCommit: () => void): boolean;
   // Adopt all versions and the store's reserved navigation before notifying
   // either pipeline or store observers. The external runner already wrote it.
   confirmExternalNavigation(pendingId: string, entryId: string, direction: HistoryDirection, document: EditorDocument, base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>): boolean;
@@ -192,9 +198,9 @@ const SITE_OPS = new Set<string>([
 
 type PendingSite =
   | { kind: "upsert"; rule: StyleRule }
-  | { kind: "delete"; id: string }
-  | { kind: "globalDelete"; id: string; historyId: string; receiptId: string }
-  | { kind: "globalRestore"; id: string; historyId: string }
+  | { kind: "delete"; id: string; order?: number }
+  | { kind: "globalDelete"; id: string; historyId: string; receiptId: string; order?: number }
+  | { kind: "globalRestore"; id: string; historyId: string; order?: number }
   | { kind: "reorder"; id: string; index: number; classIndex?: number }
   | { kind: "rename"; id: string; name: string };
 
@@ -426,11 +432,11 @@ function rulePatch(rule: StyleRule): Record<string, unknown> {
     ...(rule.kind === "ambient" ? { selector: rule.selector } : {}),
     ...(rule.description === undefined ? {} : { description: rule.description }),
     styles: { ...rule.styles },
-    stylePriorities: { ...rule.stylePriorities },
-    states: { ...rule.states },
-    statePriorities: { ...rule.statePriorities },
+    stylePriorities: rule.stylePriorities === undefined ? null : { ...rule.stylePriorities },
+    states: rule.states === undefined ? null : { ...rule.states },
+    statePriorities: rule.statePriorities === undefined ? null : { ...rule.statePriorities },
     contextStyles: { ...rule.contextStyles },
-    contextStylePriorities: { ...rule.contextStylePriorities },
+    contextStylePriorities: rule.contextStylePriorities === undefined ? null : { ...rule.contextStylePriorities },
     ...(rule.rawCss === undefined ? {} : { rawCss: rule.rawCss }),
     ...(rule.authoredBy === undefined ? {} : { authoredBy: rule.authoredBy }),
   };
@@ -448,7 +454,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   let styleRegistryVersion = options.styleRegistryVersion ?? 0;
   let hasStyleRegistryVersion = options.styleRegistryVersion !== undefined;
   let themeVersion = options.themeVersion;
-  const classDeletionReceipts = new Map<string, string>();
+  let classDeletionReceipts = new Map<string, string>();
   let status: SaveStatus = "idle";
   let message: string | undefined;
   let conflictVersion: number | undefined;
@@ -526,18 +532,28 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     }
     const patches =
       event.type === "undo" ? event.entry.undoPatch : event.entry.mutations;
-    const inverse = event.entry.undoPatch as unknown as DocumentPatch[];
-    const deletedRule = event.entry.op === "deleteStyleRule" ? inverse.find((patch) => patch.patch === "upsertStyleRule") : undefined;
-    const globalRule = deletedRule?.patch === "upsertStyleRule" && deletedRule.rule.kind === "class" && deletedRule.rule.scope === undefined ? deletedRule.rule : undefined;
+    const globalRule = globalDeletionRule(event.entry);
     const translated = globalRule === undefined
       ? patchesToPending(patches as unknown as DocumentPatch[])
       : { pending: [{ kind: "site", op: event.type === "undo" ? { kind: "globalRestore", id: globalRule.id, historyId: event.entry.id } : { kind: "globalDelete", id: globalRule.id, historyId: event.entry.id, receiptId: randomId(22) } } as Pending], unsupported: [] };
+    const ruleOrderOf = (id: string): number | undefined => {
+      for (const patch of [...event.entry.mutations, ...event.entry.undoPatch] as unknown as DocumentPatch[]) {
+        if (patch.patch === "upsertStyleRule" && patch.rule.id === id) return patch.rule.order;
+      }
+      return undefined;
+    };
     for (const item of translated.pending) {
-      if (item.kind !== "site" || item.op.kind !== "reorder") continue;
+      if (item.kind !== "site") continue;
+      const op = item.op;
+      if (op.kind === "delete" || op.kind === "globalDelete" || op.kind === "globalRestore") {
+        op.order = globalRule !== undefined && globalRule.id === op.id ? globalRule.order : ruleOrderOf(op.id);
+        continue;
+      }
+      if (op.kind !== "reorder") continue;
       const classes = store.document.styleRules.filter((rule) => rule.kind === "class" && rule.scope === undefined);
-      const id = item.op.id;
+      const id = op.id;
       const classIndex = classes.findIndex((rule) => rule.id === id);
-      if (classIndex >= 0) item.op.classIndex = classIndex;
+      if (classIndex >= 0) op.classIndex = classIndex;
     }
     pending.push(...translated.pending);
     recordUnsupported(translated.unsupported);
@@ -650,6 +666,13 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
         }
         styleRegistryVersion =
           typeof responseBody?.version === "number" ? responseBody.version : styleRegistryVersion + 1;
+        // The registry lives site-wide; a reorder permutes the whole array and
+        // renumbers every rule, so this page's subset mirrors the response.
+        const responseRules = (responseBody as { rules?: unknown; id?: unknown } | undefined);
+        if (Array.isArray(responseRules?.rules)) store.reconcileStyleRuleOrder(responseRules.rules);
+        else if (typeof responseRules?.id === "string") store.reconcileStyleRuleOrder([responseRules]);
+        else if (entry.op.kind === "delete" || entry.op.kind === "globalDelete") store.reconcileStyleRuleOrderShift(entry.op.order, -1);
+        else if (entry.op.kind === "globalRestore") store.reconcileStyleRuleOrderShift(entry.op.order, 1, entry.op.id);
         if ((entry.op.kind === "rename" || entry.op.kind === "delete" || entry.op.kind === "globalDelete" || entry.op.kind === "globalRestore") && typeof responseBody?.pageDraftVersion === "number") version = responseBody.pageDraftVersion;
         if (entry.op.kind === "globalDelete" && typeof responseBody?.receiptId === "string") classDeletionReceipts.set(entry.op.historyId, responseBody.receiptId);
         if (entry.op.kind === "globalDelete") knownRuleIds.delete(entry.op.id);
@@ -707,10 +730,33 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     listeners.clear();
   };
 
+  const canConfirmPreservedDocument = (base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>, allowLoaded: boolean): boolean => {
+    const increment = next.pageVersion - base.pageVersion;
+    return !running && pending.length === 0 && unsupported.size === 0 && status !== "conflict" && status !== "error" &&
+      version === base.pageVersion && (themeVersion ?? null) === base.themeVersion &&
+      (hasStyleRegistryVersion ? styleRegistryVersion : null) === base.registryVersion &&
+      Number.isSafeInteger(next.pageVersion) && Number.isSafeInteger(next.themeVersion) && base.themeVersion !== null && next.themeVersion !== null &&
+      (increment === 1 || (allowLoaded && increment === 0)) && next.themeVersion - base.themeVersion === increment && next.registryVersion === base.registryVersion;
+  };
+
   store.setActionListener(record);
   return {
     state,
     externalVersions: () => ({ pageVersion: version, themeVersion: themeVersion ?? null, registryVersion: hasStyleRegistryVersion ? styleRegistryVersion : null }),
+    historyDeletionReceipts: () => store.history.entries().filter((entry) => globalDeletionRule(entry) !== undefined && classDeletionReceipts.has(entry.id))
+      .map((entry) => ({ entryId: entry.id, receiptId: classDeletionReceipts.get(entry.id)! })),
+    restoreHistory(history, receipts) {
+      if (store.history.size !== 0 || store.pendingExternalId !== null || running || pending.length > 0 || unsupported.size > 0 || status === "conflict" || status === "error") return false;
+      let snapshot;
+      let checkedReceipts;
+      try {
+        snapshot = checkedEditorHistory(history, store.document);
+        checkedReceipts = checkedClassDeletionReceipts(receipts, snapshot);
+      } catch { return false; }
+      classDeletionReceipts = checkedReceipts;
+      store.restoreHistory(snapshot);
+      return true;
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => {
@@ -728,12 +774,58 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     },
     // A newer theme must not silently bless edits queued under the old one.
     acceptThemeVersion(next) {
-      if (!running && pending.length === 0 && unsupported.size === 0 && status !== "conflict") themeVersion = next;
+      if (!running && pending.length === 0 && unsupported.size === 0 && status !== "conflict" && themeVersion !== next) {
+        themeVersion = next;
+        emit();
+      }
     },
     acceptExternalVersions(basePageVersion, baseThemeVersion, pageVersion, nextThemeVersion) {
       if (running || pending.length > 0 || unsupported.size > 0 || status === "conflict" || status === "error" || version !== basePageVersion || themeVersion !== baseThemeVersion) return false;
       version = pageVersion;
       themeVersion = nextThemeVersion;
+      emit();
+      return true;
+    },
+    confirmExternalAction(id, document, base, next) {
+      if (store.document !== document || !store.history.canCommitExternal(id) || !canConfirmPreservedDocument(base, next, false)) return false;
+      version = next.pageVersion;
+      themeVersion = next.themeVersion!;
+      store.commitExternalAction(id, { versionAfter: next.pageVersion });
+      emit();
+      return true;
+    },
+    confirmExternalHistoryRecovery(id, history, base, next, receipts) {
+      if (store.pendingExternalId !== id || store.history.size !== 0 || !canConfirmPreservedDocument(base, next, true)) return false;
+      let snapshot;
+      let checkedReceipts;
+      try {
+        snapshot = checkedEditorHistory(history, store.document);
+        checkedReceipts = checkedClassDeletionReceipts(receipts, snapshot);
+      } catch { return false; }
+      version = next.pageVersion;
+      themeVersion = next.themeVersion!;
+      classDeletionReceipts = checkedReceipts;
+      store.restoreHistory(snapshot, id);
+      emit();
+      return true;
+    },
+    resetExternalHistory(id, original, base, document, next, beforeCommit) {
+      if (store.pendingExternalId !== id || store.document !== original || running || pending.length > 0 || unsupported.size > 0 || status === "conflict" || status === "error" ||
+          version !== base.pageVersion || (themeVersion ?? null) !== base.themeVersion || (hasStyleRegistryVersion ? styleRegistryVersion : null) !== base.registryVersion ||
+          !Number.isSafeInteger(next.pageVersion) || next.pageVersion < base.pageVersion ||
+          next.themeVersion === null || !Number.isSafeInteger(next.themeVersion) || next.themeVersion < (base.themeVersion ?? 1) ||
+          next.registryVersion === null || !Number.isSafeInteger(next.registryVersion) || next.registryVersion < (base.registryVersion ?? 0) || validateDocument(document).length > 0) return false;
+      // The app removes its persisted evidence before this synchronous commit.
+      // A storage failure leaves the lease and the live state untouched.
+      beforeCommit();
+      version = next.pageVersion;
+      themeVersion = next.themeVersion;
+      styleRegistryVersion = next.registryVersion;
+      hasStyleRegistryVersion = true;
+      knownRuleIds.clear();
+      for (const rule of document.styleRules) knownRuleIds.add(rule.id);
+      classDeletionReceipts.clear();
+      store.resetExternalHistory(id, document);
       emit();
       return true;
     },

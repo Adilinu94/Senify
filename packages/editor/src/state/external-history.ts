@@ -144,7 +144,9 @@ export class ExternalHistoryController {
     this.#emit();
     // Start observers may recover the lease, edit, or load another document.
     if (!this.#owns(navigation)) return false;
-    if (!this.#unchanged(navigation)) return this.#rejected(navigation, "Der Editorstand hat sich inzwischen geändert. Bitte offene Änderungen prüfen.");
+    // An uncertain retry must still resolve the original request. New local
+    // inputs prohibit adoption below, not the owner's idempotent replay.
+    if (!navigation.uncertain && !this.#unchanged(navigation)) return this.#rejected(navigation, "Der Editorstand hat sich inzwischen geändert. Bitte offene Änderungen prüfen.");
     let result: ExternalHistoryResult;
     try {
       result = await navigation.runner({ entryId: navigation.entryId, direction: navigation.direction, versions: navigation.versions, uncertain: navigation.uncertain });

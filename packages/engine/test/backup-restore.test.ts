@@ -191,9 +191,19 @@ describe("restore a backup", () => {
     const backup = await createBackup();
     await env.engine.store.restoreGlobalClass(site.id, created.body.id, { receiptId: removed.receiptId, baseVersion: 2, pageContext: { pageId: page.id, baseDraftVersion: removed.pageDraftVersion } }, author);
     expect((await restore(backup.id, { confirm: true })).status).toBe(200);
-    await env.engine.store.restoreGlobalClass(site.id, created.body.id, { receiptId: removed.receiptId, baseVersion: 2, pageContext: { pageId: page.id, baseDraftVersion: removed.pageDraftVersion } }, author);
+    const before = await env.engine.store.getPage(page.id);
+    const changed = await env.engine.store.updatePage(page.id, before.draftVersion, { draft: before.draft, title: "Zwischenstand", path: before.path });
+    const reverted = await env.engine.store.updatePage(page.id, changed, { draft: before.draft, title: before.title, path: before.path });
+    const input = { receiptId: removed.receiptId, baseVersion: 2, pageContext: { pageId: page.id, baseDraftVersion: reverted } };
+    const result = await env.engine.store.restoreGlobalClass(site.id, created.body.id, input, author);
     const restored = await env.engine.store.getPage(page.id);
     expect(restored.draft.nodes[restored.draft.rootNodeId]?.classes).toEqual(["cta"]);
+    const restoredBackup = await createBackup();
+    await env.engine.store.createStyleRule(site.id, { name: "spaeter" }, author);
+    expect((await restore(restoredBackup.id, { confirm: true })).status).toBe(200);
+    expect(await env.engine.store.restoreGlobalClass(site.id, created.body.id, input, author)).toEqual(result);
+    await expect(env.engine.store.restoreGlobalClass(site.id, created.body.id, { ...input, pageContext: { ...input.pageContext, baseDraftVersion: removed.pageDraftVersion } }, author)).rejects.toThrow(/erneut wiederhergestellt/);
+    expect((await env.engine.store.getPage(page.id)).draftVersion).toBe(result.pageDraftVersion);
     await env.engine.store.deleteSite(site.id);
   });
 

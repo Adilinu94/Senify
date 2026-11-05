@@ -344,6 +344,10 @@ export class HistoryStack {
     return entry;
   }
 
+  canCommitExternal(id: string): boolean {
+    return this.#pendingExternal?.id === id && this.#externalNavigation === null;
+  }
+
   commitExternal(id: string, input: Partial<ExternalRecordInput> = {}): HistoryEntry {
     if (this.#pendingExternal?.id === id && this.#externalNavigation !== null) {
       throw new SenifyError("conflict", "Eine Verlaufsnavigation muss als Navigation bestätigt werden", { field: "history" });

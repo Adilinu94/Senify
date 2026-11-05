@@ -176,9 +176,12 @@ export class EditorStore {
     return this.#history.canRedo;
   }
 
-  restoreHistory(input: unknown): void {
-    if (this.#history.size > 0 || this.pendingExternalId !== null) throw new SenifyError("conflict", "Die aktuelle History darf nicht ersetzt werden", { field: "history" });
+  // Recovery may resolve its own lease, but validation precedes every write
+  // and observers only see the completely imported history.
+  restoreHistory(input: unknown, pendingId?: string): void {
+    if (this.#history.size > 0 || this.pendingExternalId !== (pendingId ?? null)) throw new SenifyError("conflict", "Die aktuelle History darf nicht ersetzt werden", { field: "history" });
     const snapshot = checkedEditorHistory(input, this.#document);
+    if (pendingId !== undefined) this.#history.failExternal(pendingId);
     this.#history.restore(snapshot);
     this.#emit();
   }
@@ -221,8 +224,9 @@ export class EditorStore {
     });
     this.#document = next;
     entry.versionAfter = this.version;
-    this.#emit();
+    // Queue persistence before projections can export the changed document.
     this.#onAction?.({ type: "apply", mutation, entry });
+    this.#emit();
     return { changed: true, patches: result.forward, warnings: result.warnings };
   }
 
@@ -300,8 +304,8 @@ export class EditorStore {
     });
     this.#document = document;
     entry.versionAfter = this.version;
-    this.#emit();
     this.#onAction?.({ type: "apply", mutation: first, entry });
+    this.#emit();
     return { changed: true, patches: forward, warnings };
   }
 
@@ -312,8 +316,8 @@ export class EditorStore {
       this.#document,
       entry.undoPatch as unknown as DocumentPatch[],
     );
-    this.#emit();
     this.#onAction?.({ type: "undo", entry });
+    this.#emit();
     return true;
   }
 
@@ -324,8 +328,8 @@ export class EditorStore {
       this.#document,
       entry.mutations as unknown as DocumentPatch[],
     );
-    this.#emit();
     this.#onAction?.({ type: "redo", entry });
+    this.#emit();
     return true;
   }
 
@@ -370,12 +374,62 @@ export class EditorStore {
     return changed;
   }
 
+  // The server normalizes `order` to the position in the full site registry,
+  // while this page's document holds only its own subset. Server responses
+  // carry the authoritative numbers, so local copies mirror them; the content
+  // stays local so a still-pending batch is never overwritten.
+  reconcileStyleRuleOrder(rules: readonly unknown[]): void {
+    const orders = new Map<string, number>();
+    for (const rule of rules) {
+      if (rule === null || typeof rule !== "object") continue;
+      const id = (rule as { id?: unknown }).id;
+      const order = (rule as { order?: unknown }).order;
+      if (typeof id === "string" && Number.isSafeInteger(order) && (order as number) >= 0) orders.set(id, order as number);
+    }
+    this.#commitStyleRuleOrder(this.#document.styleRules.map((rule) => {
+      const order = orders.get(rule.id);
+      return order === undefined || order === rule.order ? rule : { ...rule, order };
+    }));
+  }
+
+  // A delete removes one position from the full registry, a restore inserts one
+  // back; every rule behind it shifts by one. Hidden scoped rules of other pages
+  // do not change that relative shift, so the known position is enough.
+  reconcileStyleRuleOrderShift(order: number | undefined, delta: 1 | -1, targetId?: string): void {
+    if (order === undefined || !Number.isSafeInteger(order) || order < 0) return;
+    this.#commitStyleRuleOrder(this.#document.styleRules.map((rule) => {
+      if (targetId !== undefined && rule.id === targetId) return { ...rule, order };
+      const affected = delta === 1 ? rule.order >= order : rule.order > order;
+      return affected ? { ...rule, order: rule.order + delta } : rule;
+    }));
+  }
+
+  #commitStyleRuleOrder(styleRules: EditorDocument["styleRules"]): void {
+    const sorted = [...styleRules].sort((left, right) => left.order - right.order);
+    const current = this.#document.styleRules;
+    if (current.length === sorted.length && current.every((rule, index) => rule === sorted[index])) return;
+    this.#document = { ...this.#document, styleRules: sorted };
+    this.#emit();
+  }
+
   // Replaces the document and clears its local history. A server operation
   // remains unresolved across loads until its owner explicitly resolves it.
   replaceDocument(document: EditorDocument): void {
     this.#document = document;
     this.#selection = EMPTY_SELECTION;
     this.#history.clear({ preservePendingExternal: true });
+    this.#emit();
+  }
+
+  // Explicit recovery resolves only its own lease. No observer can write
+  // between clearing the old history and installing the replacement.
+  resetExternalHistory(id: string, document: EditorDocument): void {
+    if (this.pendingExternalId !== id) throw new SenifyError("conflict", "Der Verlaufsvorgang hat sich geändert", { field: "history" });
+    const issue = validateDocument(document)[0];
+    if (issue !== undefined) throw new SenifyError("validation", issue.message, { field: "document" });
+    this.#document = document;
+    if (this.#selection.selected.some((nodeId) => document.nodes[nodeId] === undefined)) this.#selection = EMPTY_SELECTION;
+    this.#history.clear();
     this.#emit();
   }
 

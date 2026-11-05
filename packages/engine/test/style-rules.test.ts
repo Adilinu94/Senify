@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Store, type Db, type DbClient } from "@senify/engine";
+import { ensureSchema, SCHEMA_STATEMENTS } from "../src/db.ts";
 import { bootEngine, createTestPage, createTestSite, TEST_AUTHOR, type ErrorResponse, type PageResponse } from "./helpers.ts";
 
 type StyleRuleResponse = {
@@ -16,6 +17,289 @@ type StyleRuleResponse = {
 };
 
 describe("style rule registry (site-wide)", () => {
+  it("verweigert Klassen-Restore bei abweichendem Inhalt, Seitenidentität oder unvollständigem Inhaltsbeleg", async () => {
+    const env = await bootEngine();
+    try {
+      for (const change of ["draft", "title", "path", "meta", "pages", "removed-page", "identity", "legacy", "partial", "page-hash"] as const) {
+        const site = await createTestSite(env.api, `Klassen-Restore Schutz ${change}`);
+        const first = await createTestPage(env.api, site.id);
+        const second = await createTestPage(env.api, site.id, { path: "/zwei" });
+        const rule = await env.engine.store.createStyleRule(site.id, { name: "cta" }, TEST_AUTHOR);
+        const deleted = await env.engine.store.deleteGlobalClass(site.id, rule.id, { receiptId: `class-content-${change}`, baseVersion: 1, pageContext: { pageId: first.id, baseDraftVersion: first.draftVersion } }, TEST_AUTHOR);
+        if (change === "draft") {
+          const page = await env.engine.store.getPage(second.id);
+          page.draft.nodes[page.draft.rootNodeId]!.props.text = "Anderer Inhalt";
+          await env.engine.store.updatePage(page.id, page.draftVersion, { draft: page.draft, title: page.title, path: page.path });
+        }
+        if (change === "title") await env.db.query(`UPDATE pages SET title = $2, draft_version = draft_version + 1 WHERE id = $1`, [second.id, "Anderer Titel"]);
+        if (change === "path") await env.db.query(`UPDATE pages SET path = $2, draft_version = draft_version + 1 WHERE id = $1`, [second.id, "/anders"]);
+        if (change === "meta") await env.db.query(`UPDATE pages SET meta = $2, draft_version = draft_version + 1 WHERE id = $1`, [second.id, JSON.stringify({ description: "Andere Metadaten" })]);
+        if (change === "pages") await createTestPage(env.api, site.id, { path: "/neu" });
+        if (change === "removed-page") await env.db.query(`DELETE FROM pages WHERE id = $1`, [second.id]);
+        if (change === "identity") await env.db.query(`UPDATE pages SET id = $2 WHERE id = $1`, [second.id, "ersetzte-klassen-page"]);
+        if (change === "legacy" || change === "partial" || change === "page-hash") {
+          await env.db.query(`UPDATE pages SET draft_version = draft_version + 1 WHERE id = $1`, [second.id]);
+          if (change === "page-hash") await env.db.query(`UPDATE style_class_deletions SET pages = $2 WHERE id = $1`, [deleted.receiptId, JSON.stringify([
+            { pageId: first.id, version: deleted.pageDraftVersion, classes: {} }, { pageId: second.id, version: second.draftVersion + 1, classes: {} },
+          ])]);
+          else await env.db.query(`UPDATE style_class_deletions SET resource_hashes = $2 WHERE id = $1`, [deleted.receiptId, change === "legacy" ? null : JSON.stringify({ registry: "invalid" })]);
+        }
+        const registry = await env.engine.store.getStyleRegistry(site.id);
+        const origin = await env.engine.store.getPage(first.id);
+        await expect(env.engine.store.restoreGlobalClass(site.id, rule.id, { receiptId: deleted.receiptId, baseVersion: registry.version, pageContext: { pageId: first.id, baseDraftVersion: origin.draftVersion } }, TEST_AUTHOR)).rejects.toThrow(/seit dem Löschen/);
+        expect((await env.engine.store.getStyleRegistry(site.id)).version).toBe(registry.version);
+        expect((await env.engine.store.getStyleRegistry(site.id)).rules).toEqual([]);
+        expect((await env.engine.store.getPage(first.id)).draftVersion).toBe(origin.draftVersion);
+        const receipt = await env.db.query<{ restored_at: unknown; restore_result: unknown }>(`SELECT restored_at, restore_result FROM style_class_deletions WHERE id = $1`, [deleted.receiptId]);
+        expect(receipt.rows[0]).toMatchObject({ restored_at: null, restore_result: null });
+      }
+    } finally { await env.close(); }
+  });
+
+  it("vergleicht beim Klassen-Restore rohe Registry inklusive unbekannter Felder und gespeicherter Reihenfolge", async () => {
+    const env = await bootEngine();
+    try {
+      for (const change of ["invalid-entry", "unknown-field", "stored-order"] as const) {
+        const site = await createTestSite(env.api, `Klassen-Rohinhalt ${change}`);
+        const page = await createTestPage(env.api, site.id);
+        const rule = await env.engine.store.createStyleRule(site.id, { name: "cta" }, TEST_AUTHOR);
+        await env.engine.store.createStyleRule(site.id, { name: "andere", styles: { color: "#abcdef" } }, TEST_AUTHOR);
+        const deleted = await env.engine.store.deleteGlobalClass(site.id, rule.id, { receiptId: `class-raw-${change}`, baseVersion: 2, pageContext: { pageId: page.id, baseDraftVersion: page.draftVersion } }, TEST_AUTHOR);
+        const other = (await env.engine.store.getStyleRegistry(site.id)).rules[0]!;
+        const rules = change === "invalid-entry" ? [other, { styles: { color: "#112233" } }] : [{ ...other, ...(change === "unknown-field" ? { futureContent: { reference: "color.extra" } } : { order: 99 }) }];
+        await env.db.query(`UPDATE sites SET style_rules_json = $2, style_rules_version = style_rules_version + 1 WHERE id = $1`, [site.id, JSON.stringify(rules)]);
+        await expect(env.engine.store.restoreGlobalClass(site.id, rule.id, { receiptId: deleted.receiptId, baseVersion: deleted.version + 1, pageContext: { pageId: page.id, baseDraftVersion: deleted.pageDraftVersion } }, TEST_AUTHOR)).rejects.toThrow(/seit dem Löschen/);
+        expect((await env.engine.store.getStyleRegistry(site.id)).version).toBe(deleted.version + 1);
+        expect((await env.engine.store.getPage(page.id)).draftVersion).toBe(deleted.pageDraftVersion);
+      }
+    } finally { await env.close(); }
+  });
+
+  it("bindet neue Klassen-Delete- und Restore-Retries an die exakte Request-Basis", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Klassen Request-Bindung");
+      const first = await createTestPage(env.api, site.id);
+      const second = await createTestPage(env.api, site.id, { path: "/zwei" });
+      const rule = await env.engine.store.createStyleRule(site.id, { name: "cta" }, TEST_AUTHOR);
+      const input = { receiptId: "class-bound-request", baseVersion: 1, pageContext: { pageId: first.id, baseDraftVersion: first.draftVersion } };
+      const deleted = await env.engine.store.deleteGlobalClass(site.id, rule.id, input, TEST_AUTHOR);
+      expect(await env.engine.store.deleteGlobalClass(site.id, rule.id, input, TEST_AUTHOR)).toEqual(deleted);
+      for (const changed of [
+        { ...input, baseVersion: input.baseVersion + 1 },
+        { ...input, pageContext: { ...input.pageContext, baseDraftVersion: first.draftVersion + 1 } },
+        { ...input, pageContext: { pageId: second.id, baseDraftVersion: second.draftVersion } },
+      ]) await expect(env.engine.store.deleteGlobalClass(site.id, rule.id, changed, TEST_AUTHOR)).rejects.toMatchObject({ field: "receiptId" });
+      await expect(env.engine.store.deleteGlobalClass(site.id, "fremde-regel", input, TEST_AUTHOR)).rejects.toMatchObject({ field: "receiptId" });
+      await env.db.query(`UPDATE sites SET style_rules_version = style_rules_version + 1 WHERE id = $1`, [site.id]);
+      await env.db.query(`UPDATE pages SET draft_version = draft_version + 1 WHERE site_id = $1`, [site.id]);
+      const theme = await env.engine.store.getTheme(site.id);
+      const restoration = { receiptId: deleted.receiptId, baseVersion: deleted.version + 1, baseThemeVersion: theme.version, pageContext: { pageId: first.id, baseDraftVersion: deleted.pageDraftVersion + 1 } };
+      await expect(env.engine.store.restoreGlobalClass(site.id, rule.id, { ...restoration, baseVersion: deleted.version }, TEST_AUTHOR)).rejects.toMatchObject({ field: "baseVersion" });
+      await expect(env.engine.store.restoreGlobalClass(site.id, rule.id, { ...restoration, pageContext: { ...restoration.pageContext, baseDraftVersion: deleted.pageDraftVersion } }, TEST_AUTHOR)).rejects.toMatchObject({ field: "baseDraftVersion" });
+      const restored = await env.engine.store.restoreGlobalClass(site.id, rule.id, restoration, TEST_AUTHOR);
+      await env.engine.store.createStyleRule(site.id, { name: "spaeter" }, TEST_AUTHOR);
+      await env.engine.store.updateTheme(site.id, { scales: { brand: "#abcdef" } }, TEST_AUTHOR, theme.version);
+      expect(await env.engine.store.restoreGlobalClass(site.id, rule.id, restoration, TEST_AUTHOR)).toEqual(restored);
+      for (const changed of [
+        { ...restoration, baseVersion: restored.version },
+        { ...restoration, pageContext: { ...restoration.pageContext, baseDraftVersion: restored.pageDraftVersion } },
+        { ...restoration, pageContext: { ...restoration.pageContext, pageId: second.id } },
+        { ...restoration, baseThemeVersion: theme.version + 1 },
+        { ...restoration, baseThemeVersion: undefined },
+      ]) await expect(env.engine.store.restoreGlobalClass(site.id, rule.id, changed, TEST_AUTHOR)).rejects.toMatchObject({ field: "receiptId" });
+      await expect(env.engine.store.deleteGlobalClass(site.id, rule.id, input, TEST_AUTHOR)).rejects.toMatchObject({ field: "receiptId" });
+      expect((await env.engine.store.getStyleRegistry(site.id)).version).toBe(restored.version + 1);
+      expect((await env.engine.store.getPage(first.id)).draftVersion).toBe(restored.pageDraftVersion);
+    } finally { await env.close(); }
+  });
+
+  it("migriert alte Klassenbelege additiv und behält deren strengen Versions- und Retry-Vertrag", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Migration Klassenbeleg");
+      const page = await createTestPage(env.api, site.id);
+      const rule = await env.engine.store.createStyleRule(site.id, { name: "cta" }, TEST_AUTHOR);
+      const input = { receiptId: "class-migration", baseVersion: 1, pageContext: { pageId: page.id, baseDraftVersion: page.draftVersion } };
+      const deleted = await env.engine.store.deleteGlobalClass(site.id, rule.id, input, TEST_AUTHOR);
+      // pg-mem can revive dropped column values when re-adding their names.
+      // Seed an actual legacy receipt without new evidence before the migration.
+      await env.db.query(`UPDATE style_class_deletions SET resource_hashes = NULL, request_basis = NULL, restore_result = NULL WHERE id = $1`, [deleted.receiptId]);
+      for (const column of ["resource_hashes", "request_basis", "restore_result"]) await env.db.query(`ALTER TABLE style_class_deletions DROP COLUMN ${column}`);
+      if (process.env.TEST_DATABASE_URL) await ensureSchema(env.db);
+      else for (const column of ["resource_hashes", "request_basis", "restore_result"]) {
+        const migration = SCHEMA_STATEMENTS.find((statement) => statement.includes(`ALTER TABLE style_class_deletions ADD COLUMN IF NOT EXISTS ${column}`));
+        expect(migration).toBeDefined();
+        await env.db.query(migration!);
+      }
+      const migrated = await env.db.query<{ resource_hashes: unknown; request_basis: unknown; restore_result: unknown }>(`SELECT resource_hashes, request_basis, restore_result FROM style_class_deletions WHERE id = $1`, [deleted.receiptId]);
+      expect(migrated.rows[0]).toMatchObject({ resource_hashes: null, request_basis: null, restore_result: null });
+      expect(await env.engine.store.deleteGlobalClass(site.id, rule.id, input, TEST_AUTHOR)).toEqual(deleted);
+      const restoration = { receiptId: deleted.receiptId, baseVersion: deleted.version, pageContext: { pageId: page.id, baseDraftVersion: deleted.pageDraftVersion } };
+      await env.db.query(`UPDATE pages SET draft_version = draft_version + 1 WHERE id = $1`, [page.id]);
+      await expect(env.engine.store.restoreGlobalClass(site.id, rule.id, { ...restoration, pageContext: { ...restoration.pageContext, baseDraftVersion: deleted.pageDraftVersion + 1 } }, TEST_AUTHOR)).rejects.toThrow(/seit dem Löschen/);
+      await env.db.query(`UPDATE pages SET draft_version = $2 WHERE id = $1`, [page.id, deleted.pageDraftVersion]);
+      const restored = await env.engine.store.restoreGlobalClass(site.id, rule.id, restoration, TEST_AUTHOR);
+      await env.db.query(`UPDATE style_class_deletions SET restore_result = NULL WHERE id = $1`, [deleted.receiptId]);
+      expect(await env.engine.store.restoreGlobalClass(site.id, rule.id, restoration, TEST_AUTHOR)).toEqual(restored);
+    } finally { await env.close(); }
+  });
+
+  it.skipIf(!process.env.TEST_DATABASE_URL)("rollt Klassen-Restore samt Ergebnis bei Page-, Beleg- oder Auditfehler vollständig zurück", async () => {
+    const env = await bootEngine();
+    try {
+      for (const failure of ["page", "receipt", "audit"] as const) {
+        const site = await createTestSite(env.api, `Klassen-Restore Rollback ${failure}`);
+        const pages = [await createTestPage(env.api, site.id), await createTestPage(env.api, site.id, { path: "/zwei" })];
+        const rule = await env.engine.store.createStyleRule(site.id, { name: "cta" }, TEST_AUTHOR);
+        for (const page of pages) {
+          const current = await env.engine.store.getPage(page.id);
+          current.draft.nodes[current.draft.rootNodeId]!.classes = ["cta"];
+          page.draftVersion = await env.engine.store.updatePage(page.id, page.draftVersion, { draft: current.draft, title: page.title, path: page.path });
+        }
+        const first = pages[0]!;
+        const deleted = await env.engine.store.deleteGlobalClass(site.id, rule.id, { receiptId: `class-rollback-${failure}`, baseVersion: 1, pageContext: { pageId: first.id, baseDraftVersion: first.draftVersion } }, TEST_AUTHOR);
+        await env.db.query(`UPDATE pages SET draft_version = draft_version + 1 WHERE site_id = $1`, [site.id]);
+        const input = { receiptId: deleted.receiptId, baseVersion: deleted.version, pageContext: { pageId: first.id, baseDraftVersion: deleted.pageDraftVersion + 1 } };
+        let writes = 0;
+        const sabotaged: Db = {
+          query: (text, params) => env.db.query(text, params),
+          withTransaction: (task) => env.db.withTransaction((tx) => task({ query: (text, params) => {
+            if ((failure === "page" && text.startsWith("UPDATE pages SET draft") && ++writes === 2) ||
+                (failure === "receipt" && text.startsWith("UPDATE style_class_deletions")) ||
+                (failure === "audit" && text.startsWith("INSERT INTO audit_entries"))) throw new Error("Simulierter Klassen-Restore-Fehler");
+            return tx.query(text, params);
+          } })),
+        };
+        await expect(new Store(sabotaged).restoreGlobalClass(site.id, rule.id, input, TEST_AUTHOR)).rejects.toThrow("Simulierter Klassen-Restore-Fehler");
+        expect((await env.engine.store.getStyleRegistry(site.id)).version).toBe(deleted.version);
+        expect((await env.engine.store.getStyleRegistry(site.id)).rules).toEqual([]);
+        for (const page of pages) {
+          const current = await env.engine.store.getPage(page.id);
+          expect(current.draftVersion).toBe(page.draftVersion + 2);
+          expect(current.draft.nodes[current.draft.rootNodeId]?.classes).toBeUndefined();
+        }
+        const receipt = await env.db.query<{ restored_at: unknown; restore_result: unknown }>(`SELECT restored_at, restore_result FROM style_class_deletions WHERE id = $1`, [deleted.receiptId]);
+        expect(receipt.rows[0]).toMatchObject({ restored_at: null, restore_result: null });
+        const restored = await env.engine.store.restoreGlobalClass(site.id, rule.id, input, TEST_AUTHOR);
+        expect(await env.engine.store.restoreGlobalClass(site.id, rule.id, input, TEST_AUTHOR)).toEqual(restored);
+      }
+    } finally { await env.close(); }
+  });
+
+  it.skipIf(!process.env.TEST_DATABASE_URL)("prüft Klassen-Restore gegen parallele Page-, Registry- und Theme-Writes unter Sperren", async () => {
+    const env = await bootEngine();
+    try {
+      for (const resource of ["page", "registry", "theme"] as const) {
+        const site = await createTestSite(env.api, `Klassen-Restore parallel ${resource}`);
+        const first = await createTestPage(env.api, site.id);
+        const second = await createTestPage(env.api, site.id, { path: "/zwei" });
+        const rule = await env.engine.store.createStyleRule(site.id, { name: "cta" }, TEST_AUTHOR);
+        const theme = await env.engine.store.getTheme(site.id);
+        const deleted = await env.engine.store.deleteGlobalClass(site.id, rule.id, { receiptId: `class-concurrent-${resource}`, baseVersion: 1, pageContext: { pageId: first.id, baseDraftVersion: first.draftVersion } }, TEST_AUTHOR);
+        let pending: Promise<{ status: number }> | undefined;
+        await env.db.withTransaction(async (tx) => {
+          await tx.query(resource === "page" ? `SELECT id FROM pages WHERE id = $1 FOR UPDATE` : resource === "registry" ? `SELECT id FROM sites WHERE id = $1 FOR UPDATE` : `SELECT id FROM themes WHERE site_id = $1 FOR UPDATE`, [resource === "page" ? second.id : site.id]);
+          pending = env.humanApi.request({ method: "POST", path: `/api/sites/${site.id}/style-rules/${rule.id}/restore-globally`, body: { receiptId: deleted.receiptId, baseVersion: deleted.version, baseThemeVersion: theme.version, pageContext: { pageId: first.id, baseDraftVersion: deleted.pageDraftVersion } } });
+          const query = resource === "page" ? "SELECT id, site_id, path, title, meta, draft, draft_version FROM pages WHERE site_id = % ORDER BY id FOR UPDATE%" : resource === "registry" ? "SELECT style_rules_json, style_rules_version FROM sites WHERE id = % FOR UPDATE%" : "SELECT version FROM themes WHERE site_id = % FOR UPDATE%";
+          const deadline = Date.now() + 10000;
+          let blocked = false;
+          while (Date.now() < deadline) {
+            await tx.query(`SELECT pg_stat_clear_snapshot()`);
+            const activity = await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE $1`, [query]);
+            if (Number(activity.rows[0]?.count) > 0) { blocked = true; break; }
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          expect(blocked).toBe(true);
+          if (resource === "page") await tx.query(`UPDATE pages SET title = $2, draft_version = draft_version + 1 WHERE id = $1`, [second.id, "Parallel geändert"]);
+          if (resource === "registry") await tx.query(`UPDATE sites SET style_rules_version = style_rules_version + 1 WHERE id = $1`, [site.id]);
+          if (resource === "theme") await tx.query(`UPDATE themes SET version = version + 1 WHERE site_id = $1`, [site.id]);
+        });
+        expect((await pending)?.status).toBe(409);
+        expect((await env.engine.store.getStyleRegistry(site.id)).rules).toEqual([]);
+        expect((await env.engine.store.getPage(first.id)).draftVersion).toBe(deleted.pageDraftVersion);
+        if (resource === "page") expect((await env.engine.store.getPage(second.id)).title).toBe("Parallel geändert");
+      }
+    } finally { await env.close(); }
+  }, 45000);
+
+  it.skipIf(!process.env.TEST_DATABASE_URL)("serialisiert doppelte Klassen-Restores ohne zweite Versionsanhebung", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Klassen-Restore doppelt");
+      const page = await createTestPage(env.api, site.id);
+      const rule = await env.engine.store.createStyleRule(site.id, { name: "cta" }, TEST_AUTHOR);
+      const deleted = await env.engine.store.deleteGlobalClass(site.id, rule.id, { receiptId: "class-duplicate-restore", baseVersion: 1, pageContext: { pageId: page.id, baseDraftVersion: page.draftVersion } }, TEST_AUTHOR);
+      await env.db.query(`UPDATE pages SET draft_version = draft_version + 1 WHERE id = $1`, [page.id]);
+      const input = { receiptId: deleted.receiptId, baseVersion: deleted.version, pageContext: { pageId: page.id, baseDraftVersion: deleted.pageDraftVersion + 1 } };
+      const results = await Promise.all([env.engine.store.restoreGlobalClass(site.id, rule.id, input, TEST_AUTHOR), env.engine.store.restoreGlobalClass(site.id, rule.id, input, TEST_AUTHOR)]);
+      expect(results[0]).toEqual({ version: deleted.version + 1, pageDraftVersion: input.pageContext.baseDraftVersion + 1 });
+      expect(results[1]).toEqual(results[0]);
+      expect((await env.engine.store.getStyleRegistry(site.id)).version).toBe(deleted.version + 1);
+      expect((await env.engine.store.getPage(page.id)).draftVersion).toBe(input.pageContext.baseDraftVersion + 1);
+    } finally { await env.close(); }
+  });
+
+  it("stellt Klassen nach vollständig zurückgenommenen Variablen- und Dokumentaktionen wieder her", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Gemischtes Klassen-Undo");
+      const pages = [await createTestPage(env.api, site.id), await createTestPage(env.api, site.id, { path: "/zwei" })];
+      const theme = await env.engine.store.getTheme(site.id);
+      await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { marker: "#123456" } } } }, TEST_AUTHOR, theme.version);
+      const rule = await env.engine.store.createStyleRule(site.id, { name: "cta" }, TEST_AUTHOR);
+      const other = await env.engine.store.createStyleRule(site.id, { name: "andere", styles: { color: "#abcdef" } }, TEST_AUTHOR);
+      for (const page of pages) {
+        const current = await env.engine.store.getPage(page.id);
+        current.draft.nodes[current.draft.rootNodeId]!.classes = ["cta", "andere"];
+        page.draftVersion = await env.engine.store.updatePage(page.id, page.draftVersion, { draft: current.draft, title: page.title, path: page.path });
+      }
+      const first = pages[0]!;
+      const deleted = await env.engine.store.deleteGlobalClass(site.id, rule.id, { receiptId: "class-mixed-delete", baseVersion: 2, pageContext: { pageId: first.id, baseDraftVersion: first.draftVersion } }, TEST_AUTHOR);
+      const currentTheme = await env.engine.store.getTheme(site.id);
+      const variable = await env.engine.store.deleteUnusedVariable(site.id, "color", "marker", { receiptId: "class-mixed-variable", baseThemeVersion: currentTheme.version, pageContext: { pageId: first.id, baseDraftVersion: deleted.pageDraftVersion } }, TEST_AUTHOR);
+      await env.engine.store.restoreVariable(site.id, "color", "marker", { receiptId: variable.receiptId, baseThemeVersion: variable.version, pageContext: { pageId: first.id, baseDraftVersion: variable.pageDraftVersion } }, TEST_AUTHOR);
+      for (const page of pages) {
+        const before = await env.engine.store.getPage(page.id);
+        const draft = structuredClone(before.draft);
+        draft.nodes[draft.rootNodeId]!.props.text = "Zwischenstand";
+        const changed = await env.engine.store.updatePage(page.id, before.draftVersion, { draft, title: "Zwischentitel", path: before.path });
+        await env.engine.store.updatePage(page.id, changed, { draft: before.draft, title: before.title, path: before.path });
+      }
+      await env.engine.store.updateStyleRule(site.id, other.id, { styles: { color: "#112233" } }, TEST_AUTHOR);
+      await env.engine.store.updateStyleRule(site.id, other.id, { styles: { color: "#abcdef" } }, TEST_AUTHOR);
+      const input = { receiptId: deleted.receiptId, baseVersion: (await env.engine.store.getStyleRegistry(site.id)).version,
+        baseThemeVersion: (await env.engine.store.getTheme(site.id)).version, pageContext: { pageId: first.id, baseDraftVersion: (await env.engine.store.getPage(first.id)).draftVersion } };
+      const restored = await env.engine.store.restoreGlobalClass(site.id, rule.id, input, TEST_AUTHOR);
+      expect(restored).toEqual({ version: input.baseVersion + 1, pageDraftVersion: input.pageContext.baseDraftVersion + 1 });
+      for (const page of pages) expect((await env.engine.store.getPage(page.id)).draft.nodes[page.draft.rootNodeId]?.classes).toEqual(["cta", "andere"]);
+      expect(await env.engine.store.restoreGlobalClass(site.id, rule.id, input, TEST_AUTHOR)).toEqual(restored);
+      await expect(env.engine.store.restoreGlobalClass(site.id, rule.id, { ...input, pageContext: { ...input.pageContext, pageId: pages[1]!.id } }, TEST_AUTHOR)).rejects.toThrow();
+    } finally { await env.close(); }
+  });
+
+  it("entfernt optionale Stilfelder explizit und erhält ausgelassene Felder", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Exaktes Klassen-Undo");
+      const created = await env.humanApi.request<StyleRuleResponse>({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: {
+        name: "cta", styles: { color: "#123456" }, states: { hover: { color: "#abcdef" } }, stylePriorities: { color: "important" },
+        statePriorities: { hover: { color: "important" } }, contextStylePriorities: { "(orientation: landscape)": { color: "important" } },
+      } });
+      expect(created.status).toBe(201);
+      const endpoint = `/api/sites/${site.id}/style-rules/${created.body.id}`;
+      expect((await env.humanApi.request({ method: "PATCH", path: endpoint, body: { replaceStyleValues: true, styles: {} } })).status).toBe(200);
+      expect((await env.engine.store.getStyleRegistry(site.id)).rules[0]?.states?.hover).toBeDefined();
+      expect((await env.humanApi.request({ method: "PATCH", path: endpoint, body: { replaceStyleValues: true, styles: { color: "#123456" },
+        states: null, stylePriorities: null, statePriorities: null, contextStylePriorities: null } })).status).toBe(200);
+      const raw = await env.db.query<{ style_rules_json: unknown }>("SELECT style_rules_json FROM sites WHERE id = $1", [site.id]);
+      const data = raw.rows[0]!.style_rules_json;
+      const rules = (typeof data === "string" ? JSON.parse(data) : data) as Record<string, unknown>[];
+      expect(rules[0]?.styles).toEqual({ color: "#123456" });
+      for (const field of ["states", "stylePriorities", "statePriorities", "contextStylePriorities"]) expect(Object.hasOwn(rules[0]!, field)).toBe(false);
+    } finally { await env.close(); }
+  });
+
   it.skipIf(!process.env.TEST_DATABASE_URL)("serializes class writes with concurrent theme changes", async () => {
     const env = await bootEngine();
     try {

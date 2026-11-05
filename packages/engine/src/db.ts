@@ -80,6 +80,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     rule jsonb NOT NULL,
     pages jsonb NOT NULL,
     registry_version integer NOT NULL,
+    resource_hashes jsonb,
+    request_basis jsonb,
+    restore_result jsonb,
     created_at timestamptz NOT NULL,
     restored_at timestamptz
   )`,
@@ -732,6 +735,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `ALTER TABLE theme_variable_deletions ADD COLUMN IF NOT EXISTS resource_hashes jsonb`,
   `ALTER TABLE theme_variable_deletions ADD COLUMN IF NOT EXISTS request_basis jsonb`,
   `ALTER TABLE theme_variable_deletions ADD COLUMN IF NOT EXISTS restore_result jsonb`,
+  `ALTER TABLE style_class_deletions ADD COLUMN IF NOT EXISTS resource_hashes jsonb`,
+  `ALTER TABLE style_class_deletions ADD COLUMN IF NOT EXISTS request_basis jsonb`,
+  `ALTER TABLE style_class_deletions ADD COLUMN IF NOT EXISTS restore_result jsonb`,
   `ALTER TABLE sites ADD COLUMN IF NOT EXISTS style_rules_json jsonb`,
   `ALTER TABLE sites ADD COLUMN IF NOT EXISTS style_rules_version integer NOT NULL DEFAULT 0`,
   // Design contract per site (E26, R9): the project's design DNA (constants/
