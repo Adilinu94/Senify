@@ -82,6 +82,7 @@ export function patchesToMutations(patches: readonly PatchOp[]): Mutation[] {
 }
 
 export type HistoryEntryStatus = "committed" | "pending" | "failed";
+export type HistoryDirection = "undo" | "redo";
 
 export type HistoryEntry = {
   id: string;
@@ -144,6 +145,7 @@ export class HistoryStack {
   // History navigation or removal ends the previous typing/drag burst.
   #canCoalesce = false;
   #pendingExternal: HistoryEntry | null = null;
+  #externalNavigation: { entryId: string; direction: HistoryDirection } | null = null;
   readonly #limit: number;
   readonly #now: () => number;
   readonly #idFactory: () => string;
@@ -181,6 +183,38 @@ export class HistoryStack {
 
   top(): HistoryEntry | null {
     return this.#entries[this.#cursor - 1] ?? null;
+  }
+
+  navigationEntry(direction: HistoryDirection): HistoryEntry | null {
+    if (this.#pendingExternal !== null) return null;
+    const entry = this.#entries[direction === "undo" ? this.#cursor - 1 : this.#cursor];
+    return entry?.status === "committed" ? entry : null;
+  }
+
+  beginExternalNavigation(direction: HistoryDirection): HistoryEntry {
+    const entry = this.navigationEntry(direction);
+    if (!entry?.external) throw new SenifyError("conflict", "Kein externer Verlaufsschritt verfügbar", { field: "history" });
+    const pending = this.beginExternal({ label: entry.label, versionBefore: entry.versionBefore, versionAfter: entry.versionAfter });
+    this.#externalNavigation = { entryId: entry.id, direction };
+    return pending;
+  }
+
+  canConfirmExternalNavigation(pendingId: string, entryId: string, direction: HistoryDirection): boolean {
+    const target = this.#entries[direction === "undo" ? this.#cursor - 1 : this.#cursor];
+    return this.#pendingExternal?.id === pendingId && this.#externalNavigation?.entryId === entryId &&
+      this.#externalNavigation.direction === direction && target?.id === entryId && target.external === true && target.status === "committed";
+  }
+
+  confirmExternalNavigation(pendingId: string, entryId: string, direction: HistoryDirection): HistoryEntry {
+    if (!this.canConfirmExternalNavigation(pendingId, entryId, direction)) {
+      throw new SenifyError("conflict", "Der reservierte Verlaufsschritt ist nicht mehr verfügbar", { field: "history" });
+    }
+    const entry = this.#entries[direction === "undo" ? this.#cursor - 1 : this.#cursor]!;
+    this.#cursor += direction === "undo" ? -1 : 1;
+    this.#pendingExternal = null;
+    this.#externalNavigation = null;
+    this.#canCoalesce = false;
+    return entry;
   }
 
   record(input: RecordInput): HistoryEntry {
@@ -255,6 +289,9 @@ export class HistoryStack {
   }
 
   commitExternal(id: string, input: Partial<ExternalRecordInput> = {}): HistoryEntry {
+    if (this.#pendingExternal?.id === id && this.#externalNavigation !== null) {
+      throw new SenifyError("conflict", "Eine Verlaufsnavigation muss als Navigation bestätigt werden", { field: "history" });
+    }
     const entry = this.#pendingExternal?.id === id ? this.#pendingExternal : this.#entries.find((item) => item.id === id && item.status === "pending" && item.external);
     if (!entry || entry.status !== "pending" || !entry.external) {
       throw new SenifyError("not_found", `Pending external entry "${id}" does not exist`, {
@@ -286,6 +323,7 @@ export class HistoryStack {
     if (this.#pendingExternal?.id === id) {
       const entry = this.#pendingExternal;
       this.#pendingExternal = null;
+      this.#externalNavigation = null;
       this.#canCoalesce = false;
       return entry;
     }
@@ -396,6 +434,9 @@ export class HistoryStack {
     this.#entries.splice(0, this.#entries.length);
     this.#cursor = 0;
     this.#canCoalesce = false;
-    if (!options.preservePendingExternal) this.#pendingExternal = null;
+    if (!options.preservePendingExternal) {
+      this.#pendingExternal = null;
+      this.#externalNavigation = null;
+    }
   }
 }

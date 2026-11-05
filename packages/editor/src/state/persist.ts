@@ -29,8 +29,10 @@ import type { Author } from "@senify/section-sdk";
 import { baseKeyOf, type StyleRule } from "@senify/widget-engine";
 import type { EditorMutation } from "@senify/engine/browser";
 import type { DocumentPatch } from "./patches.ts";
-import type { EditorNode, ParentRef } from "./document.ts";
+import type { EditorDocument, EditorNode, ParentRef } from "./document.ts";
 import type { EditorStore, EditorStoreAction } from "./store.ts";
+import type { HistoryDirection } from "../history.ts";
+import { validateDocument } from "./consistency.ts";
 import { randomId } from "./ids.ts";
 
 export type SaveRequest = {
@@ -42,6 +44,12 @@ export type SaveRequest = {
 export type SaveResponse = { status: number; body?: unknown };
 
 export type SaveTransport = (request: SaveRequest) => Promise<SaveResponse>;
+
+export type ExternalVersions = {
+  pageVersion: number;
+  themeVersion: number | null;
+  registryVersion: number | null;
+};
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error" | "conflict";
 
@@ -134,6 +142,7 @@ export type SavePipelineOptions = {
 
 export type SavePipeline = {
   state(): SaveState;
+  externalVersions(): ExternalVersions;
   subscribe(listener: SaveListener): () => void;
   // Resend after a conflict. Without a version the one parsed from the `409`
   // is used; if that is unknown too, the pipeline stays paused.
@@ -144,6 +153,9 @@ export type SavePipeline = {
   acceptStyleRegistry(version: number, ruleIds: Iterable<string>): void;
   acceptThemeVersion(version: number): void;
   acceptExternalVersions(basePageVersion: number, baseThemeVersion: number, pageVersion: number, themeVersion: number): boolean;
+  // Adopt all versions and the store's reserved navigation before notifying
+  // either pipeline or store observers. The external runner already wrote it.
+  confirmExternalNavigation(pendingId: string, entryId: string, direction: HistoryDirection, document: EditorDocument, base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>): boolean;
   // The conflict choice "load the server": the local batch is dropped instead
   // of being resent later (the reload replaces the document anyway).
   discardPending(): void;
@@ -698,6 +710,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
   store.setActionListener(record);
   return {
     state,
+    externalVersions: () => ({ pageVersion: version, themeVersion: themeVersion ?? null, registryVersion: hasStyleRegistryVersion ? styleRegistryVersion : null }),
     subscribe(listener) {
       listeners.add(listener);
       return () => {
@@ -721,6 +734,27 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
       if (running || pending.length > 0 || unsupported.size > 0 || status === "conflict" || status === "error" || version !== basePageVersion || themeVersion !== baseThemeVersion) return false;
       version = pageVersion;
       themeVersion = nextThemeVersion;
+      emit();
+      return true;
+    },
+    confirmExternalNavigation(pendingId, entryId, direction, document, base, next) {
+      if (running || pending.length > 0 || unsupported.size > 0 || status === "conflict" || status === "error" ||
+          version !== base.pageVersion || (themeVersion ?? null) !== base.themeVersion ||
+          (hasStyleRegistryVersion ? styleRegistryVersion : null) !== base.registryVersion ||
+          !store.history.canConfirmExternalNavigation(pendingId, entryId, direction)) return false;
+      if (!Number.isSafeInteger(next.pageVersion) || next.pageVersion !== base.pageVersion + 1 ||
+          base.themeVersion === null || next.themeVersion === null || !Number.isSafeInteger(next.themeVersion) || next.themeVersion !== base.themeVersion + 1 ||
+          (next.registryVersion !== null && (!Number.isSafeInteger(next.registryVersion) || next.registryVersion < (base.registryVersion ?? 0))) ||
+          (base.registryVersion !== null && next.registryVersion === null) || validateDocument(document).length > 0) return false;
+      version = next.pageVersion;
+      themeVersion = next.themeVersion;
+      if (next.registryVersion !== null) {
+        styleRegistryVersion = next.registryVersion;
+        hasStyleRegistryVersion = true;
+        knownRuleIds.clear();
+        for (const rule of document.styleRules) knownRuleIds.add(rule.id);
+      }
+      store.confirmExternalNavigation(pendingId, entryId, direction, document);
       emit();
       return true;
     },

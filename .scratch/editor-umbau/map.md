@@ -15,15 +15,16 @@ Alle offenen Punkte aus `HANDOFF-2026-11-05.md` in überprüfbaren Scheiben bear
 - Offen: vollständiger Async-Vertrag; Core-/Pro-Referenz; Migrationsentscheidung zur Kaskade; vollständige Import-Abnahme.
 - Vorbereitung in `b0f55cc` gesichert; Arbeitsbaum danach leer geprüft. Doku-/Patch-Gate grün.
 - Abgeschlossen 02: Unknown-/Retry-/Reload-Sperrerhalt einschließlich Dokumentwechsel und Storage-Fehler; gezielter History-/State-/Variablen-/Canvas-Gate, Typecheck, Lint und Doku-/Patch-Gate grün. Siehe Issue 02.
-- Nächster Schritt: serverbestätigte Async-Navigation, danach App-Integration und die übrigen Pakete.
+- Abgeschlossen 03: additive Async-Session-Navigation für registrierte externe Einträge; Cursor, Dokument und Versionen gemeinsam erst nach Bestätigung. Gezielter History-/State-/Variablen-/Canvas-Gate, Typecheck und Lint grün; Gegenreview ohne verbleibende Befunde im Library-Scope. Siehe Issue 03.
+- Nächste Scheibe: Delete/Restore einschließlich Inhaltsgleichheit, idempotenter Request-Basis, Migration/Backup und PostgreSQL-Konkurrenz getrennt abnehmen; danach App-Integration. App-Belege, Tokenmigration und atomare History-Sprünge bleiben separate Abnahmen.
 
 ## Abdeckung der Übergabe
 
 | Paket | Handoff | Status | Abnahme |
 |---|---|---|---|
 | Vorhandene externe History absichern | Arbeitsregeln, §56–75 | geprüfte Vorbereitung; siehe Issue 01 | History-, Store-, Pipeline-, Session- und Variablen-Browser-Tests; Typecheck, Lint, Doku-Gate, Patch-Gate |
-| Async Undo/Redo und History-Sprünge | §67–68, §73 | offen | gemischte Page-/Klassen-/Token-Schritte; Cursor erst nach Bestätigung; Fehler ohne Teilnavigation |
-| Speicherreihenfolge und konkurrierende Eingaben | §69, §73 | offen | laufende Pipeline, Eingabe während Anfrage, Fremdänderung und unvollständige Antwort |
+| Async Undo/Redo und History-Sprünge | §67–68, §73 | Library-Vertrag geprüft (Issue 03); App und atomare Sprünge offen | gemischte Page-/Klassen-/Token-Schritte; Cursor erst nach Bestätigung; Fehler ohne Teilnavigation |
+| Speicherreihenfolge und konkurrierende Eingaben | §69, §73 | Library-Schutz geprüft (Issue 03); durchgängiger App-Vertrag offen | laufende Pipeline, Eingabe während Anfrage, Fremdänderung und unvollständige Antwort |
 | Historische Token-Verweise und Rename | §70, §73 | offen | Forward- und Undo-Patches für Page, Klasse, Struktur, Breakpoint und Zustand in beiden Richtungen |
 | Belege, Antwortverlust, Reload und bewusster Ausweg | §71 | Sperrerhalt geprüft (Issue 02); gemeinsame History-Belege noch offen | Session Storage, Idempotenz, Retry, ältere Belege, Migration und Backup/Restore |
 | Delete/Restore getrennt abnehmen | §72 | offen | eigene Versions-/Inhaltsbedingungen, mehrere Pages, PostgreSQL-Sperren und Rollback |

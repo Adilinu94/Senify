@@ -183,6 +183,46 @@ describe("undo / redo stack", () => {
 });
 
 describe("external async history", () => {
+  it("bestätigt nur die eigene Navigationslease, den Eintrag und die reservierte Richtung", () => {
+    const history = new HistoryStack();
+    const marker = history.beginExternal({ label: "Token", versionBefore: 1, versionAfter: 2 });
+    history.commitExternal(marker.id);
+    const pending = history.beginExternalNavigation("undo");
+    expect(history.top()?.id).toBe(marker.id);
+    for (const [pendingId, entryId, direction] of [
+      ["fremde-lease", marker.id, "undo"],
+      [pending.id, "fremder-eintrag", "undo"],
+      [pending.id, marker.id, "redo"],
+    ] as const) {
+      expect(history.canConfirmExternalNavigation(pendingId, entryId, direction)).toBe(false);
+      expect(() => history.confirmExternalNavigation(pendingId, entryId, direction)).toThrow("reservierte");
+    }
+    expect(() => history.commitExternal(pending.id)).toThrow("Navigation");
+    expect(history.pendingExternalId).toBe(pending.id);
+    expect(history.confirmExternalNavigation(pending.id, marker.id, "undo").id).toBe(marker.id);
+    expect(history.applied()).toEqual([]);
+    expect(history.future().map((entry) => entry.id)).toEqual([marker.id]);
+    const redo = history.beginExternalNavigation("redo");
+    expect(history.confirmExternalNavigation(redo.id, marker.id, "redo").id).toBe(marker.id);
+    expect(history.top()?.id).toBe(marker.id);
+  });
+
+  it("lässt nach neuen Eingaben oder entferntem Ziel keinen reservierten Cursorwechsel zu", () => {
+    const history = new HistoryStack();
+    const marker = history.beginExternal({ label: "Token", versionBefore: 1, versionAfter: 2 });
+    history.commitExternal(marker.id);
+    const pending = history.beginExternalNavigation("undo");
+    const local = history.record({ label: "Neue Eingabe", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 2, versionAfter: 3 });
+    expect(history.canConfirmExternalNavigation(pending.id, marker.id, "undo")).toBe(false);
+    expect(() => history.confirmExternalNavigation(pending.id, marker.id, "undo")).toThrow("reservierte");
+    expect(history.top()?.id).toBe(local.id);
+    history.clear({ preservePendingExternal: true });
+    expect(history.pendingExternalId).toBe(pending.id);
+    expect(history.canConfirmExternalNavigation(pending.id, marker.id, "undo")).toBe(false);
+    history.failExternal(pending.id);
+    expect(history.pendingExternalId).toBeNull();
+  });
+
   it("sperrt Restore-Patches während eines ausstehenden externen Vorgangs", () => {
     const history = new HistoryStack();
     const steps = recordRealSteps(history, [

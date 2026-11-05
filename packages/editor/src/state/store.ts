@@ -20,7 +20,7 @@ import {
   type MutationOp,
   type PatchOp,
 } from "@senify/engine/browser";
-import { HistoryStack, type ExternalRecordInput, type HistoryEntry } from "../history.ts";
+import { HistoryStack, type ExternalRecordInput, type HistoryDirection, type HistoryEntry } from "../history.ts";
 import { newNodeId } from "./ids.ts";
 import {
   createDocument,
@@ -319,6 +319,25 @@ export class EditorStore {
     this.#emit();
     this.#onAction?.({ type: "redo", entry });
     return true;
+  }
+
+  beginExternalNavigation(direction: HistoryDirection): HistoryEntry {
+    const entry = this.#history.beginExternalNavigation(direction);
+    this.#emit();
+    this.#onAction?.({ type: "external-begin", entry });
+    return entry;
+  }
+
+  confirmExternalNavigation(pendingId: string, entryId: string, direction: HistoryDirection, document = this.#document): HistoryEntry {
+    const issue = validateDocument(document)[0];
+    if (issue !== undefined) throw new SenifyError("validation", issue.message, { field: "document" });
+    const entry = this.#history.confirmExternalNavigation(pendingId, entryId, direction);
+    this.#document = document;
+    if (this.#selection.selected.some((id) => document.nodes[id] === undefined)) this.#selection = EMPTY_SELECTION;
+    this.#emit();
+    // The external runner already persisted this step; never enqueue patches.
+    this.#onAction?.({ type: "external-commit", entry });
+    return entry;
   }
 
   // The history dialog (ticket 03 point 5): jump to the state right after

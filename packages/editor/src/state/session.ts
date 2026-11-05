@@ -24,6 +24,7 @@ import {
   type SaveTransport,
 } from "./persist.ts";
 import type { EditorDocument } from "./document.ts";
+import { ExternalHistoryController, type ExternalHistoryRunner, type ExternalHistoryState } from "./external-history.ts";
 import {
   DEFAULT_UI_STATE,
   loadUiState,
@@ -55,6 +56,7 @@ export type SessionSnapshot = {
   canUndo: boolean;
   canRedo: boolean;
   pendingExternalId: string | null;
+  externalHistory: ExternalHistoryState;
 };
 
 export class EditorSession {
@@ -66,6 +68,7 @@ export class EditorSession {
   #ui: EditorUiState;
   readonly #listeners = new Set<() => void>();
   #disposed = false;
+  readonly #externalHistory: ExternalHistoryController;
 
   constructor(options: EditorSessionOptions) {
     this.pageId = options.pageId;
@@ -90,7 +93,9 @@ export class EditorSession {
       ...(options.debounceMs === undefined ? {} : { debounceMs: options.debounceMs }),
     });
     this.pipeline.acceptVersion(options.initialVersion);
+    this.#externalHistory = new ExternalHistoryController(this.store, this.pipeline, () => this.#emit());
     this.store.subscribe(() => {
+      this.#externalHistory.reconcile();
       // The selection is one truth (E5): wherever it changes — canvas click,
       // explorer, chrome — the session mirrors it into the persisted view
       // state, so a reload restores the node the user actually had selected.
@@ -138,6 +143,14 @@ export class EditorSession {
   redo(): boolean {
     return this.store.redo();
   }
+
+  get canUndoAsync(): boolean { return this.#externalHistory.canNavigate("undo"); }
+  get canRedoAsync(): boolean { return this.#externalHistory.canNavigate("redo"); }
+  undoAsync(): Promise<boolean> { return this.#externalHistory.navigate("undo"); }
+  redoAsync(): Promise<boolean> { return this.#externalHistory.navigate("redo"); }
+  registerExternalHistory(entryId: string, runner: ExternalHistoryRunner): void { this.#externalHistory.register(entryId, runner); }
+  retryExternalHistory(): Promise<boolean> { return this.#externalHistory.retry(); }
+  externalHistoryState(): ExternalHistoryState { return this.#externalHistory.state(); }
 
   beginExternalAction(input: ExternalRecordInput): HistoryEntry {
     return this.store.beginExternalAction(input);
@@ -247,6 +260,7 @@ export class EditorSession {
       canUndo: this.canUndo,
       canRedo: this.canRedo,
       pendingExternalId: this.pendingExternalId,
+      externalHistory: this.externalHistoryState(),
     };
   }
 
@@ -260,13 +274,14 @@ export class EditorSession {
   }
 
   #emit(): void {
-    if (this.#disposed) return;
+    if (this.#disposed || this.#externalHistory.isCommitting) return;
     for (const listener of [...this.#listeners]) listener();
   }
 
   dispose(): void {
     this.#disposed = true;
     this.#listeners.clear();
+    this.#externalHistory.dispose();
     this.pipeline.dispose();
   }
 }
