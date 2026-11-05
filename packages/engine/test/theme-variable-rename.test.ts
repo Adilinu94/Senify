@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { bakePages, Store, type Db, type DbClient } from "@senify/engine";
 import { ensureSchema, SCHEMA_STATEMENTS } from "../src/db.ts";
+import { canonicalHash } from "../src/redesign-proposal-contract.ts";
 import { bootEngine, createTestPage, createTestSite, TEST_AUTHOR } from "./helpers.ts";
 
 describe("renaming global variables", () => {
@@ -140,6 +141,43 @@ describe("renaming global variables", () => {
         }
         await expect(env.engine.store.renameVariable(site.id, "color", "marke", { receiptId: `rename-content-${change}-2`, newName: "marker", undoOf: renamed.receiptId, baseThemeVersion: renamed.version, pageContext: { pageId: page.id, baseDraftVersion: renamed.pageDraftVersion + 1 } }, TEST_AUTHOR)).rejects.toThrow(/zwischenzeitlichen Änderungen/);
         expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marke: "#123456" });
+      }
+    } finally { await env.close(); }
+  });
+
+  it("ignoriert bei neuen Rename-Belegen nur Regel-updatedAt und hält alte Belege streng", async () => {
+    const env = await bootEngine();
+    try {
+      for (const kind of ["new", "legacy", "unknown"] as const) {
+        const site = await createTestSite(env.api, `Rename-Hash ${kind}`);
+        const page = await createTestPage(env.api, site.id, { path: "/" });
+        const initial = await env.engine.store.getTheme(site.id);
+        const theme = await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { marker: "#123456" } } } }, TEST_AUTHOR, initial.version);
+        await env.engine.store.createStyleRule(site.id, { name: `ruhig-${kind}`, styles: { color: "red" } }, TEST_AUTHOR);
+        const renamed = await env.engine.store.renameVariable(site.id, "color", "marker", { receiptId: `rename-updatedat-${kind}`, newName: "marke", baseThemeVersion: theme.version, pageContext: { pageId: page.id, baseDraftVersion: page.draftVersion } }, TEST_AUTHOR);
+        if (kind !== "new") {
+          const stored = await env.db.query<{ resource_hashes: unknown }>(`SELECT resource_hashes FROM theme_variable_renames WHERE id = $1`, [renamed.receiptId]);
+          const raw = stored.rows[0]!.resource_hashes;
+          const hashes = (typeof raw === "string" ? JSON.parse(raw) : raw) as { theme: string; registry: string };
+          const legacy = kind === "legacy"
+            ? { theme: hashes.theme, registry: canonicalHash((await env.engine.store.getStyleRegistry(site.id)).rules) }
+            : { ...hashes, registryContract: "future-v9" };
+          await env.db.query(`UPDATE theme_variable_renames SET resource_hashes = $2 WHERE id = $1`, [renamed.receiptId, JSON.stringify(legacy)]);
+        }
+        // Only the server-side timestamp changes; identity, contents and every
+        // theme/page version stay exactly as they were.
+        const registry = await env.engine.store.getStyleRegistry(site.id);
+        const rules = registry.rules.map((rule) => ({ ...rule, updatedAt: "2099-01-01T00:00:00.000Z" }));
+        await env.db.query(`UPDATE sites SET style_rules_json = $2, style_rules_version = style_rules_version + 1 WHERE id = $1`, [site.id, JSON.stringify(rules)]);
+        const undo = { receiptId: `rename-updatedat-${kind}-undo`, newName: "marker", undoOf: renamed.receiptId, baseThemeVersion: renamed.version, pageContext: { pageId: page.id, baseDraftVersion: renamed.pageDraftVersion } };
+        if (kind === "new") {
+          const undone = await env.engine.store.renameVariable(site.id, "color", "marke", undo, TEST_AUTHOR);
+          expect(undone.version).toBe(renamed.version + 1);
+          expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marker: "#123456" });
+        } else {
+          await expect(env.engine.store.renameVariable(site.id, "color", "marke", undo, TEST_AUTHOR)).rejects.toThrow(/zwischenzeitlichen Änderungen/);
+          expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marke: "#123456" });
+        }
       }
     } finally { await env.close(); }
   });

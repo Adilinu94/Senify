@@ -140,6 +140,11 @@ describe("restore a backup", () => {
     expect((await restore(backup.id, { confirm: true })).status).toBe(200);
     expect(await env.engine.store.renameVariable(site.id, "color", "marker", input, author)).toEqual(renamed);
     expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marke: "#123456" });
+    const receiptRow = await env.db.query<{ resource_hashes: unknown }>(`SELECT resource_hashes FROM theme_variable_renames WHERE id = $1`, [renamed.receiptId]);
+    const rawHashes = receiptRow.rows[0]!.resource_hashes;
+    const hashes = (typeof rawHashes === "string" ? JSON.parse(rawHashes) : rawHashes) as { registry?: unknown; registryContract?: unknown };
+    expect(hashes.registryContract).toBe("raw-registry-updatedAt-excluded");
+    expect(hashes.registry).toMatch(/^[0-9a-f]{64}$/);
     const restoredPage = await env.engine.store.getPage(page.id);
     await env.engine.store.updatePage(page.id, restoredPage.draftVersion, { draft: restoredPage.draft, title: "Zwischenstand", path: restoredPage.path });
     const editedPage = await env.engine.store.getPage(page.id);

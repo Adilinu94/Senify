@@ -285,6 +285,11 @@ type ClassRestoreResult = ClassRequestBasis & { baseThemeVersion?: number; versi
 
 type VariableDeletionPage = { pageId: string; version: number };
 type VariableRenamePage = VariableDeletionPage & { fingerprint?: string };
+// New rename receipts state which registry hash contract they carry: the raw
+// registry including identity and all extra fields, with only the per-rule
+// `updatedAt` timestamp left out. Receipts without this marker keep the older
+// full-hash comparison, so stored evidence is never loosened retroactively.
+const RENAME_REGISTRY_HASH_CONTRACT = "raw-registry-updatedAt-excluded";
 type VariablePageRow = { id: string; site_id: string; path: string; title: string; meta: unknown; draft: unknown; draft_version: unknown };
 function variablePageHash(page: VariablePageRow, draft: unknown = toJson<unknown>(page.draft)): string {
   return canonicalHash({ id: page.id, siteId: page.site_id, path: page.path, title: page.title, meta: toJson<unknown>(page.meta), draft });
@@ -2501,15 +2506,20 @@ export class Store {
         const previousRenames = await tx.query<VariableRenameRow>(`SELECT site_id, family, old_name, new_name, undo_of, pages, registry_version, theme_version, resource_hashes FROM theme_variable_renames WHERE id = $1 FOR UPDATE`, [input.undoOf]);
         const previousRename = previousRenames.rows[0];
         const snapshots = previousRename ? toJson<VariableRenamePage[]>(previousRename.pages) : undefined;
-        const hashes = previousRename?.resource_hashes == null ? undefined : toJson<{ theme?: unknown; registry?: unknown }>(previousRename.resource_hashes);
+        const hashes = previousRename?.resource_hashes == null ? undefined : toJson<{ theme?: unknown; registry?: unknown; registryContract?: unknown }>(previousRename.resource_hashes);
         const samePages = Array.isArray(snapshots) && snapshots.length === pages.rows.length && pages.rows.every((page) => snapshots.some((entry) => entry.pageId === page.id));
         const sameVersions = previousRename && samePages &&
           toFiniteNumber(previousRename.theme_version, "theme_version") === version &&
           toFiniteNumber(previousRename.registry_version, "registry_version") === toFiniteNumber(site.style_rules_version ?? 0, "style_rules_version") &&
           pages.rows.every((page) => snapshots.find((entry) => entry.pageId === page.id)?.version === toFiniteNumber(page.draft_version, "draft_version"));
         const isHash = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
-        const sameContent = samePages && hashes != null && isHash(hashes.theme) && isHash(hashes.registry) &&
-          hashes.theme === canonicalHash(theme) && hashes.registry === canonicalHash(rules) &&
+        const registryMatches = hashes != null && isHash(hashes.registry) && (
+          hashes.registryContract === RENAME_REGISTRY_HASH_CONTRACT
+            ? hashes.registry === variableRegistryContentHash(rules)
+            : hashes.registryContract === undefined && hashes.registry === canonicalHash(rules)
+        );
+        const sameContent = samePages && hashes != null && isHash(hashes.theme) && registryMatches &&
+          hashes.theme === canonicalHash(theme) &&
           pages.rows.every((page) => {
             const fingerprint = snapshots.find((entry) => entry.pageId === page.id)?.fingerprint;
             return isHash(fingerprint) && fingerprint === variablePageHash(page);
@@ -2563,7 +2573,7 @@ export class Store {
       const registryVersion = toFiniteNumber(site.style_rules_version ?? 0, "style_rules_version") + 1;
       await tx.query(`UPDATE sites SET style_rules_json = $2, style_rules_version = $3, updated_at = $4 WHERE id = $1`, [siteId, toJsonParam(renamedRules), registryVersion, now]);
       await tx.query(`UPDATE themes SET definition = $2, version = version + 1, updated_at = $3 WHERE id = $1`, [themeRow.id, toJsonParam(renamedTheme), now]);
-      await tx.query(`INSERT INTO theme_variable_renames (id, site_id, family, old_name, new_name, undo_of, pages, registry_version, theme_version, resource_hashes, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [input.receiptId, siteId, group, name, input.newName, input.undoOf ?? null, toJsonParam(snapshots), registryVersion, version + 1, toJsonParam({ theme: canonicalHash(renamedTheme), registry: canonicalHash(renamedRules) }), now]);
+      await tx.query(`INSERT INTO theme_variable_renames (id, site_id, family, old_name, new_name, undo_of, pages, registry_version, theme_version, resource_hashes, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [input.receiptId, siteId, group, name, input.newName, input.undoOf ?? null, toJsonParam(snapshots), registryVersion, version + 1, toJsonParam({ theme: canonicalHash(renamedTheme), registry: variableRegistryContentHash(renamedRules), registryContract: RENAME_REGISTRY_HASH_CONTRACT }), now]);
       const audit = buildAuditInsert([{ siteId, pageId: null, batchId: input.receiptId, opIndex: 0, mutation: "rename_variable", params: { family: group, from: name, to: input.newName, ...(input.undoOf === undefined ? {} : { undoOf: input.undoOf }) }, author, undoPatch: [], draftVersionAfter: version + 1 }]);
       await tx.query(audit.text, audit.params);
       return { receiptId: input.receiptId, version: version + 1, pageDraftVersion: pageVersion + 1, registryVersion };

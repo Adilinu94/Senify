@@ -1,7 +1,7 @@
 # Rückwärtsverträgliche Registry-Inhaltsbelege für Rename
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Blocked by: 07
 
 ## Definition of Ready
@@ -18,6 +18,14 @@ Blocked by: 07
 - Theme und alle Pages einschließlich Identität und Metadaten bleiben vollständig gebunden; aktuelle Request-Versionen und Transaktionssperren bleiben Pflicht.
 - JSON-Kennzeichnung und Hashes bleiben beim Backup/Restore erhalten; keine Änderung alter Belege während Schema-Migration.
 - Gate: Rename-, Delete/Restore-, Klassen-, Schema- und Backup-Vertrag in Memory und auf isoliertem PostgreSQL, einschließlich Konkurrenz und Rollback; Typecheck, Lint, Doku-/Patch-Gate, Graphify AST-Update und unabhängiger Gegenreview.
+
+## Answer
+
+Umgesetzt auf Start-HEAD `2da0f0d`. Neue Rename-Belege speichern neben Theme- und Registry-Hash die Kennzeichnung `raw-registry-updatedAt-excluded`; der Registry-Hash nutzt `variableRegistryContentHash` und lässt ausschließlich Regel-`updatedAt` aus. Undo wählt den Vergleich anhand der Kennzeichnung: neue Belege content-basiert, Belege ohne Kennzeichnung weiterhin über den vollständigen `canonicalHash`, unbekannte Kennzeichnungen ohne Inhaltsausnahme. Theme, alle Pages und die aktuellen Request-Versionen bleiben unverändert gebunden.
+
+Rot/grün belegt: Der neue Test `ignoriert bei neuen Rename-Belegen nur Regel-updatedAt und hält alte Belege streng` war vor der Änderung rot und deckt neue, alte und unbekannte Belege ab. `backup-restore.test.ts` prüft, dass Kennzeichnung und 64-stelliger Hash einen Backup/Restore überstehen.
+
+Gates am 05.11.2026: Engine-Memory 70 bestanden / 18 erwartete Skips in 5 Dateien; isoliertes PostgreSQL 88 bestanden / 0 Skips in 5 Dateien; Variablen-Browsertest 10 bestanden; `pnpm typecheck` und `pnpm lint` grün. Offen bleiben die historische Tokenmigration und atomare History-Sprünge als eigene Scheiben.
 
 ## Comments
 
