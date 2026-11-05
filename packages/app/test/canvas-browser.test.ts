@@ -223,6 +223,22 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       await expect.poll(headingText).toContain("Neu-");
       await expect.poll(async () => inlineLeaf.getAttribute("contenteditable")).toBeNull();
       await expect.poll(async () => (await probe()).canUndo).toBe(true);
+      // Opening the same text and cancelling without edits must not consume
+      // the previously committed text step.
+      await inlineLeaf.dblclick();
+      await tab.keyboard.press("Escape");
+      await expect.poll(async () => (await probe()).canUndo).toBe(true);
+      const firstText = await headingText();
+      await inlineLeaf.dblclick();
+      await inlineLeaf.pressSequentially("Verworfen-");
+      await tab.keyboard.press("Escape");
+      await expect.poll(headingText).toBe(firstText);
+      await inlineLeaf.dblclick();
+      await inlineLeaf.pressSequentially("Zweiter-");
+      await tab.keyboard.press("Enter");
+      await expect.poll(headingText).toContain("Zweiter-");
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(headingText).toBe(firstText);
       await tab.locator('.senify-canvas__button[data-action="undo"]').click();
       await expect.poll(headingText).toBe("Katalogbaustein");
 

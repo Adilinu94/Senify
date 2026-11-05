@@ -45,6 +45,8 @@ import { firstChildId, resolveClick, selectionLabel } from "./selection.ts";
 import { locateParent } from "../state/document.ts";
 import { createDropController } from "./dnd-dom.ts";
 
+let inlineSessionCounter = 0;
+
 export type CanvasOptions = {
   store: EditorStore;
   registry: Registry;
@@ -595,6 +597,9 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     key: string;
     original: string;
     element: DomElement;
+    coalesceKey: string;
+    historyEntryId: string | null;
+    historyInterleaved: boolean;
   } | null = null;
 
   function inlineTargetOf(
@@ -618,7 +623,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     if (session === null) return;
     try {
       // A no-op value produces no patch and no history entry (the store gate).
-      store.apply(
+      const result = store.apply(
         {
           op: "setNodeProp",
           id: session.nodeId,
@@ -626,10 +631,15 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
           value: sanitizeInlineText(value),
         },
         {
-          coalesceKey: typingCoalesceKey(session.nodeId, session.key),
+          coalesceKey: session.coalesceKey,
           label: "Text bearbeiten",
         },
       );
+      if (result.changed) {
+        const entry = store.history.top();
+        if (session.historyEntryId === null) session.historyEntryId = entry?.id ?? null;
+        else if (entry?.id !== session.historyEntryId) session.historyInterleaved = true;
+      }
     } catch (error) {
       message(error instanceof Error ? error.message : "Text konnte nicht gespeichert werden.");
     }
@@ -637,11 +647,15 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
 
   function startInline(target: { element: DomElement; nodeId: string; key: string }): void {
     finishInline();
+    inlineSessionCounter += 1;
     inlineSession = {
       nodeId: target.nodeId,
       key: target.key,
       original: target.element.textContent ?? "",
       element: target.element,
+      coalesceKey: `${typingCoalesceKey(target.nodeId, target.key)}:inline:${inlineSessionCounter}`,
+      historyEntryId: null,
+      historyInterleaved: false,
     };
     target.element.setAttribute("contenteditable", "plaintext-only");
     target.element.focus?.();
@@ -662,6 +676,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   function revertInline(): void {
     const session = inlineSession;
     if (session === null) return;
+    const ownsTop = !session.historyInterleaved && session.historyEntryId !== null && store.history.top()?.id === session.historyEntryId;
     if (inlineValue() !== session.original) {
       store.apply(
         {
@@ -671,13 +686,13 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
           value: session.original,
         },
         {
-          coalesceKey: typingCoalesceKey(session.nodeId, session.key),
+          ...(ownsTop ? { coalesceKey: session.coalesceKey } : {}),
           label: "Text bearbeiten",
         },
       );
     }
     const top = store.history.top();
-    if (top !== null && top.coalesceKey === typingCoalesceKey(session.nodeId, session.key)) {
+    if (ownsTop && top?.id === session.historyEntryId) {
       store.history.remove(top.id);
     }
     session.element.textContent = session.original;
