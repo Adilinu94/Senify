@@ -93,7 +93,52 @@ describe("renaming global variables", () => {
         if (change === "theme") await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { extra: "#abcdef" } } } }, TEST_AUTHOR, renamed.version);
         if (change === "registry") await env.engine.store.createStyleRule(site.id, { name: "spaeter", styles: { color: { $token: "color.marke" } } }, TEST_AUTHOR);
         if (change === "pages") await createTestPage(env.api, site.id, { path: "/neu" });
-        await expect(env.engine.store.renameVariable(site.id, "color", "marke", { receiptId: `rename-guard-${change}-02`, newName: "marker", undoOf: renamed.receiptId, baseThemeVersion: renamed.version, pageContext: { pageId: page.id, baseDraftVersion: renamed.pageDraftVersion } }, TEST_AUTHOR)).rejects.toThrow();
+        const currentTheme = await env.engine.store.getTheme(site.id);
+        await expect(env.engine.store.renameVariable(site.id, "color", "marke", { receiptId: `rename-guard-${change}-02`, newName: "marker", undoOf: renamed.receiptId, baseThemeVersion: currentTheme.version, pageContext: { pageId: page.id, baseDraftVersion: renamed.pageDraftVersion } }, TEST_AUTHOR)).rejects.toThrow(/zwischenzeitlichen Änderungen/);
+        expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marke: "#123456" });
+      }
+    } finally { await env.close(); }
+  });
+
+  it("allows undo after intervening edits are restored exactly", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Rückgängig nach weiteren Schritten");
+      const page = await createTestPage(env.api, site.id, { path: "/" });
+      const initial = await env.engine.store.getTheme(site.id);
+      const theme = await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { marker: "#123456" } } } }, TEST_AUTHOR, initial.version);
+      const renamed = await env.engine.store.renameVariable(site.id, "color", "marker", { receiptId: "rename-restored-state-1", newName: "marke", baseThemeVersion: theme.version, pageContext: { pageId: page.id, baseDraftVersion: page.draftVersion } }, TEST_AUTHOR);
+      const before = await env.engine.store.getPage(page.id);
+      await env.engine.store.updatePage(page.id, before.draftVersion, { draft: before.draft, title: "Zwischenstand", path: before.path });
+      const changed = await env.engine.store.getPage(page.id);
+      await env.engine.store.updatePage(page.id, changed.draftVersion, { draft: changed.draft, title: before.title, path: before.path });
+      const revertedPage = await env.engine.store.getPage(page.id);
+      const changedTheme = await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { marke: "#abcdef" } } } }, TEST_AUTHOR, renamed.version);
+      const revertedTheme = await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { marke: "#123456" } } } }, TEST_AUTHOR, changedTheme.version);
+      const undone = await env.engine.store.renameVariable(site.id, "color", "marke", { receiptId: "rename-restored-state-2", newName: "marker", undoOf: renamed.receiptId, baseThemeVersion: revertedTheme.version, pageContext: { pageId: page.id, baseDraftVersion: revertedPage.draftVersion } }, TEST_AUTHOR);
+      expect(undone.version).toBe(revertedTheme.version + 1);
+      expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marker: "#123456" });
+      expect((await env.engine.store.getPage(page.id)).title).toBe(before.title);
+    } finally { await env.close(); }
+  });
+
+  it("rejects changed page metadata and legacy receipts when versions have advanced", async () => {
+    const env = await bootEngine();
+    try {
+      for (const change of ["title", "path", "meta", "legacy", "partial"] as const) {
+        const site = await createTestSite(env.api, `Prüfung ${change}`);
+        const page = await createTestPage(env.api, site.id, { path: "/" });
+        const initial = await env.engine.store.getTheme(site.id);
+        const theme = await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { marker: "#123456" } } } }, TEST_AUTHOR, initial.version);
+        const renamed = await env.engine.store.renameVariable(site.id, "color", "marker", { receiptId: `rename-content-${change}-1`, newName: "marke", baseThemeVersion: theme.version, pageContext: { pageId: page.id, baseDraftVersion: page.draftVersion } }, TEST_AUTHOR);
+        if (change === "title") await env.db.query(`UPDATE pages SET title = $2, draft_version = draft_version + 1 WHERE id = $1`, [page.id, "Anderer Titel"]);
+        if (change === "path") await env.db.query(`UPDATE pages SET path = $2, draft_version = draft_version + 1 WHERE id = $1`, [page.id, "/anders"]);
+        if (change === "meta") await env.db.query(`UPDATE pages SET meta = $2, draft_version = draft_version + 1 WHERE id = $1`, [page.id, JSON.stringify({ description: "Anderer Inhalt" })]);
+        if (change === "legacy" || change === "partial") {
+          await env.db.query(`UPDATE pages SET draft_version = draft_version + 1 WHERE id = $1`, [page.id]);
+          await env.db.query(`UPDATE theme_variable_renames SET resource_hashes = $2 WHERE id = $1`, [renamed.receiptId, change === "legacy" ? null : JSON.stringify({ theme: "invalid" })]);
+        }
+        await expect(env.engine.store.renameVariable(site.id, "color", "marke", { receiptId: `rename-content-${change}-2`, newName: "marker", undoOf: renamed.receiptId, baseThemeVersion: renamed.version, pageContext: { pageId: page.id, baseDraftVersion: renamed.pageDraftVersion + 1 } }, TEST_AUTHOR)).rejects.toThrow(/zwischenzeitlichen Änderungen/);
         expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marke: "#123456" });
       }
     } finally { await env.close(); }
@@ -109,11 +154,15 @@ describe("renaming global variables", () => {
       const body = { receiptId: "rename-migration-receipt-1", newName: "marke", baseThemeVersion: theme.version, pageContext: { pageId: page.id, baseDraftVersion: page.draftVersion } };
       const renamed = await env.engine.store.renameVariable(site.id, "color", "marker", body, TEST_AUTHOR);
       await env.db.query(`ALTER TABLE theme_variable_renames DROP COLUMN undo_of`);
+      await env.db.query(`ALTER TABLE theme_variable_renames DROP COLUMN resource_hashes`);
       if (process.env.TEST_DATABASE_URL) await ensureSchema(env.db);
       else {
         const migration = SCHEMA_STATEMENTS.find((statement) => statement.includes("ALTER TABLE theme_variable_renames ADD COLUMN IF NOT EXISTS undo_of"));
         expect(migration).toBeDefined();
         await env.db.query(migration!);
+        const hashesMigration = SCHEMA_STATEMENTS.find((statement) => statement.includes("ALTER TABLE theme_variable_renames ADD COLUMN IF NOT EXISTS resource_hashes"));
+        expect(hashesMigration).toBeDefined();
+        await env.db.query(hashesMigration!);
       }
       expect(await env.engine.store.renameVariable(site.id, "color", "marker", body, TEST_AUTHOR)).toEqual(renamed);
       const undone = await env.engine.store.renameVariable(site.id, "color", "marke", { receiptId: "rename-migration-receipt-2", newName: "marker", undoOf: renamed.receiptId, baseThemeVersion: renamed.version, pageContext: { pageId: page.id, baseDraftVersion: renamed.pageDraftVersion } }, TEST_AUTHOR);
@@ -179,7 +228,7 @@ describe("renaming global variables", () => {
         let blocked = false;
         while (Date.now() < deadline) {
           await tx.query(`SELECT pg_stat_clear_snapshot()`);
-          const activity = await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE 'SELECT id, draft, draft_version FROM pages WHERE site_id = % FOR UPDATE%'`);
+          const activity = await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE 'SELECT id, site_id, path, title, meta, draft, draft_version FROM pages WHERE site_id = % FOR UPDATE%'`);
           if (Number(activity.rows[0]?.count) > 0) { blocked = true; break; }
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
@@ -210,14 +259,15 @@ describe("renaming global variables", () => {
         let blocked = false;
         while (Date.now() < deadline) {
           await tx.query(`SELECT pg_stat_clear_snapshot()`);
-          const activity = await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE 'SELECT id, draft, draft_version FROM pages WHERE site_id = % FOR UPDATE%'`);
+          const activity = await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE 'SELECT id, site_id, path, title, meta, draft, draft_version FROM pages WHERE site_id = % FOR UPDATE%'`);
           if (Number(activity.rows[0]?.count) > 0) { blocked = true; break; }
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
         expect(blocked).toBe(true);
-        await tx.query(`UPDATE pages SET draft_version = draft_version + 1 WHERE id = $1`, [second.id]);
+        await tx.query(`UPDATE pages SET title = $2, draft_version = draft_version + 1 WHERE id = $1`, [second.id, "Parallel geändert"]);
       });
       expect((await operation)?.status).toBe(409);
+      expect((await env.engine.store.getPage(second.id)).title).toBe("Parallel geändert");
       expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marke: "#123456" });
     } finally { await env.close(); }
   }, 30000);

@@ -106,6 +106,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     new_name text NOT NULL,
     undo_of text,
     pages jsonb NOT NULL,
+    resource_hashes jsonb,
     registry_version integer NOT NULL,
     theme_version integer NOT NULL,
     created_at timestamptz NOT NULL
@@ -724,6 +725,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // site, not in a page draft. Additive and nullable: an installation from an
   // earlier ticket reads `NULL` and simply has no rules yet.
   `ALTER TABLE theme_variable_renames ADD COLUMN IF NOT EXISTS undo_of text`,
+  `ALTER TABLE theme_variable_renames ADD COLUMN IF NOT EXISTS resource_hashes jsonb`,
   `ALTER TABLE sites ADD COLUMN IF NOT EXISTS style_rules_json jsonb`,
   `ALTER TABLE sites ADD COLUMN IF NOT EXISTS style_rules_version integer NOT NULL DEFAULT 0`,
   // Design contract per site (E26, R9): the project's design DNA (constants/

@@ -48,6 +48,7 @@ import type { Db, DbClient, Row } from "./db.ts";
 import type { ImportReport } from "./imports-contract.ts";
 import { jsonColumns, tableNames } from "./db.ts";
 import {
+  canonicalHash,
   isRedesignProposalStatus,
   type DirectionCard,
   type DirectionDecision,
@@ -277,6 +278,11 @@ type ClassDeletionRow = {
 };
 
 type VariableDeletionPage = { pageId: string; version: number };
+type VariableRenamePage = VariableDeletionPage & { fingerprint?: string };
+type VariableRenamePageRow = { id: string; site_id: string; path: string; title: string; meta: unknown; draft: unknown; draft_version: unknown };
+function variableRenamePageHash(page: VariableRenamePageRow, draft: unknown = toJson<unknown>(page.draft)): string {
+  return canonicalHash({ id: page.id, siteId: page.site_id, path: page.path, title: page.title, meta: toJson<unknown>(page.meta), draft });
+}
 type VariableDeletionRow = {
   site_id: string; family: string; name: string; value: string; pages: unknown;
   registry_version: unknown; theme_version: unknown; restored_at: unknown;
@@ -284,7 +290,7 @@ type VariableDeletionRow = {
 
 type VariableRenameRow = {
   site_id: string; family: string; old_name: string; new_name: string; undo_of: string | null; pages: unknown;
-  registry_version: unknown; theme_version: unknown;
+  registry_version: unknown; theme_version: unknown; resource_hashes: unknown;
 };
 
 type PageRow = {
@@ -2439,7 +2445,7 @@ export class Store {
       const themes = await tx.query<ThemeRow>(`SELECT id, site_id, name, definition, version, created_at, updated_at FROM themes WHERE site_id = $1 FOR UPDATE`, [siteId]);
       const themeRow = themes.rows[0];
       if (!themeRow) throw new SenifyError("not_found", "Das Theme existiert nicht", { field: "siteId" });
-      const existing = await tx.query<VariableRenameRow>(`SELECT site_id, family, old_name, new_name, undo_of, pages, registry_version, theme_version FROM theme_variable_renames WHERE id = $1 FOR UPDATE`, [input.receiptId]);
+      const existing = await tx.query<VariableRenameRow>(`SELECT site_id, family, old_name, new_name, undo_of, pages, registry_version, theme_version, resource_hashes FROM theme_variable_renames WHERE id = $1 FOR UPDATE`, [input.receiptId]);
       const previous = existing.rows[0];
       if (previous) {
         const snapshots = toJson<VariableDeletionPage[]>(previous.pages);
@@ -2465,20 +2471,29 @@ export class Store {
       const rules = site.style_rules_json == null ? [] : toJson<unknown>(site.style_rules_json);
       const classReceipts = await tx.query<{ rule: unknown }>(`SELECT rule FROM style_class_deletions WHERE site_id = $1 AND restored_at IS NULL`, [siteId]);
       const variableReceipts = await tx.query<{ value: string }>(`SELECT value FROM theme_variable_deletions WHERE site_id = $1 AND restored_at IS NULL`, [siteId]);
-      const pages = await tx.query<{ id: string; draft: unknown; draft_version: unknown }>(`SELECT id, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`, [siteId]);
+      const pages = await tx.query<VariableRenamePageRow>(`SELECT id, site_id, path, title, meta, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`, [siteId]);
       const origin = pages.rows.find((page) => page.id === input.pageContext.pageId);
       if (!origin) throw new SenifyError("not_found", "Die Editor-Seite gehört nicht zum Projekt", { field: "pageContext.pageId" });
       const pageVersion = toFiniteNumber(origin.draft_version, "draft_version");
       if (pageVersion !== input.pageContext.baseDraftVersion) throw draftConflictError(input.pageContext.baseDraftVersion, pageVersion);
       if (input.undoOf !== undefined) {
-        const previousRenames = await tx.query<VariableRenameRow>(`SELECT site_id, family, old_name, new_name, undo_of, pages, registry_version, theme_version FROM theme_variable_renames WHERE id = $1 FOR UPDATE`, [input.undoOf]);
+        const previousRenames = await tx.query<VariableRenameRow>(`SELECT site_id, family, old_name, new_name, undo_of, pages, registry_version, theme_version, resource_hashes FROM theme_variable_renames WHERE id = $1 FOR UPDATE`, [input.undoOf]);
         const previousRename = previousRenames.rows[0];
-        const snapshots = previousRename ? toJson<VariableDeletionPage[]>(previousRename.pages) : undefined;
-        if (!previousRename || previousRename.site_id !== siteId || previousRename.family !== group || previousRename.old_name !== input.newName || previousRename.new_name !== name ||
-            toFiniteNumber(previousRename.theme_version, "theme_version") !== version ||
-            toFiniteNumber(previousRename.registry_version, "registry_version") !== toFiniteNumber(site.style_rules_version ?? 0, "style_rules_version") ||
-            !Array.isArray(snapshots) || snapshots.length !== pages.rows.length ||
-            pages.rows.some((page) => snapshots.find((entry) => entry.pageId === page.id)?.version !== toFiniteNumber(page.draft_version, "draft_version"))) {
+        const snapshots = previousRename ? toJson<VariableRenamePage[]>(previousRename.pages) : undefined;
+        const hashes = previousRename?.resource_hashes == null ? undefined : toJson<{ theme?: unknown; registry?: unknown }>(previousRename.resource_hashes);
+        const samePages = Array.isArray(snapshots) && snapshots.length === pages.rows.length && pages.rows.every((page) => snapshots.some((entry) => entry.pageId === page.id));
+        const sameVersions = previousRename && samePages &&
+          toFiniteNumber(previousRename.theme_version, "theme_version") === version &&
+          toFiniteNumber(previousRename.registry_version, "registry_version") === toFiniteNumber(site.style_rules_version ?? 0, "style_rules_version") &&
+          pages.rows.every((page) => snapshots.find((entry) => entry.pageId === page.id)?.version === toFiniteNumber(page.draft_version, "draft_version"));
+        const isHash = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+        const sameContent = samePages && hashes != null && isHash(hashes.theme) && isHash(hashes.registry) &&
+          hashes.theme === canonicalHash(theme) && hashes.registry === canonicalHash(rules) &&
+          pages.rows.every((page) => {
+            const fingerprint = snapshots.find((entry) => entry.pageId === page.id)?.fingerprint;
+            return isHash(fingerprint) && fingerprint === variableRenamePageHash(page);
+          });
+        if (!previousRename || previousRename.site_id !== siteId || previousRename.family !== group || previousRename.old_name !== input.newName || previousRename.new_name !== name || !(sameVersions || sameContent)) {
           throw new SenifyError("conflict", "Die Umbenennung kann nach zwischenzeitlichen Änderungen nicht rückgängig gemacht werden", { field: "undoOf" });
         }
       }
@@ -2517,17 +2532,17 @@ export class Store {
           ),
         });
         assertDraftShape(draft);
-        return { id: page.id, draft, version: toFiniteNumber(page.draft_version, "draft_version") + 1 };
+        return { id: page.id, draft, version: toFiniteNumber(page.draft_version, "draft_version") + 1, fingerprint: variableRenamePageHash(page, draft) };
       });
       const now = new Date().toISOString();
-      const snapshots: VariableDeletionPage[] = pageWrites.map((page) => ({ pageId: page.id, version: page.version }));
+      const snapshots: VariableRenamePage[] = pageWrites.map((page) => ({ pageId: page.id, version: page.version, fingerprint: page.fingerprint }));
       for (const page of pageWrites) {
         await tx.query(`UPDATE pages SET draft = $2, draft_version = draft_version + 1, updated_at = $3 WHERE id = $1`, [page.id, toJsonParam(page.draft), now]);
       }
       const registryVersion = toFiniteNumber(site.style_rules_version ?? 0, "style_rules_version") + 1;
       await tx.query(`UPDATE sites SET style_rules_json = $2, style_rules_version = $3, updated_at = $4 WHERE id = $1`, [siteId, toJsonParam(renamedRules), registryVersion, now]);
       await tx.query(`UPDATE themes SET definition = $2, version = version + 1, updated_at = $3 WHERE id = $1`, [themeRow.id, toJsonParam(renamedTheme), now]);
-      await tx.query(`INSERT INTO theme_variable_renames (id, site_id, family, old_name, new_name, undo_of, pages, registry_version, theme_version, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [input.receiptId, siteId, group, name, input.newName, input.undoOf ?? null, toJsonParam(snapshots), registryVersion, version + 1, now]);
+      await tx.query(`INSERT INTO theme_variable_renames (id, site_id, family, old_name, new_name, undo_of, pages, registry_version, theme_version, resource_hashes, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [input.receiptId, siteId, group, name, input.newName, input.undoOf ?? null, toJsonParam(snapshots), registryVersion, version + 1, toJsonParam({ theme: canonicalHash(renamedTheme), registry: canonicalHash(renamedRules) }), now]);
       const audit = buildAuditInsert([{ siteId, pageId: null, batchId: input.receiptId, opIndex: 0, mutation: "rename_variable", params: { family: group, from: name, to: input.newName, ...(input.undoOf === undefined ? {} : { undoOf: input.undoOf }) }, author, undoPatch: [], draftVersionAfter: version + 1 }]);
       await tx.query(audit.text, audit.params);
       return { receiptId: input.receiptId, version: version + 1, pageDraftVersion: pageVersion + 1, registryVersion };

@@ -140,7 +140,11 @@ describe("restore a backup", () => {
     expect((await restore(backup.id, { confirm: true })).status).toBe(200);
     expect(await env.engine.store.renameVariable(site.id, "color", "marker", input, author)).toEqual(renamed);
     expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marke: "#123456" });
-    const undo = { receiptId: "backup-rename-receipt-2", newName: "marker", undoOf: renamed.receiptId, baseThemeVersion: renamed.version, pageContext: { pageId: page.id, baseDraftVersion: renamed.pageDraftVersion } };
+    const restoredPage = await env.engine.store.getPage(page.id);
+    await env.engine.store.updatePage(page.id, restoredPage.draftVersion, { draft: restoredPage.draft, title: "Zwischenstand", path: restoredPage.path });
+    const editedPage = await env.engine.store.getPage(page.id);
+    const restoredVersion = await env.engine.store.updatePage(page.id, editedPage.draftVersion, { draft: editedPage.draft, title: restoredPage.title, path: restoredPage.path });
+    const undo = { receiptId: "backup-rename-receipt-2", newName: "marker", undoOf: renamed.receiptId, baseThemeVersion: renamed.version, pageContext: { pageId: page.id, baseDraftVersion: restoredVersion } };
     const undone = await env.engine.store.renameVariable(site.id, "color", "marke", undo, author);
     const undoBackup = await createBackup();
     await env.engine.store.renameVariable(site.id, "color", "marker", { receiptId: "backup-rename-receipt-3", newName: "marke", undoOf: undone.receiptId, baseThemeVersion: undone.version, pageContext: { pageId: page.id, baseDraftVersion: undone.pageDraftVersion } }, author);
