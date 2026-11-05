@@ -403,6 +403,11 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       await expect.poll(dividerCount).toBe(1);
       await tab.keyboard.press("Control+z");
       await expect.poll(dividerCount).toBe(2);
+      // Additive async API also falls back to the same local store without a session.
+      expect(await tab.evaluate(() => (globalThis as unknown as { __canvas: { redoAsync(): Promise<boolean> } }).__canvas.redoAsync())).toBe(true);
+      await expect.poll(dividerCount).toBe(1);
+      expect(await tab.evaluate(() => (globalThis as unknown as { __canvas: { undoAsync(): Promise<boolean> } }).__canvas.undoAsync())).toBe(true);
+      await expect.poll(dividerCount).toBe(2);
       await tab.keyboard.press("Escape");
       await expect.poll(async () => (await probe()).focus).toBe("root000001");
       await tab.keyboard.press("Enter");

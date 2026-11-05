@@ -32,6 +32,8 @@ import { applyEditorSkin, EDITOR_SKIN_DEFAULT } from "../ui/skin.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import { injectMotionRuntime, MOTION_VENDOR_BASE, profileLenis } from "../motion-inject.ts";
 import { EditorStore, typingCoalesceKey } from "../state/store.ts";
+import type { EditorSession } from "../state/session.ts";
+import type { HistoryDirection } from "../history.ts";
 import { copyNode, pasteNode } from "../state/clipboard.ts";
 import { sanitizeInlineText } from "../inline-text.ts";
 import { createHistoryDialog } from "../history/dialog.ts";
@@ -49,6 +51,8 @@ let inlineSessionCounter = 0;
 
 export type CanvasOptions = {
   store: EditorStore;
+  // Optional session navigation; it must own the same store as this canvas.
+  session?: EditorSession;
   registry: Registry;
   renderer?: FrameRenderer;
   // Extra stylesheets every frame loads (theme tokens, section styles).
@@ -106,6 +110,8 @@ export type CanvasInstance = {
   flashNodes(ids: string[]): void;
   undo(): boolean;
   redo(): boolean;
+  undoAsync(): Promise<boolean>;
+  redoAsync(): Promise<boolean>;
   state(): CanvasState;
   destroy(): void;
 };
@@ -185,6 +191,11 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
   const doc: DomDocument = hostDoc;
   const store = options.store;
+  const session = options.session;
+  if (session !== undefined && session.store !== store) {
+    throw new Error("Canvas und Session müssen denselben Store verwenden.");
+  }
+  let destroyed = false;
   const renderer = options.renderer ?? createReactRenderer();
   let theme = options.theme;
   let themeCss: string | undefined;
@@ -223,7 +234,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   const stage = create(doc, "div", "senify-canvas__stage");
   const overlay = create(doc, "div", "senify-canvas__overlay", { "data-role": "overlay" });
   const footer = create(doc, "div", "senify-canvas__footer");
-  const status = create(doc, "span", "senify-canvas__status", { "data-role": "status" });
+  const status = create(doc, "span", "senify-canvas__status", { "data-role": "status", role: "status", "aria-live": "polite" });
   root.appendChild(topbar);
   root.appendChild(catalogStripHost);
   root.appendChild(stage);
@@ -265,6 +276,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   });
 
   function message(value: string | null): void {
+    if (destroyed) return;
     status.textContent = value ?? "";
     options.onMessage?.(value);
   }
@@ -367,7 +379,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   });
   setIcon(undoButton, "undo", "Rückgängig");
   undoButton.addEventListener("click", () => {
-    if (store.undo()) message(null);
+    void navigateAsync("undo");
   });
   const redoButton = create(doc, "button", "senify-canvas__button", {
     type: "button",
@@ -375,8 +387,43 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   });
   setIcon(redoButton, "redo", "Wiederholen");
   redoButton.addEventListener("click", () => {
-    if (store.redo()) message(null);
+    void navigateAsync("redo");
   });
+  let historyMessage: string | null = null;
+  // The boolean API remains local and synchronous. External boundaries use
+  // the additive async API instead of silently moving the cursor locally.
+  function navigateLocal(direction: HistoryDirection): boolean {
+    if (destroyed || !(direction === "undo" ? store.canUndo : store.canRedo)) return false;
+    return direction === "undo" ? store.undo() : store.redo();
+  }
+
+  async function navigateAsync(direction: HistoryDirection): Promise<boolean> {
+    if (destroyed) return false;
+    try {
+      const changed = session === undefined ? navigateLocal(direction) : await (direction === "undo" ? session.undoAsync() : session.redoAsync());
+      const state = session?.externalHistoryState();
+      if (changed) message(null);
+      else if (state?.message) message(state.message);
+      return changed;
+    } catch (error) {
+      message(error instanceof Error ? error.message : "Verlaufsnavigation fehlgeschlagen. Bitte erneut prüfen.");
+      return false;
+    }
+  }
+
+  function updateHistoryChrome(): void {
+    for (const [button, enabled] of [[undoButton, session?.canUndoAsync ?? store.canUndo], [redoButton, session?.canRedoAsync ?? store.canRedo]] as const) {
+      if (enabled) button.removeAttribute("disabled");
+      else button.setAttribute("disabled", "");
+    }
+    const state = session?.externalHistoryState();
+    root.setAttribute("data-history-status", state?.status ?? "idle");
+    status.setAttribute("aria-busy", String(state?.status === "running"));
+    const nextMessage = state?.status === "running" ? "Verlauf wird geprüft …" : state?.message ?? null;
+    // Clear only our own completed status, never a newer message from another tool.
+    if (nextMessage !== null || (historyMessage !== null && status.textContent === historyMessage)) message(nextMessage);
+    historyMessage = nextMessage;
+  }
   // The history sheet (ticket 03 point 5): time + action per row, a click
   // jumps to that state through the ordinary undo/redo gate.
   const historyDialog = createHistoryDialog({ doc, store });
@@ -751,16 +798,12 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     }
     if (mod && key === "z") {
       event.preventDefault?.();
-      if (event.shiftKey === true) {
-        if (store.redo()) message(null);
-      } else if (store.undo()) {
-        message(null);
-      }
+      void navigateAsync(event.shiftKey === true ? "redo" : "undo");
       return;
     }
     if (mod && key === "y") {
       event.preventDefault?.();
-      if (store.redo()) message(null);
+      void navigateAsync("redo");
       return;
     }
     if (mod && key === "d") {
@@ -993,6 +1036,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
 
   function updateChrome(): void {
+    updateHistoryChrome();
     const selected = selectedId();
     root.setAttribute("data-mode", mode);
     stage.setAttribute("data-mode", mode);
@@ -1271,6 +1315,8 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     if (mode === "live") rebuildFrames();
     else refresh();
   });
+  // Runner registration and pipeline completion need no document event.
+  const unsubscribeSession = session?.subscribe(updateHistoryChrome);
 
   // The outer shortcut layer (Ticket 03 Punkt 7): the frame handler covers the
   // content focus, this one covers the editor chrome. Text entry keeps its own
@@ -1327,11 +1373,15 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       }
       markers.flash(flashIds(ids));
     },
-    undo: () => store.undo(),
-    redo: () => store.redo(),
+    undo: () => navigateLocal("undo"),
+    redo: () => navigateLocal("redo"),
+    undoAsync: () => navigateAsync("undo"),
+    redoAsync: () => navigateAsync("redo"),
     state: stateOf,
     destroy(): void {
+      destroyed = true;
       unsubscribe();
+      unsubscribeSession?.();
       cancelDeferred();
       doc.removeEventListener("keydown", onKeydown);
       global.removeEventListener?.("resize", onResize);

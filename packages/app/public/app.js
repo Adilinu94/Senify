@@ -5935,6 +5935,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
 
   const canvas = editor.mountCanvas(canvasHost, {
     store: session.store,
+    session,
     registry: editor.createRegistry(),
     renderer: editor.createReactRenderer({
       context: () => ({

@@ -45,7 +45,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       const heading = Object.values(saved.draft.nodes).find((node) => node.type === "heading")!;
       const canvasNode = tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator(`[data-node-id="${heading.id}"]`);
       await canvasNode.waitFor({ state: "attached" });
-      await tab.getByRole("button", { name: "Rückgängig", exact: true }).click();
+      expect(await tab.getByRole("button", { name: "Rückgängig", exact: true }).isDisabled()).toBe(true);
+      await tab.keyboard.press("Control+z");
       expect(await canvasNode.count()).toBe(1);
       await tab.getByRole("button", { name: "Verlauf", exact: true }).click();
       expect(await tab.locator(".senify-history__row").isDisabled()).toBe(true);
@@ -63,7 +64,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("tab", { name: "Variablen" }).click();
       await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).click();
       await tab.getByRole("status").getByText("Der Vorgang kann nicht sicher vorgemerkt werden.", { exact: false }).waitFor();
-      await tab.getByRole("button", { name: "Rückgängig", exact: true }).click();
+      expect(await tab.getByRole("button", { name: "Rückgängig", exact: true }).isDisabled()).toBe(true);
+      await tab.keyboard.press("Control+z");
       expect(await canvasNode.count()).toBe(1);
       await tab.evaluate(() => (globalThis as unknown as { restoreVariableStorage(): void }).restoreVariableStorage());
       await tab.unroute(endpoint);
@@ -81,11 +83,13 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("button", { name: "Verlauf", exact: true }).click();
       expect(await tab.locator(".senify-history__row").isDisabled()).toBe(true);
       await tab.getByRole("button", { name: "Verlauf schließen" }).click();
-      await tab.getByRole("button", { name: "Rückgängig", exact: true }).click();
+      expect(await tab.getByRole("button", { name: "Rückgängig", exact: true }).isDisabled()).toBe(true);
+      await tab.keyboard.press("Control+z");
       expect(await canvasNode.count()).toBe(1);
       release?.();
       await tab.getByRole("status").getByText("Stand inzwischen geändert").waitFor();
-      await tab.getByRole("button", { name: "Rückgängig", exact: true }).click();
+      expect(await tab.getByRole("button", { name: "Rückgängig", exact: true }).isDisabled()).toBe(true);
+      await tab.keyboard.press("Control+z");
       expect(await canvasNode.count()).toBe(1);
       await tab.getByRole("button", { name: "Prüfung beenden …", exact: true }).click();
       await tab.getByRole("button", { name: "Prüfung beenden und Editorstand laden", exact: true }).click();

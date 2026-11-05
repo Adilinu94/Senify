@@ -17,14 +17,15 @@ Alle offenen Punkte aus `HANDOFF-2026-11-05.md` in überprüfbaren Scheiben bear
 - Abgeschlossen 02: Unknown-/Retry-/Reload-Sperrerhalt einschließlich Dokumentwechsel und Storage-Fehler; gezielter History-/State-/Variablen-/Canvas-Gate, Typecheck, Lint und Doku-/Patch-Gate grün. Siehe Issue 02.
 - Abgeschlossen 03: additive Async-Session-Navigation für registrierte externe Einträge; Cursor, Dokument und Versionen gemeinsam erst nach Bestätigung. Gezielter History-/State-/Variablen-/Canvas-Gate, Typecheck und Lint grün; Gegenreview ohne verbleibende Befunde im Library-Scope. Siehe Issue 03.
 - Abgeschlossen 04: Backend-Delete/Restore-Vertrag für vollständig zurückgenommene Zwischenänderungen, feste Request-Basis und gespeicherte Restore-Ergebnisversionen. Rohinhaltsschutz der Registry nach rot/grüner Regression ergänzt; Migration/Backup, PostgreSQL-Konkurrenz und Rollback gegatet. Gegenreview ohne verbleibende Befunde im Backend-Scope; siehe Issue 04.
-- Nächste Scheibe: App-/Canvas-Anbindung für Delete/Restore mit gemischter History, persistierten Belegen, Retry, Reload und ausdrücklicher Recovery. Tokenmigration und atomare History-Sprünge bleiben separate Abnahmen.
+- Abgeschlossen 05: Canvas verwendet dieselbe Session für Toolbar und beide Shortcut-Ebenen; additive Async-Methoden, Sperren, Status und Cleanup im Browser gegatet. Gegenreview-Korrektur für stehenbleibenden Retry-Status rot/grün abgesichert; vollständiger vereinbarter Gate nach letztem Diff grün. Siehe Issue 05.
+- Nächste Scheibe: App-Anbindung für Delete/Restore mit gemischter History, persistierten Belegen, Retry, Reload und ausdrücklicher Recovery. Tokenmigration und atomare History-Sprünge bleiben separate Abnahmen.
 
 ## Abdeckung der Übergabe
 
 | Paket | Handoff | Status | Abnahme |
 |---|---|---|---|
 | Vorhandene externe History absichern | Arbeitsregeln, §56–75 | geprüfte Vorbereitung; siehe Issue 01 | History-, Store-, Pipeline-, Session- und Variablen-Browser-Tests; Typecheck, Lint, Doku-Gate, Patch-Gate |
-| Async Undo/Redo und History-Sprünge | §67–68, §73 | Library-Vertrag geprüft (Issue 03); App und atomare Sprünge offen | gemischte Page-/Klassen-/Token-Schritte; Cursor erst nach Bestätigung; Fehler ohne Teilnavigation |
+| Async Undo/Redo und History-Sprünge | §67–68, §73 | Library und Canvas geprüft (Issues 03, 05); App-Runner und atomare Sprünge offen | gemischte Page-/Klassen-/Token-Schritte; Cursor erst nach Bestätigung; Fehler ohne Teilnavigation |
 | Speicherreihenfolge und konkurrierende Eingaben | §69, §73 | Library-Schutz geprüft (Issue 03); durchgängiger App-Vertrag offen | laufende Pipeline, Eingabe während Anfrage, Fremdänderung und unvollständige Antwort |
 | Historische Token-Verweise und Rename | §70, §73 | offen | Forward- und Undo-Patches für Page, Klasse, Struktur, Breakpoint und Zustand in beiden Richtungen |
 | Belege, Antwortverlust, Reload und bewusster Ausweg | §71 | Sperrerhalt geprüft (Issue 02); gemeinsame History-Belege noch offen | Session Storage, Idempotenz, Retry, ältere Belege, Migration und Backup/Restore |
