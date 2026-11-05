@@ -92,7 +92,7 @@ describe("unused theme variables", () => {
       const site = await createTestSite(env.api, "Variablenbeleg mit Verweis");
       const page = await createTestPage(env.api, site.id);
       const initial = await env.engine.store.getTheme(site.id);
-      const theme = await env.engine.store.updateTheme(site.id, { tokens: { primitive: { spacing: { basis: "12px", abstand: "var(--space-basis)" } } } }, TEST_AUTHOR, initial.version);
+      const theme = await env.engine.store.updateTheme(site.id, { tokens: { primitive: { spacing: { basis: "12px", abstand: "VAR(--space-basis)" } } } }, TEST_AUTHOR, initial.version);
       const deleted = await env.engine.store.deleteUnusedVariable(site.id, "spacing", "abstand", { receiptId: "variable-receipt-0007", baseThemeVersion: theme.version, pageContext: { pageId: page.id, baseDraftVersion: page.draftVersion } }, TEST_AUTHOR);
       await expect(env.engine.store.deleteUnusedVariable(site.id, "spacing", "basis", { receiptId: "variable-receipt-0008", baseThemeVersion: deleted.version, pageContext: { pageId: page.id, baseDraftVersion: deleted.pageDraftVersion } }, TEST_AUTHOR)).rejects.toThrow(/Variablenwiederherstellung/);
       expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.spacing).toMatchObject({ basis: "12px" });

@@ -15,7 +15,7 @@ export function variableReference(family: string, name: string): { group: Variab
 // graph for arbitrary code, external components or dynamically built CSS.
 export function referencePaths(value: unknown, ref: string, cssVariable: string): string[] {
   const paths: string[] = [];
-  const cssReference = new RegExp(`var\\(\\s*${cssVariable}(?=\\s|,|\\))`);
+  const cssReference = new RegExp(`[vV][aA][rR]\\(\\s*${cssVariable}(?=\\s|,|\\))`);
   const visit = (item: unknown, path: string): void => {
     if (typeof item === "string") {
       if (cssReference.test(item)) paths.push(path);
@@ -34,6 +34,23 @@ export function referencePaths(value: unknown, ref: string, cssVariable: string)
   };
   visit(value, "");
   return paths;
+}
+
+// Rewrites the same direct reference forms that usage detection recognizes.
+// Object keys and unrelated token names are left untouched.
+export function renameVariableReferences<T>(value: T, family: string, oldName: string, newName: string): T {
+  const before = variableReference(family, oldName);
+  const after = variableReference(family, newName);
+  const cssReference = new RegExp(`([vV][aA][rR]\\(\\s*)${before.cssVariable}(?=\\s|,|\\))`, "g");
+  const visit = (item: unknown): unknown => {
+    if (typeof item === "string") return item.replace(cssReference, (_match, prefix: string) => `${prefix}${after.cssVariable}`);
+    if (item === null || typeof item !== "object") return item;
+    if (Array.isArray(item)) return item.map(visit);
+    return Object.fromEntries(Object.entries(item).map(([key, child]) => [key,
+      (key === "$token" || key === "$ref") && child === before.ref ? after.ref : visit(child),
+    ]));
+  };
+  return visit(value) as T;
 }
 
 export async function getVariableUsage(store: Store, siteId: string, family: string, name: string) {
