@@ -132,6 +132,40 @@ export type HistoryStackOptions = {
 
 export const HISTORY_LIMIT = 200;
 
+export type HistorySnapshot = { format: 1; entries: HistoryEntry[]; cursor: number };
+
+// Persisted history is data, never a live entry reference or pending lease.
+export function isHistoryData(value: unknown, depth = 0): boolean {
+  if (depth > 100) return false;
+  if (value === null || value === undefined || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((item) => isHistoryData(item, depth + 1));
+  if (typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  return Object.entries(value).every(([key, item]) => !["__proto__", "constructor", "prototype"].includes(key) && isHistoryData(item, depth + 1));
+}
+
+function checkedSnapshot(input: unknown, limit: number): HistorySnapshot {
+  const fail = (): never => { throw new SenifyError("validation", "Ungültiger History-Checkpoint", { field: "history" }); };
+  if (!isHistoryData(input) || input === null || typeof input !== "object") return fail();
+  const value = input as Partial<HistorySnapshot>;
+  if (value.format !== 1 || !Array.isArray(value.entries) || value.entries.length > limit ||
+      !Number.isSafeInteger(value.cursor) || value.cursor! < 0 || value.cursor! > value.entries.length) return fail();
+  const ids = new Set<string>();
+  for (const entry of value.entries) {
+    if (!entry || typeof entry.id !== "string" || entry.id.length === 0 || ids.has(entry.id) ||
+        typeof entry.label !== "string" || !Number.isFinite(entry.at) || typeof entry.op !== "string" || entry.op.length === 0 ||
+        !Array.isArray(entry.mutations) || !Array.isArray(entry.undoPatch) || entry.status !== "committed" ||
+        (entry.batchId !== null && typeof entry.batchId !== "string") ||
+        !Number.isSafeInteger(entry.versionBefore) || entry.versionBefore < 1 || !Number.isSafeInteger(entry.versionAfter) || entry.versionAfter < 1 ||
+        (entry.coalesceKey !== undefined && typeof entry.coalesceKey !== "string") ||
+        (entry.external !== undefined && typeof entry.external !== "boolean") ||
+        ((entry.external === true) !== (entry.op === "external")) ||
+        (entry.external && (entry.mutations.length > 0 || entry.undoPatch.length > 0))) return fail();
+    ids.add(entry.id);
+  }
+  return structuredClone(value as HistorySnapshot);
+}
+
 let fallbackCounter = 0;
 
 function defaultId(): string {
@@ -179,6 +213,28 @@ export class HistoryStack {
   // Oldest first, including the redoable future.
   entries(): HistoryEntry[] {
     return [...this.#entries];
+  }
+
+  snapshot(): HistorySnapshot {
+    if (this.#pendingExternal !== null) throw new SenifyError("conflict", "Ein externer Vorgang wird noch ausgeführt", { field: "history" });
+    return structuredClone({ format: 1, entries: this.#entries, cursor: this.#cursor });
+  }
+
+  restore(input: unknown): void {
+    if (this.#pendingExternal !== null) throw new SenifyError("conflict", "Ein externer Vorgang wird noch ausgeführt", { field: "history" });
+    const snapshot = checkedSnapshot(input, this.#limit);
+    this.#entries.splice(0, this.#entries.length, ...snapshot.entries);
+    this.#cursor = snapshot.cursor;
+    this.#canCoalesce = false;
+  }
+
+  #newId(): string {
+    const base = this.#idFactory();
+    const ids = new Set(this.#entries.map((entry) => entry.id));
+    if (this.#pendingExternal !== null) ids.add(this.#pendingExternal.id);
+    let id = base;
+    for (let suffix = 1; ids.has(id); suffix += 1) id = `${base}_${suffix}`;
+    return id;
   }
 
   top(): HistoryEntry | null {
@@ -239,7 +295,7 @@ export class HistoryStack {
       return previous;
     }
     const entry: HistoryEntry = {
-      id: this.#idFactory(),
+      id: this.#newId(),
       label: input.label,
       at: this.#now(),
       op: input.op,
@@ -271,7 +327,7 @@ export class HistoryStack {
     // resolved; commit inserts a non-local server-confirmed marker at the end.
     this.#canCoalesce = false;
     const entry: HistoryEntry = {
-      id: this.#idFactory(),
+      id: this.#newId(),
       label: input.label,
       at: this.#now(),
       op: input.op ?? "external",

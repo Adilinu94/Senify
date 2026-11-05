@@ -25,6 +25,7 @@ import {
 } from "./persist.ts";
 import type { EditorDocument } from "./document.ts";
 import { ExternalHistoryController, type ExternalHistoryRunner, type ExternalHistoryState } from "./external-history.ts";
+import { matchingHistoryCheckpoint, type SessionHistoryCheckpoint } from "./history-checkpoint.ts";
 import {
   DEFAULT_UI_STATE,
   loadUiState,
@@ -151,6 +152,22 @@ export class EditorSession {
   registerExternalHistory(entryId: string, runner: ExternalHistoryRunner): void { this.#externalHistory.register(entryId, runner); }
   retryExternalHistory(): Promise<boolean> { return this.#externalHistory.retry(); }
   externalHistoryState(): ExternalHistoryState { return this.#externalHistory.state(); }
+
+  historyCheckpoint(): SessionHistoryCheckpoint | null {
+    const save = this.saveState();
+    if (this.#disposed || this.pendingExternalId !== null || save.pending > 0 || save.unsupported.length > 0 || ["saving", "conflict", "error"].includes(save.status)) return null;
+    return structuredClone({ format: 1, pageId: this.pageId, siteId: this.siteId, versions: this.pipeline.externalVersions(), document: this.document, history: this.store.history.snapshot() });
+  }
+
+  restoreHistoryCheckpoint(input: unknown): boolean {
+    if (this.store.history.size > 0 || this.historyCheckpoint() === null) return false;
+    try {
+      const checkpoint = matchingHistoryCheckpoint(input, this.pageId, this.siteId, this.pipeline.externalVersions(), this.document);
+      if (checkpoint === null) return false;
+      this.store.restoreHistory(checkpoint.history);
+      return true;
+    } catch { return false; }
+  }
 
   beginExternalAction(input: ExternalRecordInput): HistoryEntry {
     return this.store.beginExternalAction(input);

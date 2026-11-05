@@ -28,6 +28,7 @@ import {
   type NodeId,
 } from "./document.ts";
 import { validateDocument } from "./consistency.ts";
+import { checkedEditorHistory } from "./history-checkpoint.ts";
 import { applyEditorMutation, type OperationResult } from "./operations.ts";
 import {
   applyDocumentPatches,
@@ -173,6 +174,13 @@ export class EditorStore {
 
   get canRedo(): boolean {
     return this.#history.canRedo;
+  }
+
+  restoreHistory(input: unknown): void {
+    if (this.#history.size > 0 || this.pendingExternalId !== null) throw new SenifyError("conflict", "Die aktuelle History darf nicht ersetzt werden", { field: "history" });
+    const snapshot = checkedEditorHistory(input, this.#document);
+    this.#history.restore(snapshot);
+    this.#emit();
   }
 
   // The single write gate. Returns the patches of the change, or `changed: false`

@@ -126,6 +126,7 @@ export {
   type HistoryEntry,
   type HistoryEntryStatus,
   type HistoryStackOptions,
+  type HistorySnapshot,
   type RecordInput,
   type ExternalRecordInput,
 } from "./history.ts";

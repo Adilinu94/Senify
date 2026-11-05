@@ -18,4 +18,5 @@ export * from "./components.ts";
 export * from "./persist.ts";
 export * from "./ui-state.ts";
 export * from "./session.ts";
+export type { SessionHistoryCheckpoint } from "./history-checkpoint.ts";
 export type { ExternalHistoryRequest, ExternalHistoryResult, ExternalHistoryRunner, ExternalHistoryState } from "./external-history.ts";
