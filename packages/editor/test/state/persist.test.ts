@@ -237,6 +237,29 @@ describe("save pipeline", () => {
     pipeline.dispose();
   });
 
+  it("clears a save error when failed changes are explicitly discarded", async () => {
+    const store = baseStore();
+    let fail = true;
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4,
+      request: async () => fail ? { status: 500, body: { error: { message: "Nicht gespeichert" } } } : { status: 200, body: { newDraftVersion: 3 } },
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    await pipeline.flush();
+    expect(pipeline.state().status).toBe("error");
+    expect(pipeline.state().pending).toBeGreaterThan(0);
+    pipeline.discardPending();
+    store.replaceDocument(baseStore().document);
+    expect(pipeline.state().status).toBe("idle");
+    expect(pipeline.state().pending).toBe(0);
+    expect(pipeline.acceptExternalVersions(1, 4, 2, 5)).toBe(true);
+    fail = false;
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 32 });
+    await pipeline.flush();
+    expect(pipeline.state().status).toBe("saved");
+    pipeline.dispose();
+  });
+
   it("does not adopt external versions over unsupported local changes", () => {
     const store = baseStore();
     const listener = vi.spyOn(store, "setActionListener");

@@ -8,16 +8,16 @@
 | Gate | Kommando | Ergebnis und Umfang |
 |---|---|---|
 | Build, Typprüfung, Lint und Volltest | `pnpm verify` | **Grün am 05.11.2026** für die Undo-Umsetzung; danach folgten der gezielte Schutz reservierter Namen und die UI-Konfliktauflösung. |
-| Editor-Konfliktauflösung | `pnpm exec vitest run packages/app/test/variables-editor-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026** für die nachfolgenden UI-Änderungen, einschließlich Antwortverlust, konkurrierender Eingaben und Undo/Redo nach Neuladen. |
+| Editor-Konfliktauflösung | `pnpm exec vitest run packages/app/test/variables-editor-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026** für die nachfolgenden UI-Änderungen, einschließlich Antwortverlust, konkurrierender Eingaben und Undo/Redo nach Neuladen. Ein anschließender Pipeline-Fix wurde mit Pipeline- und Konflikt-Browsertests geprüft. |
 | Visueller Editor-Gate | `pnpm test:visual` | **Grün am 05.11.2026** nach den UI-Änderungen; die Desktop-Baselines decken nicht alle Variablenzustände ab. |
-| Coverage | `pnpm test:coverage` | **Grün am 05.11.2026** nach dem Schutz reservierter Namen; Messwerte siehe Coverage-Block. Die spätere Änderung betrifft App-Dateien außerhalb dieses Coverage-Laufs. |
+| Coverage | `pnpm test:coverage` | **Grün am 05.11.2026** nach dem Schutz reservierter Namen; Messwerte siehe Coverage-Block. Die spätere UI-Änderung und der anschließende Pipeline-Fix sind in diesem Lauf nicht enthalten. |
 | PostgreSQL, gezielt | `TEST_DATABASE_URL=… pnpm exec vitest run packages/engine/test/theme-variable-rename.test.ts packages/engine/test/backup-restore.test.ts --no-file-parallelism` | **Grün am 05.11.2026** gegen einen isolierten PostgreSQL-18.6-Cluster für Umbenennung, Undo, Migration, Konkurrenz und Rollback. Der Schutz reservierter Namen wurde danach gezielt in der In-Memory-Suite geprüft. |
 | Doku-Messwerte | `pnpm quality:render` und `pnpm quality:check` | **Grün am 05.11.2026**; der erzeugte Coverage-Block stimmt mit dem Messlauf überein. |
 | Parity und Import, separat | `pnpm verify:parity`, `pnpm verify:import` | Der hier zuvor dokumentierte separate Lauf vom 28.09.2026 ist historisch; für den aktuellen Editorstand wird daraus kein neuer Gate-Status abgeleitet. |
 
 ## Volltest
 
-Der letzte vollständige Lauf `pnpm verify` vom 05.11.2026 wurde vor dem nachträglichen Schutz reservierter Namen und der UI-Konfliktauflösung ausgeführt. Diese Änderungen wurden anschließend gezielt getestet; die Tabelle ist der Messstand dieses Volltests und keine Behauptung über einen späteren vollständigen Lauf.
+Der letzte vollständige Lauf `pnpm verify` vom 05.11.2026 wurde vor dem nachträglichen Schutz reservierter Namen, der UI-Konfliktauflösung und dem Pipeline-Fix ausgeführt. Diese Änderungen wurden anschließend gezielt getestet; die Tabelle ist der Messstand dieses Volltests und keine Behauptung über einen späteren vollständigen Lauf.
 
 | Kategorie | Anzahl | Bedeutung |
 |---|---:|---|

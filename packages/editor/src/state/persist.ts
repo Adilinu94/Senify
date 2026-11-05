@@ -678,7 +678,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     conflictVersion = undefined;
     conflictScope = undefined;
     paused = false;
-    if (status === "conflict") status = "idle";
+    if (status === "conflict" || status === "error") status = "idle";
     message = undefined;
     emit();
   };
