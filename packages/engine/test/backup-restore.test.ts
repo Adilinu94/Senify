@@ -165,7 +165,16 @@ describe("restore a backup", () => {
     const input = { receiptId: deleted.receiptId, baseThemeVersion: deleted.version, pageContext: { pageId: page.id, baseDraftVersion: deleted.pageDraftVersion } };
     await env.engine.store.restoreVariable(site.id, "color", "marker", input, author);
     expect((await restore(backup.id, { confirm: true })).status).toBe(200);
-    await env.engine.store.restoreVariable(site.id, "color", "marker", input, author);
+    const restoredPage = await env.engine.store.getPage(page.id);
+    const changedVersion = await env.engine.store.updatePage(page.id, restoredPage.draftVersion, { draft: restoredPage.draft, title: "Zwischenstand", path: restoredPage.path });
+    const revertedVersion = await env.engine.store.updatePage(page.id, changedVersion, { draft: restoredPage.draft, title: restoredPage.title, path: restoredPage.path });
+    const currentInput = { ...input, pageContext: { pageId: page.id, baseDraftVersion: revertedVersion } };
+    const restored = await env.engine.store.restoreVariable(site.id, "color", "marker", currentInput, author);
+    const restoredBackup = await createBackup();
+    await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { marker: "#abcdef" } } } }, author, restored.version);
+    expect((await restore(restoredBackup.id, { confirm: true })).status).toBe(200);
+    expect(await env.engine.store.restoreVariable(site.id, "color", "marker", currentInput, author)).toEqual(restored);
+    await expect(env.engine.store.restoreVariable(site.id, "color", "marker", input, author)).rejects.toThrow(/bereits wiederhergestellt/);
     expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marker: "#123456" });
     await env.engine.store.deleteSite(site.id);
   });

@@ -7,6 +7,7 @@
 
 | Gate | Kommando | Ergebnis und Umfang |
 |---|---|---|
+| Delete/Restore-History-Vertrag, Backend | `TEST_DATABASE_URL=… pnpm exec vitest run packages/engine/test/theme-variable-deletion.test.ts packages/engine/test/theme-variable-rename.test.ts packages/engine/test/backup-restore.test.ts packages/engine/test/db-schema.test.ts --no-file-parallelism` | **Grün am 05.11.2026**, 47 bestanden in 4 Dateien, keine Skips, gegen isoliertes PostgreSQL 18.6 nach der rot/grünen Rohregistry-Regression. Abgenommen: aktuelle Request-Basis, vollständig zurückgenommene Page-/Registry-/Theme-Änderungen, Legacy/Migration, Backup, konkurrierende Writes, paralleles identisches Restore und Rollback bei Beleg-/Auditfehler. In-Memory-/SQL-Gate derselben Delete-/Backup-Dateien plus `dialect-gate.test.ts`: 24 bestanden, 7 erwartete PostgreSQL-Skips in 3 Dateien. Bestehender Variablen-Browser-Gate: 10 bestanden. `pnpm typecheck` und `pnpm lint` nach dem letzten Code-/Testdiff grün. Kein neuer Gesamt-, Coverage-, Visual-, Parity-, Import- oder vollständiger PostgreSQL-Lane-Lauf. |
 | Serverbestätigte History, Library | `pnpm exec vitest run packages/editor/test/state/external-history.test.ts packages/editor/test/history.test.ts packages/editor/test/state/store.test.ts packages/editor/test/state/persist.test.ts packages/editor/test/state/session.test.ts packages/app/test/variables-editor-browser.test.ts packages/app/test/canvas-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026**, 117 bestanden in 7 Dateien nach rot/grünen Regressionen für atomare Beobachterbestätigung, ungültige Antworten, Ownership/Recovery und Registry-Belege. `pnpm typecheck`, `pnpm lint`, `pnpm quality:check` und `git diff --check` grün. App-/Canvas-Runner noch nicht angebunden; kein neuer Voll-, Coverage-, PostgreSQL-, Visual-, Parity- oder Importlauf für diese Scheibe. |
 | History-Sperrerhalt | `pnpm exec vitest run packages/app/test/variables-editor-browser.test.ts packages/app/test/canvas-browser.test.ts packages/editor/test/history.test.ts packages/editor/test/state/store.test.ts packages/editor/test/state/persist.test.ts packages/editor/test/state/session.test.ts --no-file-parallelism` | **Grün am 05.11.2026**, 91 bestanden in 6 Dateien nach den Unknown-/Reload-/Dokumentwechsel- und Storage-Retry-Korrekturen. Storage-Retry-Regression vorher gezielt rot. `pnpm typecheck` und `pnpm lint` danach grün. Kein Backend-Vertrag geändert; kein neuer Voll-, Coverage-, PostgreSQL- oder Paritätslauf. |
 | Externe History, Vorbereitung | `pnpm exec vitest run packages/editor/test/history.test.ts packages/editor/test/state/store.test.ts packages/editor/test/state/persist.test.ts packages/editor/test/state/session.test.ts packages/app/test/variables-editor-browser.test.ts packages/app/test/canvas-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026**, 89 bestanden in 6 Dateien. Danach Browser-Storage-Typisierung und eine Session-/Pipeline-Regression ergänzt: vier vollständige History-/State-Dateien erneut grün (79 bestanden), Retry-/Dialog-Browserfall erneut grün (gefilterter Lauf: 12 bestanden, 77 gezielt nicht ausgewählt). `pnpm typecheck` und `pnpm lint` danach grün. Kein neuer Voll-, Coverage-, PostgreSQL- oder Paritätslauf für diesen Diff. |
@@ -20,6 +21,8 @@
 
 ## Volltest
 
+Der Abschluss-Gate der Backend-Delete/Restore-Scheibe vom 05.11.2026 umfasst außerdem grüne Läufe von `pnpm quality:check` und `git diff --check` nach dem Dokumentationsabgleich. Das Graphify-Update ist AST-only und kein Produkt- oder Paritätsnachweis.
+
 Der letzte vollständige Lauf `pnpm verify` vom 05.11.2026 wurde vor dem nachträglichen Schutz reservierter Namen, der UI-Konfliktauflösung und dem Pipeline-Fix ausgeführt. Diese Änderungen wurden anschließend gezielt getestet; die Tabelle ist der Messstand dieses Volltests und keine Behauptung über einen späteren vollständigen Lauf.
 
 | Kategorie | Anzahl | Bedeutung |
@@ -30,7 +33,7 @@ Der letzte vollständige Lauf `pnpm verify` vom 05.11.2026 wurde vor dem nachtr�
 | fehlgeschlagen | 0 | gemessener Volltest |
 | Testdateien | 214 | 211 bestanden, 3 mit erwarteten Skips |
 
-Der PostgreSQL-Gate für die betroffenen Transaktionspfade lief separat gegen einen eigens initialisierten lokalen Cluster; der bereits laufende Systemdienst wurde nicht verändert. Der Testcluster wurde gestoppt.
+Die PostgreSQL-Gates für die betroffenen Transaktionspfade liefen separat gegen eigens initialisierte lokale Cluster; der bereits laufende Systemdienst wurde nicht verändert. Der frühere Rename-Cluster wurde gestoppt. Der isolierte Delete/Restore-Cluster bleibt nur bis zur nächsten erforderlichen Datenbank-Abnahme aktiv und wird danach gezielt gestoppt.
 
 ## Coverage-Gate (letzter Messlauf)
 
@@ -67,7 +70,7 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 
 ## Bekannte Grenzen
 
-- Die gezielten PostgreSQL-Tests vom 05.11.2026 decken die oben genannten Umbenennungs- und Backup-Pfade ab; sie ersetzen keinen erneuten vollständigen PostgreSQL-Gate. Die CI-Lane verwendet PostgreSQL 16.
+- Die gezielten PostgreSQL-Tests vom 05.11.2026 decken die oben genannten Delete-/Restore-, Umbenennungs- und Backup-Pfade ab; sie ersetzen keinen erneuten vollständigen PostgreSQL-Gate. Die CI-Lane verwendet PostgreSQL 16.
 - Der separate Parity- und Import-Gate wurde für die nachfolgenden Editoränderungen nicht erneut nachgewiesen.
 - Die Visual-Baselines liegen unter `packages/app/test/visual-baselines/`; Aktualisierung ist ein expliziter Vorgang über `UPDATE_VISUAL_SNAPSHOTS=1`.
 - Das Import-Tor nutzt eine kontrollierte Fixture; nicht alle echten Export-Fixtures durchlaufen es vollständig.

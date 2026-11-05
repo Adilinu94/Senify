@@ -16,7 +16,8 @@ Alle offenen Punkte aus `HANDOFF-2026-11-05.md` in überprüfbaren Scheiben bear
 - Vorbereitung in `b0f55cc` gesichert; Arbeitsbaum danach leer geprüft. Doku-/Patch-Gate grün.
 - Abgeschlossen 02: Unknown-/Retry-/Reload-Sperrerhalt einschließlich Dokumentwechsel und Storage-Fehler; gezielter History-/State-/Variablen-/Canvas-Gate, Typecheck, Lint und Doku-/Patch-Gate grün. Siehe Issue 02.
 - Abgeschlossen 03: additive Async-Session-Navigation für registrierte externe Einträge; Cursor, Dokument und Versionen gemeinsam erst nach Bestätigung. Gezielter History-/State-/Variablen-/Canvas-Gate, Typecheck und Lint grün; Gegenreview ohne verbleibende Befunde im Library-Scope. Siehe Issue 03.
-- Nächste Scheibe: Delete/Restore einschließlich Inhaltsgleichheit, idempotenter Request-Basis, Migration/Backup und PostgreSQL-Konkurrenz getrennt abnehmen; danach App-Integration. App-Belege, Tokenmigration und atomare History-Sprünge bleiben separate Abnahmen.
+- Abgeschlossen 04: Backend-Delete/Restore-Vertrag für vollständig zurückgenommene Zwischenänderungen, feste Request-Basis und gespeicherte Restore-Ergebnisversionen. Rohinhaltsschutz der Registry nach rot/grüner Regression ergänzt; Migration/Backup, PostgreSQL-Konkurrenz und Rollback gegatet. Gegenreview ohne verbleibende Befunde im Backend-Scope; siehe Issue 04.
+- Nächste Scheibe: App-/Canvas-Anbindung für Delete/Restore mit gemischter History, persistierten Belegen, Retry, Reload und ausdrücklicher Recovery. Tokenmigration und atomare History-Sprünge bleiben separate Abnahmen.
 
 ## Abdeckung der Übergabe
 
@@ -27,7 +28,7 @@ Alle offenen Punkte aus `HANDOFF-2026-11-05.md` in überprüfbaren Scheiben bear
 | Speicherreihenfolge und konkurrierende Eingaben | §69, §73 | Library-Schutz geprüft (Issue 03); durchgängiger App-Vertrag offen | laufende Pipeline, Eingabe während Anfrage, Fremdänderung und unvollständige Antwort |
 | Historische Token-Verweise und Rename | §70, §73 | offen | Forward- und Undo-Patches für Page, Klasse, Struktur, Breakpoint und Zustand in beiden Richtungen |
 | Belege, Antwortverlust, Reload und bewusster Ausweg | §71 | Sperrerhalt geprüft (Issue 02); gemeinsame History-Belege noch offen | Session Storage, Idempotenz, Retry, ältere Belege, Migration und Backup/Restore |
-| Delete/Restore getrennt abnehmen | §72 | offen | eigene Versions-/Inhaltsbedingungen, mehrere Pages, PostgreSQL-Sperren und Rollback |
+| Delete/Restore getrennt abnehmen | §72 | Backend geprüft (Issue 04); App-History offen | Versions-/Rohinhaltsbedingungen, Request-Bindung, mehrere Pages, Migration/Backup, PostgreSQL-Sperren und Rollback |
 | Referenzinventar festhalten | §79 | offen | installierte Core-Version, echte Abläufe und Screens; Pro ausdrücklich getrennt |
 | Katalog, Inspector, Navigator und Bedienung | §80 | offen | Controls, Einheiten, Zustände, Responsive, Komponenten, Interaktionen, Tastatur und Accessibility gegen Inventar |
 | Weitere Token-Typen und API-/Build-Konsistenz | §81 | offen | sichere Migration, Verwendung, Editor, MCP, Canvas und statischer Build |
