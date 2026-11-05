@@ -168,6 +168,18 @@ describe("undo / redo stack", () => {
     expect(history.entries().map((entry) => entry.id)).toEqual([keep.id]);
     expect(history.canRedo).toBe(false);
   });
+
+  it("does not merge a new step into an older group after an entry is removed", () => {
+    const history = new HistoryStack();
+    const base = { op: "inline-text" as const, mutations: [], undoPatch: [], batchId: null, versionBefore: 1, versionAfter: 2 };
+    const first = history.record({ ...base, label: "Erste Eingabe", coalesceKey: "text" });
+    const removed = history.record({ ...base, label: "Verworfen", coalesceKey: "anderes Feld" });
+    history.remove(removed.id);
+    const next = history.record({ ...base, label: "Neue Eingabe", coalesceKey: "text" });
+    expect(next.id).not.toBe(first.id);
+    expect(history.undo()?.id).toBe(next.id);
+    expect(history.undo()?.id).toBe(first.id);
+  });
 });
 
 describe("restore as draft", () => {

@@ -1,5 +1,7 @@
 # Aktueller Stand
 
+**Editor-History nach Undo/Redo:** Neue zusammengefasste Eingaben beginnen nach Undo, Redo oder dem Entfernen eines History-Eintrags eine eigene Gruppe. So stellt ein erneutes Undo den unmittelbar davor sichtbaren Stand wieder her (`packages/editor/src/history.ts`, `packages/editor/test/state/store.test.ts`).
+
 **Unklare Variablenvorgänge auflösen:** Ein nicht mehr bestätigbarer Lösch-, Wiederherstellungs- oder Umbenennungsvorgang kann nach ausdrücklicher Warnung beendet und der aktuelle Editorstand geladen werden. Laufende oder nicht speicherbare Editoränderungen verhindern das Ersetzen; Eingaben während des Ladevorgangs bleiben erhalten. Nicht gespeicherte Werte für inzwischen fehlende Variablen bleiben während der Sitzung sichtbar (`packages/app/public/app.js`, `packages/app/test/variables-editor-browser.test.ts`). Beim bewussten Beenden können Zuordnung zum Rückgängig und Editor-History verloren gehen.
 
 **Undo nach Variablenumbenennung:** Für neue Umbenennungsbelege ist Undo auch nach vollständig zurückgenommenen Zwischenänderungen möglich, wenn Theme, Klassen und sämtliche Seiten einschließlich Metadaten inhaltlich dem gespeicherten Stand entsprechen. Inhaltliche Abweichungen und veränderte Seitenlisten blockieren weiter; ältere Belege ohne Inhaltsnachweis bleiben an die Versionsprüfung gebunden (`packages/engine/src/store.ts`, `packages/engine/src/db.ts`, `packages/engine/test/theme-variable-rename.test.ts`, `packages/engine/test/backup-restore.test.ts`). Die Einbindung in die gemeinsame Editor-History bleibt offen.

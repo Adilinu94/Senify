@@ -124,6 +124,8 @@ function defaultId(): string {
 export class HistoryStack {
   readonly #entries: HistoryEntry[] = [];
   #cursor = 0;
+  // History navigation or removal ends the previous typing/drag burst.
+  #canCoalesce = false;
   readonly #limit: number;
   readonly #now: () => number;
   readonly #idFactory: () => string;
@@ -162,6 +164,7 @@ export class HistoryStack {
     const previous = this.#entries[this.#cursor - 1];
     if (
       previous &&
+      this.#canCoalesce &&
       input.coalesceKey !== undefined &&
       previous.coalesceKey === input.coalesceKey
     ) {
@@ -190,17 +193,20 @@ export class HistoryStack {
       this.#entries.shift();
     }
     this.#cursor = this.#entries.length;
+    this.#canCoalesce = true;
     return entry;
   }
 
   undo(): HistoryEntry | null {
     if (!this.canUndo) return null;
+    this.#canCoalesce = false;
     this.#cursor -= 1;
     return this.#entries[this.#cursor] ?? null;
   }
 
   redo(): HistoryEntry | null {
     if (!this.canRedo) return null;
+    this.#canCoalesce = false;
     const entry = this.#entries[this.#cursor] ?? null;
     this.#cursor += 1;
     return entry;
@@ -211,6 +217,7 @@ export class HistoryStack {
   remove(entryId: string): HistoryEntry | null {
     const index = this.#entries.findIndex((entry) => entry.id === entryId);
     if (index < 0) return null;
+    this.#canCoalesce = false;
     const [removed] = this.#entries.splice(index, 1);
     if (index < this.#cursor) this.#cursor -= 1;
     return removed ?? null;
@@ -255,5 +262,6 @@ export class HistoryStack {
   clear(): void {
     this.#entries.splice(0, this.#entries.length);
     this.#cursor = 0;
+    this.#canCoalesce = false;
   }
 }

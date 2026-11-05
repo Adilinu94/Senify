@@ -79,6 +79,31 @@ describe("store write gate", () => {
 });
 
 describe("coalescing", () => {
+  it("starts a new typing step after undo creates a branch", () => {
+    const store = baseStore();
+    const key = typingCoalesceKey("head000001", "text");
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Erste Eingabe" }, { coalesceKey: key });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Zwischenschritt" });
+    expect(store.undo()).toBe(true);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Neue Eingabe" }, { coalesceKey: key });
+    expect(store.canRedo).toBe(false);
+    expect(store.undo()).toBe(true);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("Erste Eingabe");
+    expect(store.undo()).toBe(true);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("Hallo");
+  });
+
+  it("starts a new typing step after undo and redo", () => {
+    const store = baseStore();
+    const key = typingCoalesceKey("head000001", "text");
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Erste Eingabe" }, { coalesceKey: key });
+    expect(store.undo()).toBe(true);
+    expect(store.redo()).toBe(true);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Neue Eingabe" }, { coalesceKey: key });
+    expect(store.undo()).toBe(true);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("Erste Eingabe");
+  });
+
   it("folds a typing burst into one undo entry", () => {
     const store = baseStore();
     const key = typingCoalesceKey("head000001", "text");
