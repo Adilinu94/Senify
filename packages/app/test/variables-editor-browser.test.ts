@@ -225,6 +225,28 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       expect(await tab.getByRole("textbox", { name: "Farbe farbe", exact: true }).inputValue()).toBe("#123456");
       const again = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as { draft: { nodes: Record<string, { props: { background: unknown } }> } };
       expect(again.draft.nodes.frame00001!.props.background).toEqual({ $token: "color.farbe" });
+      let undoAttempts = 0;
+      await tab.route(`**/api/sites/${site.id}/theme/variables/color/farbe/rename`, async (route) => {
+        undoAttempts += 1;
+        if (undoAttempts === 1) {
+          const upstream = await route.fetch();
+          expect(upstream.status()).toBe(200);
+          await route.fulfill({ status: 503, json: { error: { message: "Undo-Antwort verloren" } } });
+        } else await route.continue();
+      });
+      await tab.getByRole("button", { name: "Umbenennung von marke rückgängig" }).click();
+      await tab.getByRole("status").getByText("Undo-Antwort verloren").waitFor();
+      await tab.reload();
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).click();
+      await tab.getByRole("button", { name: "Umbenennung von marke wiederholen" }).waitFor();
+      expect(undoAttempts).toBe(2);
+      expect(await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).inputValue()).toBe("#123456");
+      await tab.getByRole("button", { name: "Umbenennung von marke wiederholen" }).click();
+      await tab.getByRole("button", { name: "Umbenennung von marke rückgängig" }).waitFor();
+      expect(await tab.getByRole("textbox", { name: "Farbe farbe", exact: true }).inputValue()).toBe("#123456");
+      const redone = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as { draft: { nodes: Record<string, { props: { background: unknown } }> } };
+      expect(redone.draft.nodes.frame00001!.props.background).toEqual({ $token: "color.farbe" });
     } finally {
       await browser.close();
       await running.close();

@@ -6239,6 +6239,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   let variableQuery = "";
   let variableSaving = false;
   let lastVariableDeletion = null;
+  let lastVariableRename = null;
   const pendingVariableKey = `senify:pending-variable:${siteId}:${pageId}`;
   let pendingVariableOperation = null;
   try {
@@ -6400,9 +6401,11 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         canvas.setTheme(latest.theme, latest.css);
         inspector.setTheme(latest.theme);
         if (operation.action === "delete") {
+          lastVariableRename = null;
           variableDrafts.delete(`${operation.group}.${operation.name}`);
           lastVariableDeletion = { group: operation.group, name: operation.name, receiptId: operation.body.receiptId, restored: false };
         } else if (operation.action === "restore") {
+          lastVariableRename = null;
           lastVariableDeletion = { group: operation.group, name: operation.name, receiptId: operation.body.receiptId, restored: true };
         } else {
           const oldKey = `${operation.group}.${operation.name}`;
@@ -6411,6 +6414,11 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
             variableDrafts.delete(oldKey);
           }
           lastVariableDeletion = null;
+          const history = operation.history;
+          const hasHistory = history && typeof history.original === "string" && typeof history.renamed === "string" && typeof history.undone === "boolean";
+          lastVariableRename = hasHistory
+            ? { group: operation.group, original: history.original, renamed: history.renamed, undone: history.undone, receiptId: operation.body.receiptId }
+            : { group: operation.group, original: operation.name, renamed: operation.body.newName, undone: false, receiptId: operation.body.receiptId };
         }
         pendingVariableOperation = null;
         try { window.sessionStorage.removeItem(pendingVariableKey); } catch { /* A replay remains idempotent. */ }
@@ -6463,6 +6471,24 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       });
       variablesHost.append(undo);
     }
+    if (lastVariableRename) {
+      const entry = lastVariableRename;
+      const label = entry.undone ? `Umbenennung von ${entry.original} wiederholen` : `Umbenennung von ${entry.original} rückgängig`;
+      const undo = el("button", { type: "button", text: label, "aria-label": label });
+      let operation = null;
+      undo.addEventListener("click", () => {
+        if (!canChangeVariable()) return;
+        const current = entry.undone ? entry.original : entry.renamed;
+        const next = entry.undone ? entry.renamed : entry.original;
+        if (variableDrafts.has(`${entry.group}.${current}`)) { status.textContent = "Bitte den geänderten Wert vor dem Umbenennen speichern."; return; }
+        operation ??= newVariableOperation("rename", entry.group, current, window.crypto.randomUUID());
+        operation.body.newName = next;
+        operation.body.undoOf = entry.receiptId;
+        operation.history = { original: entry.original, renamed: entry.renamed, undone: !entry.undone };
+        void runVariableOperation(operation);
+      });
+      variablesHost.append(undo);
+    }
     const appendUsage = (row, group, name) => {
       const label = group === "color" ? "Farbe" : "Abstand";
       const button = el("button", { type: "button", text: "Verwendung", "aria-label": `Verwendung von ${label} ${name} anzeigen` });
@@ -6498,7 +6524,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       const confirm = el("button", { type: "button", text: "Umbenennen bestätigen", "aria-label": `${label} ${name} umbenennen bestätigen` });
       const cancel = el("button", { type: "button", text: "Abbrechen", "aria-label": `Umbenennen von ${label} ${name} abbrechen` });
       const panel = el("div", { class: "canvas-view__variable-delete", hidden: true },
-        el("p", { text: "Erkannte Verweise in Seiten, Klassen und Theme werden geändert. Externe oder dynamische Verweise können fehlen. Die Editor-History wird neu geladen; ein eigenes Rückgängig ist noch nicht verfügbar." }), input, confirm, cancel);
+        el("p", { text: "Erkannte Verweise in Seiten, Klassen und Theme werden geändert. Externe oder dynamische Verweise können fehlen. Die Editor-History wird neu geladen. Rückgängig ist möglich, solange Theme, Klassen und Seiten unverändert bleiben." }), input, confirm, cancel);
       let operation = null;
       button.addEventListener("click", () => { panel.hidden = false; button.hidden = true; });
       cancel.addEventListener("click", () => { operation = null; panel.hidden = true; button.hidden = false; });

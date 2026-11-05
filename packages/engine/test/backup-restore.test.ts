@@ -140,6 +140,13 @@ describe("restore a backup", () => {
     expect((await restore(backup.id, { confirm: true })).status).toBe(200);
     expect(await env.engine.store.renameVariable(site.id, "color", "marker", input, author)).toEqual(renamed);
     expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marke: "#123456" });
+    const undo = { receiptId: "backup-rename-receipt-2", newName: "marker", undoOf: renamed.receiptId, baseThemeVersion: renamed.version, pageContext: { pageId: page.id, baseDraftVersion: renamed.pageDraftVersion } };
+    const undone = await env.engine.store.renameVariable(site.id, "color", "marke", undo, author);
+    const undoBackup = await createBackup();
+    await env.engine.store.renameVariable(site.id, "color", "marker", { receiptId: "backup-rename-receipt-3", newName: "marke", undoOf: undone.receiptId, baseThemeVersion: undone.version, pageContext: { pageId: page.id, baseDraftVersion: undone.pageDraftVersion } }, author);
+    expect((await restore(undoBackup.id, { confirm: true })).status).toBe(200);
+    expect(await env.engine.store.renameVariable(site.id, "color", "marke", undo, author)).toEqual(undone);
+    expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marker: "#123456" });
     await env.engine.store.deleteSite(site.id);
   });
 
