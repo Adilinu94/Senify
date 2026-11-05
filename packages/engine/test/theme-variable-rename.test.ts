@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { Store, type Db, type DbClient } from "@senify/engine";
+import { bakePages, Store, type Db, type DbClient } from "@senify/engine";
 import { bootEngine, createTestPage, createTestSite, TEST_AUTHOR } from "./helpers.ts";
 
 describe("renaming global variables", () => {
@@ -32,10 +34,20 @@ describe("renaming global variables", () => {
       expect(savedPage.draft.nodes[savedPage.draft.rootNodeId]!.props.margin).toBe("var(--space-weit)");
       expect((await env.engine.store.getPage(second.id)).draftVersion).toBe(second.draftVersion + 1);
       expect(JSON.stringify((await env.engine.store.getStyleRegistry(site.id)).rules)).toContain('"$token":"spacing.weit"');
+      const built = await bakePages(env.engine.store, {
+        site: await env.engine.store.getSite(site.id), pages: await env.engine.store.listPageDrafts(site.id),
+        outDir: join(env.engine.dataDir, "rename-build"), dataDir: env.engine.dataDir,
+      });
+      const themeCss = readFileSync(join(built.outDir, "assets", "theme.css"), "utf8");
+      const rulesCss = readFileSync(join(built.outDir, "assets", "style-rules.css"), "utf8");
+      expect(themeCss).toContain("--space-weit");
+      expect(themeCss).not.toContain("--space-luft");
+      expect(rulesCss).toContain("var(--space-weit)");
+      expect(rulesCss).not.toContain("--space-luft");
       const conflict = await env.humanApi.request({ method: "POST", path, body: { ...body, newName: "anders" } });
       expect(conflict.status).toBe(409);
     } finally { await env.close(); }
-  });
+  }, 120_000);
 
   it("refuses names already referenced and stale page versions without partial updates", async () => {
     const env = await bootEngine();
