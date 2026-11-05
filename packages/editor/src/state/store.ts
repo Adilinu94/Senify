@@ -436,6 +436,15 @@ export class EditorStore {
     return this.#history.renameReferences(family, oldName, newName);
   }
 
+  // A document-changing external confirmation (for example a rename). The new
+  // document and the committed entry become visible in one store emit, so no
+  // observer sees the new base while the lease is still pending.
+  replaceDocumentAndCommitExternal(id: string, document: EditorDocument, versionAfter: number): void {
+    this.#document = document;
+    this.#selection = EMPTY_SELECTION;
+    this.commitExternalAction(id, { versionAfter });
+  }
+
   // Explicit recovery resolves only its own lease. No observer can write
   // between clearing the old history and installing the replacement.
   resetExternalHistory(id: string, document: EditorDocument): void {

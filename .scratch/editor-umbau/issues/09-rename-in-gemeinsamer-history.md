@@ -15,8 +15,10 @@ selbst als serverbestätigter Eintrag in der gemeinsamen History erscheinen.
 - [x] Verhalten der bestehenden Umbenennung und der lokalen History ist belegt.
 - [x] Verweise lassen sich in Forward- und Undo-Patches eindeutig erkennen.
 - [x] Sicherer Rückfall für nicht eindeutige CSS-Textverweise ist entschieden.
-- [ ] Pipeline kann eine dokumentändernde externe Bestätigung atomar übernehmen
-      (Dokument, Cursor und vollständiger Versionssatz gemeinsam).
+- [x] Pipeline kann eine dokumentändernde externe Bestätigung atomar übernehmen
+      (Dokument, Cursor und vollständiger Versionssatz gemeinsam):
+      `confirmExternalReplacement` / `replaceDocumentAndCommitExternal`, mit
+      zwei Tests für atomare Sichtbarkeit und abgewiesene Basis/Versionssprünge.
 
 ## Teil 09a – History erhalten und migrieren (umgesetzt)
 
@@ -38,20 +40,29 @@ Gate 09a:
 - Echter Browserfall: token-verweisender History-Eintrag, Umbenennung,
   anschließendes Undo/Redo mit `color.marke` statt `color.marker`.
 
-## Teil 09b – Umbenennung als History-Eintrag (offen)
+## Teil 09b – Umbenennung als History-Eintrag (Grundlage umgesetzt, Anbindung offen)
 
-Blockiert durch den fehlenden atomaren Bestätigungspfad:
+Die Pipeline kann einen Dokumentwechsel jetzt atomar mit dem externen Eintrag
+und allen Versionen bestätigen:
 
-- `confirmExternalAction` verlangt ein unverändertes Dokument und unveränderte
-  Registry-Version. Eine Umbenennung ändert Seiten-Draft, Theme und ggf. die
-  Registry.
-- Nötig ist eine Pipeline-Methode, die Dokumentwechsel, Theme-, Registry- und
-  Seitenversion sowie das Commit des externen Eintrags vor jeder Observer-
-  Notification gemeinsam übernimmt.
-- Danach: Rename-Receipt mit `oldName`/`newName`/Ketten-`receiptId`,
-  Navigation über Undo (`new→old`) und Redo (`old→new`) mit `undoOf`, Reload-
-  und Retry-Vertrag, Statusmeldungen und Ersatz des getrennten Undo/Redo-
-  Knopfs.
+- `EditorStore.replaceDocumentAndCommitExternal(id, document, versionAfter)`
+  setzt Dokument und Commit in einem Store-Emit.
+- `SavePipeline.confirmExternalReplacement(...)` prüft Basis, saubere Pipeline,
+  Seiten-/Theme-Sprung und höchstens einen Registry-Sprung und übernimmt dann
+  Dokument, Entry und Versionen gemeinsam.
+- `EditorSession.confirmExternalReplacement(...)` reicht das durch.
+- Zwei Tests in `packages/editor/test/state/history-checkpoint.test.ts` sichern
+  die atomare Sichtbarkeit und die abgewiesene falsche Basis bzw. den
+  abgewiesenen Versionssprung.
+
+Noch offen ist die Anbindung:
+
+- Rename-Receipt mit `oldName`/`newName`/Ketten-`receiptId`.
+- Adapter-Navigation über Undo (`new→old`) und Redo (`old→new`) mit `undoOf`,
+  Reload- und Retry-Vertrag, Dokument-/Theme-Verifikation.
+- Ersatz des getrennten `lastVariableRename`-Undo/Redo-Knopfs durch die
+  gemeinsame History; der bestehende Rename-Browsertest muss auf die
+  History-Navigation umgestellt werden.
 
 ## Akzeptanz
 

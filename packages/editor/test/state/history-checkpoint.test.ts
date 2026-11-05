@@ -125,6 +125,38 @@ describe("geprüfte History-Checkpoints", () => {
     } finally { target.dispose(); }
   });
 
+  it("bestätigt einen Dokumentwechsel atomar mit Eintrag und allen Versionen", () => {
+    const target = session();
+    try {
+      const original = target.document;
+      const base = target.pipeline.externalVersions();
+      const entry = target.beginExternalAction({ label: "Variable umbenannt", versionBefore: 1, versionAfter: 1 });
+      const replacement = structuredClone(original);
+      replacement.nodes.head000001!.props.text = "color.marke";
+      const next = { pageVersion: 2, themeVersion: 2, registryVersion: 2 };
+      const seen: unknown[] = [];
+      target.subscribe(() => seen.push([target.document === replacement, target.pipeline.externalVersions(), target.pendingExternalId, target.store.history.top()?.status]));
+      expect(target.confirmExternalReplacement(entry.id, original, base, next, replacement)).toBe(true);
+      expect(seen).toEqual([[true, next, null, "committed"]]);
+      expect(target.document.nodes.head000001?.props.text).toBe("color.marke");
+      expect(target.saveState().pending).toBe(0);
+    } finally { target.dispose(); }
+  });
+
+  it("verweigert einen Dokumentwechsel ohne passende Basis oder Versionssprung", () => {
+    const target = session();
+    try {
+      const original = target.document;
+      const base = target.pipeline.externalVersions();
+      const entry = target.beginExternalAction({ label: "Variable umbenannt", versionBefore: 1, versionAfter: 1 });
+      const replacement = structuredClone(original);
+      expect(target.confirmExternalReplacement(entry.id, replacement, base, { pageVersion: 2, themeVersion: 2, registryVersion: 2 }, replacement)).toBe(false);
+      expect(target.confirmExternalReplacement(entry.id, original, base, { pageVersion: 2, themeVersion: 2, registryVersion: 4 }, replacement)).toBe(false);
+      expect(target.confirmExternalReplacement(entry.id, original, base, { pageVersion: 3, themeVersion: 3, registryVersion: 2 }, replacement)).toBe(false);
+      expect(target.pendingExternalId).toBe(entry.id);
+    } finally { target.dispose(); }
+  });
+
   it.each(["missing", "null", "malformed", "duplicate", "foreign", "invalid-id"])("verweigert unvollständige Klassenlöschbelege ohne History- oder Versionswrite (%s)", (fault) => {
     const source = baseStore();
     source.document.styleRules.push(classRule("rule000001", "accent"));

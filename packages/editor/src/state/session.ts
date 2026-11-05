@@ -192,6 +192,16 @@ export class EditorSession {
     } finally { this.#confirming = false; this.#emit(); }
   }
 
+  // Document-changing external confirmation (rename): new document, committed
+  // entry and all versions are adopted together.
+  confirmExternalReplacement(id: string, original: EditorDocument, base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>, document: EditorDocument): boolean {
+    if (this.#disposed) return false;
+    this.#confirming = true;
+    try {
+      return this.pipeline.confirmExternalReplacement(id, original, base, next, document);
+    } finally { this.#confirming = false; this.#emit(); }
+  }
+
   // The application must first confirm its idempotent request and all server
   // contents. A pending request alone is not authority to rebind a checkpoint.
   // This only imports into the fresh, empty session created by a reload.

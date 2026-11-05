@@ -157,6 +157,9 @@ export type SavePipeline = {
   acceptThemeVersion(version: number): void;
   acceptExternalVersions(basePageVersion: number, baseThemeVersion: number, pageVersion: number, themeVersion: number): boolean;
   confirmExternalAction(id: string, document: EditorDocument, base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>): boolean;
+  // A document-changing external confirmation (for example a rename). The new
+  // document, the committed entry and every version become visible together.
+  confirmExternalReplacement(id: string, original: EditorDocument, base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>, document: EditorDocument): boolean;
   confirmExternalHistoryRecovery(id: string, history: unknown, base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>, classDeletionReceipts?: unknown): boolean;
   resetExternalHistory(id: string, original: EditorDocument, base: Readonly<ExternalVersions>, document: EditorDocument, next: Readonly<ExternalVersions>, beforeCommit: () => void): boolean;
   // Adopt all versions and the store's reserved navigation before notifying
@@ -791,6 +794,21 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
       version = next.pageVersion;
       themeVersion = next.themeVersion!;
       store.commitExternalAction(id, { versionAfter: next.pageVersion });
+      emit();
+      return true;
+    },
+    confirmExternalReplacement(id, original, base, next, document) {
+      if (store.document !== original || !store.history.canCommitExternal(id) || running || pending.length > 0 || unsupported.size > 0 ||
+          status === "conflict" || status === "error" || version !== base.pageVersion || (themeVersion ?? null) !== base.themeVersion ||
+          (hasStyleRegistryVersion ? styleRegistryVersion : null) !== base.registryVersion ||
+          base.themeVersion === null || next.themeVersion === null || next.themeVersion !== base.themeVersion + 1 ||
+          next.pageVersion !== base.pageVersion + 1 || base.registryVersion === null || next.registryVersion === null ||
+          next.registryVersion < base.registryVersion || next.registryVersion > base.registryVersion + 1) return false;
+      version = next.pageVersion;
+      themeVersion = next.themeVersion;
+      styleRegistryVersion = next.registryVersion;
+      hasStyleRegistryVersion = true;
+      store.replaceDocumentAndCommitExternal(id, document, next.pageVersion);
       emit();
       return true;
     },
