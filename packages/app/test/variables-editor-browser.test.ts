@@ -103,6 +103,178 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
     }
   }, 120_000);
 
+  it("lets a user resolve an uncertain operation that now conflicts", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-variable-resolve-"));
+    const running = await startProgram({ db: database.db, dataDir, programTokenFile: join(dataDir, "token.json"), enginePort: 0, appPort: 0, openBrowser: false, reviewVisuals: false, rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 } });
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const request = (path: string, body: unknown, method = "POST") => fetch(`${running.dashboardUrl}${path}`, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const site = await (await request("/api/sites", { name: "Unklarer Vorgang" })).json() as { id: string };
+      const page = await (await request(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string };
+      expect((await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { marker: "#123456" } } } } }, "PUT")).status).toBe(200);
+      const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
+      await tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
+      let attempts = 0;
+      await tab.route(`**/api/sites/${site.id}/theme/variables/color/marker/delete`, async (route) => {
+        attempts += 1;
+        if (attempts === 1) await route.fulfill({ status: 503, json: { error: { message: "Antwort unklar" } } });
+        else await route.continue();
+      });
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen", exact: true }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
+      await tab.getByRole("status").getByText("Antwort unklar").waitFor();
+      expect((await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { extra: "#abcdef" } } } } }, "PUT")).status).toBe(200);
+      await tab.reload();
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).click();
+      await tab.getByRole("status").getByText("Die Variablen wurden zwischenzeitlich geändert", { exact: false }).waitFor();
+      await tab.getByRole("button", { name: "Prüfung beenden …" }).click();
+      await tab.getByText("Der Vorgang könnte ausgeführt worden sein.", { exact: false }).waitFor();
+      await tab.getByRole("button", { name: "Weiter prüfen" }).click();
+      expect(await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).count()).toBe(1);
+      await tab.getByRole("button", { name: "Prüfung beenden …" }).click();
+      await tab.getByRole("button", { name: "Prüfung beenden und Editorstand laden" }).click();
+      await tab.getByRole("status").getByText("Prüfung beendet.", { exact: false }).waitFor();
+      expect(await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).count()).toBe(0);
+      expect(await tab.getByRole("textbox", { name: "Farbe extra", exact: true }).inputValue()).toBe("#abcdef");
+      await tab.getByRole("textbox", { name: "Farbe marker", exact: true }).fill("#654321");
+      await tab.getByRole("button", { name: "Farbe marker speichern" }).click();
+      await tab.getByRole("status").getByText("Gespeichert").waitFor();
+      const saved = await (await fetch(`${running.dashboardUrl}/api/sites/${site.id}/theme`)).json() as { theme: { tokens: { primitive: { color: { marker: string } } } } };
+      expect(saved.theme.tokens.primitive.color.marker).toBe("#654321");
+    } finally {
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("does not discard an edit made while resolving an uncertain operation", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-variable-resolve-race-"));
+    const running = await startProgram({ db: database.db, dataDir, programTokenFile: join(dataDir, "token.json"), enginePort: 0, appPort: 0, openBrowser: false, reviewVisuals: false, rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 } });
+    const browser = await chromium.launch({ headless: true });
+    let release: (() => void) | undefined;
+    try {
+      const request = (path: string, body: unknown, method = "POST") => fetch(`${running.dashboardUrl}${path}`, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const site = await (await request("/api/sites", { name: "Auflösung parallel" })).json() as { id: string };
+      const page = await (await request(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string };
+      expect((await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { marker: "#123456" } } } } }, "PUT")).status).toBe(200);
+      const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
+      await tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
+      await tab.route(`**/api/sites/${site.id}/theme/variables/color/marker/delete`, (route) => route.fulfill({ status: 503, json: { error: { message: "Antwort unklar" } } }));
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen", exact: true }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
+      await tab.getByRole("status").getByText("Antwort unklar").waitFor();
+      let captured: (() => void) | undefined;
+      const requested = new Promise<void>((resolve) => { captured = resolve; });
+      const delayed = new Promise<void>((resolve) => { release = resolve; });
+      await tab.route(`**/api/pages/${page.id}`, async (route) => {
+        const upstream = await route.fetch();
+        captured?.();
+        await delayed;
+        await route.fulfill({ response: upstream });
+      });
+      await tab.getByRole("button", { name: "Prüfung beenden …" }).click();
+      await tab.getByRole("button", { name: "Prüfung beenden und Editorstand laden" }).click();
+      await requested;
+      await tab.getByRole("tab", { name: "Elemente" }).click();
+      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
+      release?.();
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("status").getByText("Der Editorstand hat sich inzwischen geändert.", { exact: false }).waitFor();
+      expect(await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).count()).toBe(1);
+      await tab.unroute(`**/api/pages/${page.id}`);
+      await tab.getByRole("button", { name: "Prüfung beenden und Editorstand laden" }).click();
+      await tab.getByRole("status").getByText("Prüfung beendet.", { exact: false }).waitFor();
+      const saved = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as { draft: { nodes: Record<string, { type: string }> } };
+      expect(Object.values(saved.draft.nodes).some((node) => node.type === "heading")).toBe(true);
+    } finally {
+      release?.();
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("keeps an unsaved value visible if the variable vanished during an uncertain operation", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-variable-orphan-"));
+    const running = await startProgram({ db: database.db, dataDir, programTokenFile: join(dataDir, "token.json"), enginePort: 0, appPort: 0, openBrowser: false, reviewVisuals: false, rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 } });
+    const browser = await chromium.launch({ headless: true });
+    let release: (() => void) | undefined;
+    try {
+      const request = (path: string, body: unknown, method = "POST") => fetch(`${running.dashboardUrl}${path}`, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const site = await (await request("/api/sites", { name: "Variablenentwurf" })).json() as { id: string };
+      const page = await (await request(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string };
+      expect((await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { marker: "#123456" } } } } }, "PUT")).status).toBe(200);
+      const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
+      await tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
+      let captured: (() => void) | undefined;
+      const committed = new Promise<void>((resolve) => { captured = resolve; });
+      const delayed = new Promise<void>((resolve) => { release = resolve; });
+      await tab.route(`**/api/sites/${site.id}/theme/variables/color/marker/delete`, async (route) => {
+        const upstream = await route.fetch();
+        expect(upstream.status()).toBe(200);
+        captured?.();
+        await delayed;
+        await route.fulfill({ status: 503, json: { error: { message: "Antwort unklar" } } });
+      });
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen", exact: true }).click();
+      await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
+      await committed;
+      await tab.getByRole("textbox", { name: "Farbe marker", exact: true }).fill("#abcdef");
+      release?.();
+      await tab.getByRole("status").getByText("Antwort unklar").waitFor();
+      await tab.getByRole("button", { name: "Prüfung beenden …" }).click();
+      await tab.getByRole("button", { name: "Prüfung beenden und Editorstand laden" }).click();
+      await tab.getByRole("status").getByText("Prüfung beendet.", { exact: false }).waitFor();
+      expect(await tab.getByRole("textbox", { name: "Nicht gespeicherter Wert für Farbe marker" }).inputValue()).toBe("#abcdef");
+      await tab.getByRole("button", { name: "Entwurf für Farbe marker entfernen" }).click();
+      expect(await tab.getByRole("textbox", { name: "Nicht gespeicherter Wert für Farbe marker" }).count()).toBe(0);
+      await tab.getByRole("textbox", { name: "Name der neuen Farbe" }).fill("zweiter");
+      await tab.getByRole("textbox", { name: "Wert der neuen Farbe" }).fill("#112233");
+      await tab.getByRole("button", { name: "Farbe hinzufügen" }).click();
+      await tab.getByRole("textbox", { name: "Farbe zweiter", exact: true }).waitFor();
+      let capturedSuccess: (() => void) | undefined;
+      const committedSuccess = new Promise<void>((resolve) => { capturedSuccess = resolve; });
+      const delayedSuccess = new Promise<void>((resolve) => { release = resolve; });
+      await tab.route(`**/api/sites/${site.id}/theme/variables/color/zweiter/delete`, async (route) => {
+        const upstream = await route.fetch();
+        expect(upstream.status()).toBe(200);
+        capturedSuccess?.();
+        await delayedSuccess;
+        await route.fulfill({ response: upstream });
+      });
+      await tab.getByRole("button", { name: "Farbe zweiter löschen", exact: true }).click();
+      await tab.getByRole("button", { name: "Farbe zweiter löschen bestätigen" }).click();
+      await committedSuccess;
+      await tab.getByRole("textbox", { name: "Farbe zweiter", exact: true }).fill("#445566");
+      release?.();
+      await tab.getByRole("status").getByText("Variable gelöscht.").waitFor();
+      expect(await tab.getByRole("textbox", { name: "Nicht gespeicherter Wert für Farbe zweiter" }).inputValue()).toBe("#445566");
+    } finally {
+      release?.();
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it("recovers an uncertain variable deletion after reloading the tab", async () => {
     const { chromium } = await import("playwright");
     const database = memoryDb();

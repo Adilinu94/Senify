@@ -3839,6 +3839,7 @@ body.is-editor .view.editor-view > .editor-host.canvas-view {
 .canvas-view__variable-usage:empty { display: none; }
 .canvas-view__variable-delete { grid-column: 1 / -1; color: var(--ui-editor-help); font-size: 11px; line-height: 1.5; }
 .canvas-view__variable-delete p { margin: 0 0 4px; }
+.canvas-view__variable-delete input[type="text"] { min-width: 0; width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid var(--ui-editor-line); border-radius: 3px; font: inherit; font-size: 12px; }
 .canvas-view__variable-delete button + button { margin-left: 4px; }
 .canvas-view__variable-create { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 14px; }
 .canvas-view__variable-create button { grid-column: 1 / -1; }

@@ -6282,6 +6282,25 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     reload.hidden = true;
     const statusBar = el("div", { class: "canvas-view__variables-status" }, status, reload);
     variablesHost.append(statusBar);
+    const missingDrafts = [...variableDrafts].filter(([key]) => {
+      const dot = key.indexOf(".");
+      const group = key.slice(0, dot);
+      const name = key.slice(dot + 1);
+      return !Object.hasOwn(group === "color" ? colors : spacings, name);
+    });
+    if (missingDrafts.length > 0) {
+      const drafts = el("div", { class: "canvas-view__variable-delete" }, el("p", { text: "Nicht gespeicherte Werte für nicht mehr vorhandene Variablen:" }));
+      for (const [key, value] of missingDrafts) {
+        const dot = key.indexOf(".");
+        const label = `${key.slice(0, dot) === "color" ? "Farbe" : "Abstand"} ${key.slice(dot + 1)}`;
+        const input = el("input", { type: "text", value, "aria-label": `Nicht gespeicherter Wert für ${label}` });
+        const remove = el("button", { type: "button", text: "Entwurf entfernen", "aria-label": `Entwurf für ${label} entfernen` });
+        input.addEventListener("input", () => variableDrafts.set(key, input.value));
+        remove.addEventListener("click", () => { variableDrafts.delete(key); renderVariables(); });
+        drafts.append(el("p", { text: label }), input, remove);
+      }
+      variablesHost.append(drafts);
+    }
     reload.addEventListener("click", async () => {
       reload.disabled = true;
       try {
@@ -6402,15 +6421,15 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         inspector.setTheme(latest.theme);
         if (operation.action === "delete") {
           lastVariableRename = null;
-          variableDrafts.delete(`${operation.group}.${operation.name}`);
           lastVariableDeletion = { group: operation.group, name: operation.name, receiptId: operation.body.receiptId, restored: false };
         } else if (operation.action === "restore") {
           lastVariableRename = null;
           lastVariableDeletion = { group: operation.group, name: operation.name, receiptId: operation.body.receiptId, restored: true };
         } else {
           const oldKey = `${operation.group}.${operation.name}`;
-          if (variableDrafts.has(oldKey)) {
-            variableDrafts.set(`${operation.group}.${operation.body.newName}`, variableDrafts.get(oldKey));
+          const newKey = `${operation.group}.${operation.body.newName}`;
+          if (variableDrafts.has(oldKey) && !variableDrafts.has(newKey)) {
+            variableDrafts.set(newKey, variableDrafts.get(oldKey));
             variableDrafts.delete(oldKey);
           }
           lastVariableDeletion = null;
@@ -6449,8 +6468,58 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     const showPendingVariableRetry = () => {
       if (!pendingVariableOperation || statusBar.querySelector("[data-variable-retry]")) return;
       const retry = el("button", { type: "button", text: "Ausstehenden Variablenvorgang prüfen", "data-variable-retry": "true" });
+      const stop = el("button", { type: "button", text: "Prüfung beenden …" });
+      const confirm = el("button", { type: "button", text: "Prüfung beenden und Editorstand laden" });
+      const cancel = el("button", { type: "button", text: "Weiter prüfen" });
+      const warning = el("div", { hidden: true },
+        el("p", { text: "Der Vorgang könnte ausgeführt worden sein. Die Zuordnung zum Rückgängig geht verloren und die Editor-History wird geleert. Offene Editoränderungen müssen vorher gespeichert oder geklärt sein." }), confirm, cancel);
       retry.addEventListener("click", () => void runVariableOperation(pendingVariableOperation));
-      statusBar.append(retry);
+      stop.addEventListener("click", () => { warning.hidden = false; stop.hidden = true; });
+      cancel.addEventListener("click", () => { warning.hidden = true; stop.hidden = false; });
+      confirm.addEventListener("click", async () => {
+        if (!pendingVariableOperation || variableSaving) return;
+        const before = session.saveState();
+        if (before.pending > 0 || before.unsupported.length > 0 || ["saving", "conflict", "error"].includes(before.status)) {
+          status.textContent = "Bitte zuerst offene Editoränderungen speichern oder ihren Konflikt klären.";
+          return;
+        }
+        const originalDocument = session.document;
+        const originalVersion = session.version;
+        const originalOperation = pendingVariableOperation;
+        variableSaving = true;
+        for (const item of variablesHost.querySelectorAll("button")) item.disabled = true;
+        status.textContent = "Editorstand wird geladen …";
+        try {
+          const [fresh, registry, theme] = await Promise.all([api(`/api/pages/${pageId}`), api(`/api/sites/${siteId}/style-rules`), api(`/api/sites/${siteId}/theme`)]);
+          if (!fresh.draft || !Number.isInteger(fresh.draftVersion) || !Array.isArray(registry.rules) || !Number.isInteger(registry.version) || !theme.theme || !Number.isInteger(theme.version)) {
+            throw new Error("Der aktuelle Editorstand konnte nicht geladen werden.");
+          }
+          const after = session.saveState();
+          if (pendingVariableOperation !== originalOperation || session.document !== originalDocument || session.version !== originalVersion || after.pending > 0 || after.unsupported.length > 0 || ["saving", "conflict", "error"].includes(after.status)) {
+            throw new Error("Der Editorstand hat sich inzwischen geändert. Bitte offene Änderungen prüfen und erneut versuchen.");
+          }
+          const loaded = editor.loadDocument(fresh.draft, { styleRules: registry.rules }).document;
+          window.sessionStorage.removeItem(pendingVariableKey);
+          pendingVariableOperation = null;
+          lastVariableDeletion = null;
+          lastVariableRename = null;
+          session.replaceDocument(loaded, fresh.draftVersion, registry.version);
+          session.acceptThemeVersion(theme.version);
+          siteTheme = theme.theme;
+          siteThemeVersion = theme.version;
+          canvas.setTheme(theme.theme, theme.css);
+          inspector.setTheme(theme.theme);
+          setVersion(fresh.draftVersion);
+          variableSaving = false;
+          renderVariables();
+          variablesHost.querySelector('[role="status"]').textContent = "Prüfung beendet. Der aktuelle Editorstand wurde geladen.";
+        } catch (error) {
+          variableSaving = false;
+          for (const item of variablesHost.querySelectorAll("button")) item.disabled = false;
+          status.textContent = error?.message ?? "Der Editorstand konnte nicht geladen werden.";
+        }
+      });
+      statusBar.append(retry, stop, warning);
     };
     showPendingVariableRetry();
     if (pendingVariableOperation) status.textContent = "Ein Variablenvorgang wurde noch nicht bestätigt. Bitte prüfe ihn.";
