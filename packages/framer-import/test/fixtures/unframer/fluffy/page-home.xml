@@ -1,0 +1,5 @@
+<Desktop nodeId="d" width="1200px">
+  <WaveBackground nodeId="n-wave" position="fixed" width="100%" height="100%" componentId="cc-wave" />
+  <FormPopup nodeId="n-form" position="fixed" width="100%" height="100%" componentId="cc-form" />
+  <Frame nodeId="n-ok"><Text nodeId="n-t" text="Hallo" /></Frame>
+</Desktop>

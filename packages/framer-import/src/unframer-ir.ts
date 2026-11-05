@@ -263,11 +263,18 @@ type UnframerTextStyle = {
   values: Record<string, string>;
 };
 
+type UnframerCodeComponent = {
+  codeFileId: string;
+  path: string;
+};
+
 type UnframerProject = {
   name: string | null;
   id: string | null;
   pages: { nodeId: string | null; path: string }[];
   components: Map<string, string>;
+  codeComponents: Map<string, UnframerCodeComponent>;
+  codeOverrides: Map<string, UnframerCodeComponent>;
   colors: Map<string, string>;
   textStyles: Map<string, UnframerTextStyle>;
   fonts: IrFontFace[];
@@ -332,6 +339,13 @@ function textValuesOf(element: UnframerElement): Record<string, string> {
   return values;
 }
 
+function readCodeComponent(element: UnframerElement): UnframerCodeComponent | null {
+  const codeFileId = (attrOf(element, "codeFileId") ?? "").trim();
+  const path = (attrOf(element, "path") ?? "").trim();
+  if (codeFileId === "" && path === "") return null;
+  return { codeFileId, path: path || codeFileId };
+}
+
 function readProject(xml: string): UnframerProject {
   const root = parseUnframerXml(xml, "projectXml");
   if (root.name.toLowerCase() !== "project") {
@@ -339,6 +353,8 @@ function readProject(xml: string): UnframerProject {
   }
   const pages: UnframerProject["pages"] = [];
   const components = new Map<string, string>();
+  const codeComponents = new Map<string, UnframerCodeComponent>();
+  const codeOverrides = new Map<string, UnframerCodeComponent>();
   const colors = new Map<string, string>();
   const textStyles = new Map<string, UnframerTextStyle>();
   const fonts = new Map<string, IrFontFace>();
@@ -356,6 +372,18 @@ function readProject(xml: string): UnframerProject {
           const nodeId = attrOf(component, "nodeId");
           const name = attrOf(component, "name") ?? component.name;
           if (nodeId !== null && name !== "") components.set(nodeId, name);
+        }
+        break;
+      case "codecomponents":
+        for (const component of group.children) {
+          const entry = readCodeComponent(component);
+          if (entry !== null && entry.codeFileId !== "") codeComponents.set(entry.codeFileId, entry);
+        }
+        break;
+      case "codeoverrides":
+        for (const component of group.children) {
+          const entry = readCodeComponent(component);
+          if (entry !== null && entry.codeFileId !== "") codeOverrides.set(entry.codeFileId, entry);
         }
         break;
       case "textstyles":
@@ -390,6 +418,8 @@ function readProject(xml: string): UnframerProject {
     id: attrOf(root, "id"),
     pages,
     components,
+    codeComponents,
+    codeOverrides,
     colors,
     textStyles,
     fonts: [...fonts.values()],
@@ -774,6 +804,8 @@ function componentTypeOf(
 ): string {
   const name = context.project.components.get(componentId);
   if (name !== undefined) return name;
+  const code = context.project.codeComponents.get(componentId);
+  if (code !== undefined) return code.path || attrOf(element, "name") || componentId;
   context.findings.push({
     kind: "unknown-node",
     nodeKey,
@@ -817,6 +849,7 @@ function mapElement(element: UnframerElement, context: MapContext): IrNode {
   const isImage = backgroundImage !== null || /image$/i.test(element.name);
   const hasText =
     hasTextAttributes || (element.children.length === 0 && element.text.trim() !== "" && !isImage);
+  const codeComponent = componentId === null ? undefined : context.project.codeComponents.get(componentId);
   // A link target on a frame or a component instance is a link: the mapper
   // keeps the target and the children (a card becomes a linked frame), while
   // a frame kind would drop the target silently. The component name travels
@@ -824,6 +857,7 @@ function mapElement(element: UnframerElement, context: MapContext): IrNode {
   let kind: IrNodeKind = "frame";
   if (isImage && element.children.length === 0) kind = "image";
   else if (href !== null) kind = "link";
+  else if (codeComponent !== undefined) kind = "placeholder";
   else if (componentId !== null) kind = "component-instance";
   else if (hasText) kind = "text";
   const state = stateOf(element, kind, key, context);
@@ -842,6 +876,24 @@ function mapElement(element: UnframerElement, context: MapContext): IrNode {
     stylesPresetId: attrOf(element, "inlineTextStyle"),
     svg: null,
   };
+  if (codeComponent !== undefined) {
+    // Gemessen an fluffy-rectangle-418998 (Unframer MCP 1.8.0, 05.11.2026):
+    // <CodeComponents>/<CodeComponent codeFileId path> + Instanzen mit
+    // componentId. readCodeFile liefert den Quelltext; propertyControls
+    // waren in den gemessenen Dateien nicht vorhanden. Ohne gebündelte
+    // Quelle bleibt es eine ehrliche Platte/Fund; Bündelung via
+    // readCodeFile ist im Import-Pfad nicht verdrahtet (ADR-0028, nur lesen).
+    context.findings.push({
+      kind: "code-component",
+      nodeKey: key,
+      message:
+        "Framer-Code-Komponente im Projekt-XML erkannt; als Platte übernommen, weil Quelle/Bündelung in diesem Lauf nicht vorliegen.",
+      evidence: `codeFileId=${codeComponent.codeFileId} path=${codeComponent.path}`,
+      severity: "warn",
+      suggestion:
+        "Code-Datei über readCodeFile (ADR-0028) prüfen; propertyControls/Section-Abbildung nur bei gemessener Controls-Quelle umsetzen.",
+    });
+  }
   if (kind === "image") {
     const url = imageUrlOf(backgroundImage ?? attrOf(element, "src") ?? "");
     if (url !== null) {

@@ -1,0 +1,12 @@
+<Project name="FluffyProbe">
+  <Pages><Page nodeId="pg1" path="/" /></Pages>
+  <Components><Component nodeId="c1" name="Nav" /></Components>
+  <CodeComponents>
+    <CodeComponent codeFileId="cc-wave" path="WaveBackground.tsx" />
+    <CodeComponent codeFileId="cc-form" path="FormPopup.tsx" />
+  </CodeComponents>
+  <CodeOverrides>
+    <CodeOverride codeFileId="ov-ex" path="Examples.tsx" />
+  </CodeOverrides>
+  <TextStyles /><ColorStyles />
+</Project>

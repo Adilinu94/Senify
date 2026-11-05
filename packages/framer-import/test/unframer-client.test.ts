@@ -110,11 +110,11 @@ describe("Unframer-Client: die Uebersetzung", () => {
     ]);
   });
 
-  it("reicht den Pfad an readCodeFile weiter", async () => {
+  it("reicht die codeFileId an readCodeFile weiter (MCP 1.8.0, gemessen 05.11.2026)", async () => {
     const { aufrufe, client: unframer } = client("export default function Counter() {}");
-    await expect(unframer.codeFile("components/Counter.tsx")).resolves.toContain("Counter");
+    await expect(unframer.codeFile("XaZJFM9")).resolves.toContain("Counter");
     expect(aufrufe).toEqual([
-      { tool: "readCodeFile", args: { path: "components/Counter.tsx" } },
+      { tool: "readCodeFile", args: { codeFileId: "XaZJFM9" } },
     ]);
   });
 
@@ -138,10 +138,10 @@ describe("Unframer-Client: Fehler sind Fehler, kein Rueckfall", () => {
     expect(aufrufe).toHaveLength(0);
   });
 
-  it("verlangt den Pfad einer Code-Datei", async () => {
+  it("verlangt die codeFileId einer Code-Datei", async () => {
     const { aufrufe, client: unframer } = client("x");
     const fehler = await ablehnung(unframer.codeFile(""));
-    expect(fehler.field).toBe("path");
+    expect(fehler.field).toBe("codeFileId");
     expect(aufrufe).toHaveLength(0);
   });
 

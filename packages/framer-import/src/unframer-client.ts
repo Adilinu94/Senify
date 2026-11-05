@@ -53,7 +53,10 @@ export type UnframerClient = {
   // Angabe alle, soweit das MCP das hergibt. Wie die Sammlungen unveraendert
   // als Text - gelesen wird die Antwort vom CMS-Mapping.
   cmsItems(collectionId?: string): Promise<string>;
-  codeFile(path: string): Promise<string>;
+  // `codeFileId` ist der MCP-Parameter (gemessen, MCP 1.8.0/fluffy-rectangle
+  // 05.11.2026: `readCodeFile` verlangt `codeFileId`; `path` wurde abgelehnt).
+  // Der Aufrufer reicht die Id aus `<CodeComponent codeFileId=...>` weiter.
+  codeFile(codeFileId: string): Promise<string>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -100,7 +103,7 @@ function requireXml(text: string, tool: UnframerReadTool): string {
 
 function requireArgument(
   value: string,
-  field: "nodeId" | "path",
+  field: "nodeId" | "codeFileId",
 ): string {
   if (value.trim() === "") {
     throw new SenifyError("validation", `"${field}" fehlt`, {
@@ -108,7 +111,7 @@ function requireArgument(
       suggestion:
         field === "nodeId"
           ? "Die nodeId steht im Projekt-XML (getProjectXml)."
-          : "Der Pfad kommt aus der Anleitung des MCP zu Code-Dateien.",
+          : "Die codeFileId steht im Projekt-XML (<CodeComponent codeFileId=...>).",
     });
   }
   return value;
@@ -164,7 +167,7 @@ export function createUnframerClient(input: UnframerClientInput): UnframerClient
           ? {}
           : { collectionId: collectionId.trim() },
       ),
-    codeFile: async (path) =>
-      read("readCodeFile", { path: requireArgument(path, "path") }),
+    codeFile: async (codeFileId) =>
+      read("readCodeFile", { codeFileId: requireArgument(codeFileId, "codeFileId") }),
   };
 }
