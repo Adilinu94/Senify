@@ -62,6 +62,7 @@ import {
   UpdateSiteBodySchema,
   UpdateStyleRuleBodySchema,
   VariableDeletionBodySchema,
+  VariableRenameBodySchema,
   type CreateStyleRuleBody,
   type DeleteGlobalClassBody,
   type DeleteStyleRuleBody,
@@ -72,6 +73,7 @@ import {
   type SiteEventBody,
   type UpdateStyleRuleBody,
   type VariableDeletionBody,
+  type VariableRenameBody,
 } from "./site-contract.ts";
 import {
   approveReview,
@@ -1640,6 +1642,15 @@ const ROUTES: Route[] = [
       status: 200,
       body: await getVariableUsage(context.store, requireParam(params, "siteId"), requireParam(params, "family"), requireParam(params, "name")),
     }),
+  },
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "theme", "variables", ":family", ":name", "rename"],
+    scope: "write",
+    handler: async (context, params, req, _url, auth) => {
+      const body = parseBody<VariableRenameBody>(VariableRenameBodySchema, (await readJsonBody(req)) ?? {}, "variable rename");
+      return { status: 200, body: await context.store.renameVariable(requireParam(params, "siteId"), requireParam(params, "family"), requireParam(params, "name"), body, resolveAuthor(auth)) };
+    },
   },
   {
     method: "POST",

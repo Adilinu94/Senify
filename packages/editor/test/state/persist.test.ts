@@ -237,6 +237,35 @@ describe("save pipeline", () => {
     pipeline.dispose();
   });
 
+  it("does not adopt external versions over unsupported local changes", () => {
+    const store = baseStore();
+    const listener = vi.spyOn(store, "setActionListener");
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4,
+      request: async () => ({ status: 200, body: {} }),
+    });
+    const action = listener.mock.calls[0]?.[0];
+    expect(action).toBeDefined();
+    action?.({ type: "apply", mutation: { op: "futureOperation" }, entry: {} } as unknown as Parameters<NonNullable<typeof action>>[0]);
+    expect(pipeline.state().unsupported).toEqual(["futureOperation"]);
+    pipeline.acceptThemeVersion(5);
+    expect(pipeline.acceptExternalVersions(1, 4, 2, 5)).toBe(false);
+    pipeline.discardPending();
+    expect(pipeline.state().unsupported).toEqual([]);
+    expect(pipeline.acceptExternalVersions(1, 4, 2, 5)).toBe(true);
+    pipeline.dispose();
+  });
+
+  it("persists directly requested breakpoint visibility changes", async () => {
+    const { store, pipeline, requests } = harness();
+    store.apply({ op: "setNodeHiddenDevices", id: "head000001", devices: ["mobile"] });
+    await pipeline.flush();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.body).toMatchObject({ mutations: [{ op: "setNodeHiddenDevices", id: "head000001", devices: ["mobile"] }] });
+    expect(pipeline.state().unsupported).toEqual([]);
+    pipeline.dispose();
+  });
+
   it("treats a class write with a stale theme as a theme conflict", async () => {
     const store = baseStore();
     const requests: SaveRequest[] = [];

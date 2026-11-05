@@ -127,6 +127,22 @@ function fingerprint(dir: string): string[] {
 }
 
 describe("restore a backup", () => {
+  it("preserves variable-rename receipts for idempotent retries", async () => {
+    const author = { kind: "human" as const, id: "tester", label: "Tester" };
+    const site = await createTestSite(env.api, "Variablenumbenennung im Backup");
+    const page = await createTestPage(env.api, site.id, { path: "/" });
+    const initial = await env.engine.store.getTheme(site.id);
+    const theme = await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { marker: "#123456" } } } }, author, initial.version);
+    const input = { receiptId: "backup-rename-receipt-1", newName: "marke", baseThemeVersion: theme.version, pageContext: { pageId: page.id, baseDraftVersion: page.draftVersion } };
+    const renamed = await env.engine.store.renameVariable(site.id, "color", "marker", input, author);
+    const backup = await createBackup();
+    await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { extra: "#abcdef" } } } }, author, renamed.version);
+    expect((await restore(backup.id, { confirm: true })).status).toBe(200);
+    expect(await env.engine.store.renameVariable(site.id, "color", "marker", input, author)).toEqual(renamed);
+    expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marke: "#123456" });
+    await env.engine.store.deleteSite(site.id);
+  });
+
   it("preserves variable-deletion receipts for later restoration", async () => {
     const author = { kind: "human" as const, id: "tester", label: "Tester" };
     const site = await createTestSite(env.api, "Variablenbeleg im Backup");

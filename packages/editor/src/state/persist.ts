@@ -156,6 +156,7 @@ const PAGE_OPS = new Set<string>([
   "setNodeProp",
   "clearNodeProp",
   "setNodeMeta",
+  "setNodeHiddenDevices",
   "setMotion",
   "clearMotion",
   "assignClass",
@@ -673,6 +674,7 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
 
   const discardPending = (): void => {
     pending = [];
+    unsupported.clear();
     conflictVersion = undefined;
     conflictScope = undefined;
     paused = false;
@@ -707,10 +709,10 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
     },
     // A newer theme must not silently bless edits queued under the old one.
     acceptThemeVersion(next) {
-      if (!running && pending.length === 0 && status !== "conflict") themeVersion = next;
+      if (!running && pending.length === 0 && unsupported.size === 0 && status !== "conflict") themeVersion = next;
     },
     acceptExternalVersions(basePageVersion, baseThemeVersion, pageVersion, nextThemeVersion) {
-      if (running || pending.length > 0 || status === "conflict" || status === "error" || version !== basePageVersion || themeVersion !== baseThemeVersion) return false;
+      if (running || pending.length > 0 || unsupported.size > 0 || status === "conflict" || status === "error" || version !== basePageVersion || themeVersion !== baseThemeVersion) return false;
       version = pageVersion;
       themeVersion = nextThemeVersion;
       emit();

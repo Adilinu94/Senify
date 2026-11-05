@@ -1,10 +1,10 @@
 # MCP-Routen-Matrix
 
-Stand: 2026-11-04 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und `packages/mcp/src/tools.ts` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
+Stand: 2026-11-05 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und `packages/mcp/src/tools.ts` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
 
 **Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.
 
-**Zahlen:** 178 Routen — 93 Tool, 1 Workflow-gebündelt, 84 Operator.
+**Zahlen:** 179 Routen — 93 Tool, 1 Workflow-gebündelt, 85 Operator.
 
 | Methode | Route | Scope | Status | MCP-Tool(s) / Anmerkung |
 |---|---|---|---|---|
@@ -24,6 +24,7 @@ Stand: 2026-11-04 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | GET | `/api/sites/:siteId/theme.css` | read | Operator | UI/CLI |
 | PUT | `/api/sites/:siteId/theme` | write | Tool | `update_theme` |
 | GET | `/api/sites/:siteId/theme/variables/:family/:name/usage` | read | Tool | `get_variable_usage` |
+| POST | `/api/sites/:siteId/theme/variables/:family/:name/rename` | write | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/theme/variables/:family/:name/delete` | publish | Operator | UI/CLI |
 | POST | `/api/sites/:siteId/theme/variables/:family/:name/restore` | write | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/theme/report` | read | Operator | UI/CLI |

@@ -6243,8 +6243,9 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   let pendingVariableOperation = null;
   try {
     const saved = JSON.parse(window.sessionStorage.getItem(pendingVariableKey) ?? "null");
-    if (saved && ["delete", "restore"].includes(saved.action) && ["color", "spacing"].includes(saved.group) &&
+    if (saved && ["delete", "restore", "rename"].includes(saved.action) && ["color", "spacing"].includes(saved.group) &&
         typeof saved.name === "string" && typeof saved.body?.receiptId === "string" &&
+        (saved.action !== "rename" || typeof saved.body?.newName === "string") &&
         Number.isInteger(saved.body?.baseThemeVersion) && saved.body?.pageContext?.pageId === pageId &&
         Number.isInteger(saved.body?.pageContext?.baseDraftVersion)) {
       saved.uncertain = true;
@@ -6299,6 +6300,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     const saveVariable = async (group, name, value, button) => {
       if (variableSaving) return;
       if (pendingVariableOperation) { status.textContent = "Bitte zuerst den ausstehenden Variablenvorgang prüfen."; return; }
+      if (session.saveState().unsupported.length > 0) { status.textContent = "Bitte zuerst nicht speicherbare Editoränderungen klären."; return; }
       if (group === "spacing" && !window.CSS.supports("padding", value)) {
         status.textContent = "Bitte einen gültigen Abstand eingeben, zum Beispiel 16px oder 1rem.";
         return;
@@ -6342,7 +6344,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         return false;
       }
       const save = session.saveState();
-      if (save.pending > 0 || save.status === "saving" || save.status === "conflict" || save.status === "error") {
+      if (save.pending > 0 || save.unsupported.length > 0 || save.status === "saving" || save.status === "conflict" || save.status === "error") {
         status.textContent = "Bitte zuerst offene Editoränderungen speichern oder ihren Konflikt klären.";
         return false;
       }
@@ -6358,21 +6360,41 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       }
       variableSaving = true;
       for (const item of variablesHost.querySelectorAll("button")) item.disabled = true;
-      status.textContent = operation.action === "delete" ? "Variable wird gelöscht …" : "Variable wird wiederhergestellt …";
+      status.textContent = operation.action === "delete" ? "Variable wird gelöscht …" : operation.action === "rename" ? "Variable wird umbenannt …" : "Variable wird wiederhergestellt …";
       try {
         const result = await api(`/api/sites/${siteId}/theme/variables/${operation.group}/${encodeURIComponent(operation.name)}/${operation.action}`, { method: "POST", body: operation.body });
         if (!Number.isInteger(result.version) || !Number.isInteger(result.pageDraftVersion) ||
             result.version !== operation.body.baseThemeVersion + 1 || result.pageDraftVersion !== operation.body.pageContext.baseDraftVersion + 1 ||
-            (operation.action === "delete" && result.receiptId !== operation.body.receiptId)) {
+            (["delete", "rename"].includes(operation.action) && result.receiptId !== operation.body.receiptId) ||
+            (operation.action === "rename" && !Number.isInteger(result.registryVersion))) {
           throw new Error("Der Server hat die Änderung nicht vollständig bestätigt. Bitte erneut versuchen.");
         }
         operation.uncertain = true;
-        const latest = await api(`/api/sites/${siteId}/theme`);
+        const [latest, fresh, registry] = await Promise.all([
+          api(`/api/sites/${siteId}/theme`),
+          operation.action === "rename" ? api(`/api/pages/${pageId}`) : null,
+          operation.action === "rename" ? api(`/api/sites/${siteId}/style-rules`) : null,
+        ]);
         if (!latest.theme || !Number.isInteger(latest.version) || latest.version < result.version) throw new Error("Der aktuelle Variablenstand konnte nicht geladen werden. Bitte erneut versuchen.");
+        if (operation.action === "rename" && (!fresh?.draft || !Number.isInteger(fresh.draftVersion) || !Array.isArray(registry?.rules) || !Number.isInteger(registry.version))) {
+          throw new Error("Der aktuelle Editorstand konnte nicht geladen werden. Bitte erneut versuchen.");
+        }
         const save = session.saveState();
-        const alreadyLoaded = session.version === result.pageDraftVersion && siteThemeVersion === result.version &&
-          save.pending === 0 && !["saving", "conflict", "error"].includes(save.status);
-        const accepted = latest.version === result.version && (alreadyLoaded || session.acceptExternalVersions(operation.body.pageContext.baseDraftVersion, operation.body.baseThemeVersion, result.pageDraftVersion, result.version));
+        const clean = save.pending === 0 && save.unsupported.length === 0 && !["saving", "conflict", "error"].includes(save.status);
+        const alreadyLoaded = session.version === result.pageDraftVersion && siteThemeVersion === result.version && clean;
+        let accepted;
+        if (operation.action === "rename") {
+          const unchanged = clean && session.version === operation.body.pageContext.baseDraftVersion && siteThemeVersion === operation.body.baseThemeVersion;
+          accepted = (unchanged || alreadyLoaded) && latest.version === result.version && fresh.draftVersion === result.pageDraftVersion && registry.version === result.registryVersion;
+          if (accepted) {
+            const loaded = editor.loadDocument(fresh.draft, { styleRules: registry.rules }).document;
+            session.replaceDocument(loaded, fresh.draftVersion, registry.version);
+            session.acceptThemeVersion(latest.version);
+            setVersion(fresh.draftVersion);
+          }
+        } else {
+          accepted = latest.version === result.version && (alreadyLoaded || session.acceptExternalVersions(operation.body.pageContext.baseDraftVersion, operation.body.baseThemeVersion, result.pageDraftVersion, result.version));
+        }
         siteTheme = latest.theme;
         siteThemeVersion = latest.version;
         canvas.setTheme(latest.theme, latest.css);
@@ -6380,13 +6402,22 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         if (operation.action === "delete") {
           variableDrafts.delete(`${operation.group}.${operation.name}`);
           lastVariableDeletion = { group: operation.group, name: operation.name, receiptId: operation.body.receiptId, restored: false };
-        } else lastVariableDeletion = { group: operation.group, name: operation.name, receiptId: operation.body.receiptId, restored: true };
+        } else if (operation.action === "restore") {
+          lastVariableDeletion = { group: operation.group, name: operation.name, receiptId: operation.body.receiptId, restored: true };
+        } else {
+          const oldKey = `${operation.group}.${operation.name}`;
+          if (variableDrafts.has(oldKey)) {
+            variableDrafts.set(`${operation.group}.${operation.body.newName}`, variableDrafts.get(oldKey));
+            variableDrafts.delete(oldKey);
+          }
+          lastVariableDeletion = null;
+        }
         pendingVariableOperation = null;
         try { window.sessionStorage.removeItem(pendingVariableKey); } catch { /* A replay remains idempotent. */ }
         variableSaving = false;
         renderVariables();
         variablesHost.querySelector('[role="status"]').textContent = accepted
-          ? (operation.action === "delete" ? "Variable gelöscht." : "Variable wiederhergestellt.")
+          ? (operation.action === "delete" ? "Variable gelöscht." : operation.action === "rename" ? "Variable umbenannt." : "Variable wiederhergestellt.")
           : "Änderung ausgeführt. Der Editorstand hat sich inzwischen geändert; bitte offene Änderungen prüfen.";
         if (!accepted) {
           const reloadEditor = el("button", { type: "button", text: "Editorstand laden (offene Änderungen verwerfen)" });
@@ -6460,6 +6491,29 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       });
       row.append(button, result);
     };
+    const appendRename = (row, group, name) => {
+      const label = group === "color" ? "Farbe" : "Abstand";
+      const button = el("button", { type: "button", text: "Umbenennen …", "aria-label": `${label} ${name} umbenennen` });
+      const input = el("input", { type: "text", value: name, "aria-label": `Neuer Name für ${label} ${name}` });
+      const confirm = el("button", { type: "button", text: "Umbenennen bestätigen", "aria-label": `${label} ${name} umbenennen bestätigen` });
+      const cancel = el("button", { type: "button", text: "Abbrechen", "aria-label": `Umbenennen von ${label} ${name} abbrechen` });
+      const panel = el("div", { class: "canvas-view__variable-delete", hidden: true },
+        el("p", { text: "Erkannte Verweise in Seiten, Klassen und Theme werden geändert. Externe oder dynamische Verweise können fehlen. Die Editor-History wird neu geladen; ein eigenes Rückgängig ist noch nicht verfügbar." }), input, confirm, cancel);
+      let operation = null;
+      button.addEventListener("click", () => { panel.hidden = false; button.hidden = true; });
+      cancel.addEventListener("click", () => { operation = null; panel.hidden = true; button.hidden = false; });
+      input.addEventListener("input", () => { if (!pendingVariableOperation) operation = null; });
+      confirm.addEventListener("click", () => {
+        if (variableDrafts.has(`${group}.${name}`)) { status.textContent = "Bitte den geänderten Wert vor dem Umbenennen speichern."; return; }
+        const newName = input.value.trim();
+        if (!/^[a-z][a-z0-9-]*$/.test(newName) || newName === name) { status.textContent = "Bitte einen anderen Namen mit Kleinbuchstaben, Zahlen und Bindestrichen eingeben."; return; }
+        if (!canChangeVariable()) return;
+        operation ??= newVariableOperation("rename", group, name, window.crypto.randomUUID());
+        operation.body.newName = newName;
+        void runVariableOperation(operation);
+      });
+      row.append(button, panel);
+    };
     const appendDelete = (row, group, name) => {
       const label = group === "color" ? "Farbe" : "Abstand";
       const button = el("button", { type: "button", text: "Löschen …", "aria-label": `${label} ${name} löschen` });
@@ -6491,6 +6545,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); button.click(); } });
       const row = el("div", { class: "canvas-view__variable-row" }, el("label", { text: name }), swatch, input, button);
       appendUsage(row, "color", name);
+      appendRename(row, "color", name);
       appendDelete(row, "color", name);
       variableRows.push({ name, element: row });
       list.append(row);
@@ -6516,6 +6571,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); save.click(); } });
       const row = el("div", { class: "canvas-view__variable-row canvas-view__variable-row--spacing" }, el("label", { text: key }), input, save);
       appendUsage(row, "spacing", key);
+      appendRename(row, "spacing", key);
       appendDelete(row, "spacing", key);
       variableRows.push({ name: key, element: row });
       spacingList.append(row);

@@ -38,19 +38,24 @@ export function referencePaths(value: unknown, ref: string, cssVariable: string)
 
 // Rewrites the same direct reference forms that usage detection recognizes.
 // Object keys and unrelated token names are left untouched.
-export function renameVariableReferences<T>(value: T, family: string, oldName: string, newName: string): T {
+export function renameVariableReferences<T>(value: T, family: string, oldName: string, newName: string, options: { allowCss?: (path: readonly string[], value: string) => boolean } = {}): T {
   const before = variableReference(family, oldName);
   const after = variableReference(family, newName);
   const cssReference = new RegExp(`([vV][aA][rR]\\(\\s*)${before.cssVariable}(?=\\s|,|\\))`, "g");
-  const visit = (item: unknown): unknown => {
-    if (typeof item === "string") return item.replace(cssReference, (_match, prefix: string) => `${prefix}${after.cssVariable}`);
+  const visit = (item: unknown, path: readonly string[]): unknown => {
+    if (typeof item === "string") return item.replace(cssReference, (_match, prefix: string) => {
+      if (options.allowCss && !options.allowCss(path, item)) {
+        throw new SenifyError("conflict", "Ein CSS-Verweis kann an dieser Stelle nicht sicher umbenannt werden", { field: path.join(".") });
+      }
+      return `${prefix}${after.cssVariable}`;
+    });
     if (item === null || typeof item !== "object") return item;
-    if (Array.isArray(item)) return item.map(visit);
+    if (Array.isArray(item)) return item.map((child, index) => visit(child, [...path, String(index)]));
     return Object.fromEntries(Object.entries(item).map(([key, child]) => [key,
-      (key === "$token" || key === "$ref") && child === before.ref ? after.ref : visit(child),
+      (key === "$token" || key === "$ref") && child === before.ref ? after.ref : visit(child, [...path, key]),
     ]));
   };
-  return visit(value) as T;
+  return visit(value, []) as T;
 }
 
 export async function getVariableUsage(store: Store, siteId: string, family: string, name: string) {

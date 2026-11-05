@@ -54,6 +54,55 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
     }
   }, 120_000);
 
+  it("preserves an editor change made while a variable rename is in flight", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-rename-race-"));
+    const running = await startProgram({ db: database.db, dataDir, programTokenFile: join(dataDir, "token.json"), enginePort: 0, appPort: 0, openBrowser: false, reviewVisuals: false, rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 } });
+    const browser = await chromium.launch({ headless: true });
+    let release: (() => void) | undefined;
+    try {
+      const request = (path: string, body: unknown, method = "POST") => fetch(`${running.dashboardUrl}${path}`, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const site = await (await request("/api/sites", { name: "Umbenennen parallel" })).json() as { id: string };
+      const page = await (await request(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string };
+      expect((await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { marker: "#123456" } } } } }, "PUT")).status).toBe(200);
+      const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
+      await tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
+      let captured: (() => void) | undefined;
+      const committed = new Promise<void>((resolve) => { captured = resolve; });
+      const delayed = new Promise<void>((resolve) => { release = resolve; });
+      await tab.route(`**/api/sites/${site.id}/theme/variables/color/marker/rename`, async (route) => {
+        const upstream = await route.fetch();
+        expect(upstream.status()).toBe(200);
+        captured?.();
+        await delayed;
+        await route.fulfill({ response: upstream });
+      });
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Farbe marker umbenennen", exact: true }).click();
+      await tab.getByRole("textbox", { name: "Neuer Name für Farbe marker" }).fill("marke");
+      await tab.getByRole("button", { name: "Farbe marker umbenennen bestätigen" }).click();
+      await committed;
+      await tab.getByRole("tab", { name: "Elemente" }).click();
+      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      const dialog = tab.locator('dialog[data-role="conflict-dialog"]');
+      await expect.poll(async () => dialog.getAttribute("open")).toBe("");
+      release?.();
+      await expect.poll(async () => dialog.locator("h2").textContent()).toBe("Klassen wurden inzwischen geändert");
+      const saved = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as { draft: { nodes: Record<string, { type: string }> } };
+      expect(Object.values(saved.draft.nodes).some((node) => node.type === "heading")).toBe(false);
+      await dialog.locator('[data-action="conflict-reload"]').click();
+      await expect.poll(async () => dialog.getAttribute("open")).toBeNull();
+    } finally {
+      release?.();
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it("recovers an uncertain variable deletion after reloading the tab", async () => {
     const { chromium } = await import("playwright");
     const database = memoryDb();
@@ -113,6 +162,69 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
       await tab.getByRole("status").getByText("Der Vorgang kann nicht sicher vorgemerkt werden.", { exact: false }).waitFor();
       expect(attempts).toBe(2);
+    } finally {
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("renames used variables and recovers the result after a lost response and reload", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-variable-rename-"));
+    const running = await startProgram({ db: database.db, dataDir, programTokenFile: join(dataDir, "token.json"), enginePort: 0, appPort: 0, openBrowser: false, reviewVisuals: false, rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 } });
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const request = (path: string, body: unknown, method = "POST") => fetch(`${running.dashboardUrl}${path}`, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const site = await (await request("/api/sites", { name: "Variable umbenennen" })).json() as { id: string };
+      const page = await (await request(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string; draftVersion: number; draft: { rootNodeId: string } };
+      expect((await request(`/api/sites/${site.id}/theme`, { theme: { tokens: { primitive: { color: { marker: "#123456" } } } } }, "PUT")).status).toBe(200);
+      expect((await request(`/api/pages/${page.id}/mutations`, { baseDraftVersion: page.draftVersion, mutations: [
+        { op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { id: "frame00001", type: "frame", props: { width: "100px", height: "50px", background: { $token: "color.marker" } } } },
+      ] })).status).toBe(200);
+      expect((await request(`/api/sites/${site.id}/style-rules`, { name: "marker-test", styles: { color: { $token: "color.marker" } } })).status).toBe(201);
+      const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
+      await tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
+      let attempts = 0;
+      await tab.route(`**/api/sites/${site.id}/theme/variables/color/marker/rename`, async (route) => {
+        attempts += 1;
+        if (attempts === 1) {
+          const upstream = await route.fetch();
+          expect(upstream.status()).toBe(200);
+          await route.fulfill({ status: 503, json: { error: { message: "Antwort verloren" } } });
+        } else await route.continue();
+      });
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Farbe marker umbenennen", exact: true }).click();
+      await tab.getByRole("textbox", { name: "Neuer Name für Farbe marker" }).fill("marke");
+      await tab.getByRole("button", { name: "Farbe marker umbenennen bestätigen" }).click();
+      await tab.getByRole("status").getByText("Antwort verloren").waitFor();
+      await tab.reload();
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).click();
+      await tab.getByRole("status").getByText("Variable umbenannt.").waitFor();
+      expect(attempts).toBe(2);
+      expect(await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).inputValue()).toBe("#123456");
+      expect(await tab.getByRole("textbox", { name: "Farbe marker", exact: true }).count()).toBe(0);
+      const node = tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="frame00001"]');
+      await expect.poll(() => node.evaluate((element) => {
+        const target = element as unknown as { ownerDocument: { defaultView: { getComputedStyle(node: unknown): { backgroundColor: string } } } };
+        return target.ownerDocument.defaultView.getComputedStyle(element).backgroundColor;
+      })).toBe("rgb(18, 52, 86)");
+      const saved = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as { draft: { nodes: Record<string, { props: { background: unknown } }> } };
+      expect(saved.draft.nodes.frame00001!.props.background).toEqual({ $token: "color.marke" });
+      const rules = await (await fetch(`${running.dashboardUrl}/api/sites/${site.id}/style-rules`)).json();
+      expect(JSON.stringify(rules)).toContain('"$token":"color.marke"');
+      await tab.getByRole("button", { name: "Farbe marke umbenennen", exact: true }).click();
+      await tab.getByRole("textbox", { name: "Neuer Name für Farbe marke" }).fill("farbe");
+      await tab.getByRole("button", { name: "Farbe marke umbenennen bestätigen" }).click();
+      await tab.getByRole("status").getByText("Variable umbenannt.").waitFor();
+      expect(await tab.getByRole("textbox", { name: "Farbe farbe", exact: true }).inputValue()).toBe("#123456");
+      const again = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as { draft: { nodes: Record<string, { props: { background: unknown } }> } };
+      expect(again.draft.nodes.frame00001!.props.background).toEqual({ $token: "color.farbe" });
     } finally {
       await browser.close();
       await running.close();
