@@ -1,38 +1,39 @@
 # Qualitäts- und Gate-Stand
 
-> Stand: **29.09.2026**. Die zuvor geprüfte Folgearbeit ist gesichert. Der aktuelle P3-2-Schritt ist eine reine Row-Mapper-Auslagerung; seine gezielten Gates sind ausgeführt. Frühere App-Gates sind mit ihrem tatsächlichen Datum gekennzeichnet.
+> Stand: **05.11.2026**. Der Volltest und die Coverage beziehen sich auf die unten benannten Messläufe; spätere Änderungen werden gesondert genannt.
 > Aktueller Umsetzungsstand: `docs/current/stand.md`. Planung: `docs/fahrplan.md`.
 
 ## Aktuelle Gates
 
-| Gate | Kommando | Ergebnis |
+| Gate | Kommando | Ergebnis und Umfang |
 |---|---|---|
-| P3-2: Typecheck, Lint, Volltest | `pnpm typecheck`, `pnpm lint`, `pnpm test` | **Grün am 29.09.2026** nach Store-Mapper-Auslagerung |
-| P3-2: Coverage | `pnpm test:coverage` | **Grün am 29.09.2026**, keine Schwellenfehler; Messwerte siehe Coverage-Block |
-| Patch-Prüfung | `git diff --check` | **Grün am 29.09.2026** |
-| Doku-Messwerte | `pnpm quality:render` + `pnpm quality:check` | **Grün am 29.09.2026**; gerenderte Werte stimmen mit dem Lauf überein |
-| Build, App-Gates und PostgreSQL | `pnpm verify`, `pnpm test:visual`, `pnpm verify:parity`, `pnpm verify:import`, `pnpm test:postgres` | **Grün am 28.09.2026** auf dem zuvor gesicherten Folge-Diff; für die reine Mapper-Auslagerung nicht erneut erforderlich |
-| Route-Matrix | `pnpm route-matrix` | Kommando nicht separat ausgeführt; `route-matrix.test.ts` ist Teil des Volltests |
+| Build, Typprüfung, Lint und Volltest | `pnpm verify` | **Grün am 05.11.2026** für die Undo-Umsetzung; danach folgten der gezielte Schutz reservierter Namen und die UI-Konfliktauflösung. |
+| Editor-Konfliktauflösung | `pnpm exec vitest run packages/app/test/variables-editor-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026** für die nachfolgende UI-Änderung, einschließlich Antwortverlust und konkurrierender Eingaben. |
+| Visueller Editor-Gate | `pnpm test:visual` | **Grün am 05.11.2026** nach der UI-Konfliktauflösung; die vorhandenen Desktop-Baselines decken nicht alle Variablenzustände ab. |
+| Coverage | `pnpm test:coverage` | **Grün am 05.11.2026** nach dem Schutz reservierter Namen; Messwerte siehe Coverage-Block. Die spätere Änderung betrifft App-Dateien außerhalb dieses Coverage-Laufs. |
+| PostgreSQL, gezielt | `TEST_DATABASE_URL=… pnpm exec vitest run packages/engine/test/theme-variable-rename.test.ts packages/engine/test/backup-restore.test.ts --no-file-parallelism` | **Grün am 05.11.2026** gegen einen isolierten PostgreSQL-18.6-Cluster für Umbenennung, Undo, Migration, Konkurrenz und Rollback. Der Schutz reservierter Namen wurde danach gezielt in der In-Memory-Suite geprüft. |
+| Doku-Messwerte | `pnpm quality:render` und `pnpm quality:check` | **Grün am 05.11.2026**; der erzeugte Coverage-Block stimmt mit dem Messlauf überein. |
+| Parity und Import, separat | `pnpm verify:parity`, `pnpm verify:import` | Der hier zuvor dokumentierte separate Lauf vom 28.09.2026 ist historisch; für den aktuellen Editorstand wird daraus kein neuer Gate-Status abgeleitet. |
 
 ## Volltest
 
-`pnpm verify` lief am 28.09.2026 auf dem zuvor gesicherten Folge-Diff. Für den P3-2-Mapper-Schritt liefen am 29.09.2026 Typecheck, Lint und der vollständige Testbefehl separat; der reine Modulwechsel ändert keine Browser-, Build- oder Datenbankverträge.
+Der letzte vollständige Lauf `pnpm verify` vom 05.11.2026 wurde vor dem nachträglichen Schutz reservierter Namen und der UI-Konfliktauflösung ausgeführt. Diese Änderungen wurden anschließend gezielt getestet; die Tabelle ist der Messstand dieses Volltests und keine Behauptung über einen späteren vollständigen Lauf.
 
 | Kategorie | Anzahl | Bedeutung |
 |---|---:|---|
-| Tests gesamt | 1716 | inklusive Skip-Fälle |
-| bestanden | 1701 | Volltest 29.09.2026 |
-| übersprungen | 15 | DB-Transaktionsfälle ohne DB-URL im normalen Volltest und UI-Vorschau-Paritätsfälle |
-| fehlgeschlagen | 0 | aktueller Volltest |
-| Testdateien | 195 | 192 bestanden, 3 mit erwarteten Skips |
+| Tests gesamt | 1902 | inklusive Skip-Fälle |
+| bestanden | 1874 | Volltest vom 05.11.2026 |
+| übersprungen | 28 | unter anderem PostgreSQL-Fälle ohne Testdatenbank und UI-Vorschau-Paritätsfälle |
+| fehlgeschlagen | 0 | gemessener Volltest |
+| Testdateien | 214 | 211 bestanden, 3 mit erwarteten Skips |
 
-Die Postgres-Fälle liefen separat gegen einen eigens initialisierten, lokalen PostgreSQL-18.6-Cluster; der bereits laufende Systemdienst wurde nicht verwendet oder verändert. Der Cluster wurde nach dem Gate gestoppt. Es werden keine Datenbank-Passwörter oder Verbindungs-URLs in dieser Doku abgelegt.
+Der PostgreSQL-Gate für die betroffenen Transaktionspfade lief separat gegen einen eigens initialisierten lokalen Cluster; der bereits laufende Systemdienst wurde nicht verändert. Der Testcluster wurde gestoppt.
 
-## Coverage-Gate (aktueller Lauf)
+## Coverage-Gate (letzter Messlauf)
 
-Geführt über `pnpm test:coverage`, v8-Provider und `perFile: true`. Der Lauf umfasst die Suites von `engine`, `editor` und `mcp`, nicht die schweren Browser-Suiten. Die Schwellen liegen in `vitest.config.ts`; nur dort ist die maßgebliche Konfiguration.
+Geführt über `pnpm test:coverage`, v8-Provider und `perFile: true`. Der Lauf umfasst `engine`, `editor` und `mcp`, nicht die schweren Browser-Suiten. Die Schwellen liegen in `vitest.config.ts`.
 
-Der aktuelle Lauf vom 29.09.2026: **1003 bestanden / 15 übersprungen / 0 fehlgeschlagen** in 103 Dateien, null Schwellenfehler. Die Übersicht unten wurde mit `pnpm quality:render` aktualisiert und anschließend durch `pnpm quality:check` bestätigt.
+Der Lauf vom 05.11.2026 meldete **1083 bestanden / 28 übersprungen / 0 fehlgeschlagen** in 110 Dateien und keine Schwellenfehler. Die Übersicht unten wurde aus derselben Messung gerendert und mit `pnpm quality:check` geprüft.
 
 ### Gemessene Coverage der geschützten Pfade
 
@@ -63,8 +64,8 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 
 ## Bekannte Grenzen
 
-- Der aktuelle Postgres-Lauf belegt sechs Transaktionsfälle auf PostgreSQL 18.6; die CI-Lane verwendet PostgreSQL 16.
-- `pnpm test:visual`, `pnpm verify:parity` und `pnpm verify:import` sind für den zuvor gesicherten Folge-Diff am 28.09.2026 grün; sie wurden durch die reine Mapper-Auslagerung nicht berührt.
+- Die gezielten PostgreSQL-Tests vom 05.11.2026 decken die oben genannten Umbenennungs- und Backup-Pfade ab; sie ersetzen keinen erneuten vollständigen PostgreSQL-Gate. Die CI-Lane verwendet PostgreSQL 16.
+- Der separate Parity- und Import-Gate wurde für die nachfolgenden Editoränderungen nicht erneut nachgewiesen.
 - Die Visual-Baselines liegen unter `packages/app/test/visual-baselines/`; Aktualisierung ist ein expliziter Vorgang über `UPDATE_VISUAL_SNAPSHOTS=1`.
 - Das Import-Tor nutzt eine kontrollierte Fixture; nicht alle echten Export-Fixtures durchlaufen es vollständig.
 - Paging ist in `packages/engine/src/paging.ts` für Sites, Seiten, Assets, Einträge, Referenzzuweisungen, Releases, Bake-Jobs und Image-Jobs eingebaut (`limit` Standard 50, Kappe 200, `offset` validiert). `outputSchema` tragen weiterhin nur die lesenden Werkzeuge; die Schreibwerkzeuge sind bewusst zurückgestellt. Beleg: `paging.test.ts` (9 Fälle).
