@@ -56,17 +56,24 @@ export function rewriteLinks(root: IrNode, pagePath: string, origin: string | nu
 
 // The other pages the links of this page point to (the links are root-relative
 // after `rewriteLinks`), in first-seen order, without duplicates.
-export function discoverPagePaths(root: IrNode, pagePath: string, limit = 40): string[] {
+//
+// `also` names paths the page itself does not link to; the hreflang alternates
+// of the head are seeded through it, because a Framer locale page is usually
+// reachable through the head alone and not through a visible link.
+export function discoverPagePaths(root: IrNode, pagePath: string, limit = 40, also: readonly string[] = []): string[] {
   const here = pagePathOf(pagePath) ?? "/";
   const found: string[] = [];
   const seen = new Set<string>([here]);
+  const add = (path: string): void => {
+    if (found.length >= limit || seen.has(path)) return;
+    seen.add(path);
+    found.push(path);
+  };
+  also.forEach(add);
   const visit = (node: IrNode): void => {
     if (found.length >= limit) return;
     const path = node.href === null || node.href === undefined ? null : pagePathOf(node.href);
-    if (path !== null && !seen.has(path)) {
-      seen.add(path);
-      found.push(path);
-    }
+    if (path !== null) add(path);
     node.children.forEach(visit);
   };
   visit(root);

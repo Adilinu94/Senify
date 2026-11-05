@@ -62,7 +62,13 @@ export type PageMeta = {
   title?: string;
   description?: string;
   ogImage?: string;
+  // The language versions of this page as the source names them in its head
+  // (`<link rel="alternate" hreflang>`), written by the Framer import. The
+  // renderer links the ones whose path the release really carries.
+  alternates?: PageAlternate[];
 };
+
+export type PageAlternate = { lang: string; path: string };
 
 // A page marked as a template: `layout` wraps other pages, `collection` is the
 // entry template for the detail routes of its collections (artifacts/23 §1).

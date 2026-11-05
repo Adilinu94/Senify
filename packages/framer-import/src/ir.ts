@@ -280,6 +280,11 @@ export type IrPage = {
   lang?: string;
   description?: string;
   meta?: { ogTitle?: string; ogDescription?: string; ogImage?: string };
+  // The language versions of this page as the source's head names them
+  // (`<link rel="alternate" hreflang>`): the same page in another locale,
+  // already rewritten to a path of this site. Framer writes the whole set on
+  // every localized page (measured on framer.com/ja/, 02.11.2026).
+  alternates?: { lang: string; path: string }[];
   root: IrNode;
 };
 
@@ -851,10 +856,20 @@ export function parseIr(raw: unknown):
       if (!isRecord(entry)) continue;
       const root = asIrNode(entry.root);
       if (root === undefined) continue;
+      const alternates = Array.isArray(entry.alternates)
+        ? entry.alternates
+            .filter(isRecord)
+            .map((alternate) => ({
+              lang: asString(alternate.lang) ?? "",
+              path: asString(alternate.path) ?? "",
+            }))
+            .filter((alternate) => alternate.lang !== "" && alternate.path.startsWith("/"))
+        : [];
       pages.push({
         path: asString(entry.path) ?? "/",
         title: asString(entry.title) ?? null,
         ...(asString(entry.lang) === undefined ? {} : { lang: asString(entry.lang) ?? "" }),
+        ...(alternates.length === 0 ? {} : { alternates }),
         ...(asString(entry.description) === undefined ? {} : { description: asString(entry.description) ?? "" }),
         ...(isRecord(entry.meta)
           ? {

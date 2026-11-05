@@ -27,7 +27,8 @@ Dateien und eine Handvoll mittlere, die noch zu groß sind, ohne dass ein Schnit
 nachweislich verbessert; (b) zwei Fälle im Framer-Import, die teils an einer
 Eigenschaft der Quelle hängen und teils eine eigene Messung brauchen; (c) Produktumfang:
 das CMS-Mapping ist seit 01.11.2026 für das Schema und seit 02.11.2026 für die Einträge
-umgesetzt, Lokalisierung und Code-Sections sind offen; der menschliche E2E-Weg durch die
+umgesetzt, die Lokalisierung seit 02.11.2026 für Sprachfassungen und `lang`; offen sind
+die Code-Sections; der menschliche E2E-Weg durch die
 Baustein-Bibliothek ist seit 31.10.2026 belegt. Die CI ist dabei enger geworden: `verify.yml` läuft seit 16.10.2026 auch bei Pushes auf `master`, ein roter Direkt-Push bleibt also nicht mehr unbemerkt.
 
 ---
@@ -237,12 +238,12 @@ geklärt ist.
 ### Block 4 — S9: Erweiterung des Imports (Produktumfang, teilweise)
 
 Der Mehrseiten-Import ist **gebaut und im Browser belegt** (bis zu 40 verlinkte Seiten,
-Einzel- und Sammelimport) — die frühere Einordnung „geplant" war falsch. Offen sind:
+Einzel- und Sammelimport) — die frühere Einordnung „geplant" war falsch. Offen ist nur noch:
 
 | Thema | Zustand | Was es braucht |
 |---|---|---|
 | CMS-Mapping | **Umgesetzt (Schema 01.11.2026, Einträge 02.11.2026)** | Sammlungen samt Felddefinitionen und Einträge entstehen im selben Commit wie die Seite; Einträge kommen über `getCMSItems` (Bildfelder, Duplikatregel, Verweise über Sammlungen hinweg). Grenze: der erste vollständige Lauf gegen eine echte Senify-Site |
-| Lokalisierung | offen | Mehrsprachige Framer-Projekte auf getrennte Seiten/Sprachen abbilden; berührt Routing und `lang` |
+| Lokalisierung | **Umgesetzt (02.11.2026)** | Die `<link rel="alternate" hreflang>` des Kopfs werden gelesen: gleiche Herkunft wird zur Sprachfassung, eine fremde Site ist ein Befund `locale`; die Fassungen stehen als `alternates` im Seiten-Meta, werden als weitere Seiten angeboten und im Bake als `<link rel="alternate" hreflang>` ausgegeben — nur für Pfade, die der Release wirklich enthält. Die Seitensprache kommt aus `<html lang>`. Grenzen: kein Sprachumschalter in der Oberfläche, keine CMS-Felder je Sprache |
 | Code-Sections | offen | Framer-Code-Komponenten als eigene Senify-Sections; heute gibt es den Befund `code-component` statt einer Section |
 
 ---
@@ -288,8 +289,8 @@ Block 2 (P3-7) ──  alle 16 Punkte geschlossen; Punkt 15 ist als Grenze des B
                    Punkt 1 ist entschieden und umgesetzt (Browser-Standard, ADR-0027)
 Block 3 (S3b/S4) ─ entschieden (ADR-0028): Unframer wird die zweite Quelle; Client, Mapper,
                    Dialog-/CLI-Pfad und CMS-Schema sind umgesetzt
-Block 4 (S9)   ──  CMS-Schema steht; Einträge, Lokalisierung und Code-Sections bauen auf
-                   der entschiedenen Quelle auf
+Block 4 (S9)   ──  CMS-Schema und Einträge stehen; Lokalisierung ist umgesetzt (02.11.2026),
+                   Code-Sections bauen auf der entschiedenen Quelle auf
 Block 5 (S5/S7) ──  S7 braucht keinen Vorbau, ist reine UI-Arbeit
 Block 7 (Prozess) ── Voraussetzung für alles: ohne sauberen Baum kein DoR
 ```

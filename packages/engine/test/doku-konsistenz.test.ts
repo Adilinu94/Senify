@@ -258,12 +258,14 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     const mapper = readFileSync(join(root, "packages/framer-import/src/mapper.ts"), "utf8");
 
     const funktionen = (text: string): number => (text.match(/^(?:export )?(?:async )?function /gm) ?? []).length;
+    // 72 seit dem 02.11.2026: die Lokalisierung liest hreflang-Alternates
+    // (`alternateLinks`) und `pageMeta` schreibt sie ins Seiten-Meta.
     // 71 seit dem 01.11.2026: Punkt 15, Ursache 1 (der Fit-Text rechnet gegen
     // seine Box) hat `applyFitTextBoxes` ergaenzt - der Container und der
     // Anteil entstehen erst nach der Klassen-Kaskade, nicht beim Baum-Bau.
     // Vorher 70: Punkt 13 (CSS-Bildadressen) hat `remoteUrlsInValues` ergaenzt;
     // 69 vor der fremden Browser-Capture-Aenderung (26.10.2026, 539b533).
-    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(71);
+    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(72);
     // 57 seit dem 26.10.2026: der fremde Commit 7a5b838 (Browser-Abgriff der
     // Animationen) hat drei Funktionen ergaenzt. Der Waechter hat es sofort
     // gemeldet - genau dafuer steht er hier. Der Bericht nennt dieselbe Zahl.

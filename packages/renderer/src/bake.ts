@@ -74,12 +74,40 @@ function pageLang(tree: NodeTree): string | undefined {
   return LANG_TAG.test(trimmed) ? trimmed : undefined;
 }
 
+// An alternate's language tag is the page's shape plus `x-default` (the
+// fallback Framer writes for the entry locale).
+const ALTERNATE_LANG = /^(?:x-default|[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)$/;
+
+// The language versions of a page minus everything this release cannot honor:
+// a tag that is no language, a path that is no page path of this site, and a
+// translation this build does not carry (a hreflang to a 404 is worse than
+// none). Stored meta is input here, so nothing is trusted.
+function pageAlternates(
+  alternates: readonly { lang: string; path: string }[] | undefined,
+  paths: ReadonlySet<string>,
+): { lang: string; path: string }[] {
+  const found: { lang: string; path: string }[] = [];
+  const seen = new Set<string>();
+  for (const entry of alternates ?? []) {
+    const lang = entry.lang.trim();
+    const path = entry.path.trim().replace(/\/+$/, "") || "/";
+    if (!ALTERNATE_LANG.test(lang) || !path.startsWith("/") || path.startsWith("//")) continue;
+    if (!paths.has(path) || seen.has(`${lang}|${path}`)) continue;
+    seen.add(`${lang}|${path}`);
+    found.push({ lang, path });
+  }
+  return found;
+}
+
 export type BakePageInput = {
   id: string;
   path: string;
   title: string;
   description?: string;
   ogImage?: string;
+  // The language versions of this page (the imported head's hreflang links),
+  // rendered for the paths this build really carries.
+  alternates?: readonly { lang: string; path: string }[];
   tree: NodeTree;
   // Draft-id -> composed-id pairs of the layout splice (ticket 22): the
   // renderer remaps `scoped` style rules, which are bound to draft node ids,
@@ -526,6 +554,9 @@ export async function bakeSite(
       }),
     };
   });
+  // The paths this release really carries: an alternate to any other path
+  // would 404, so it is not emitted.
+  const releasePaths = new Set(expandedPages.map((page) => page.path));
   for (const page of expandedPages) {
     // The page that is actually rendered: a page-level payload carrier
     // stands in for the structure (see `renderTreeOf`) — but only when this
@@ -628,6 +659,7 @@ export async function bakeSite(
       description: page.description ?? "",
       ogImage: page.ogImage ?? "",
       lang: pageLang(tree),
+      alternates: pageAlternates(page.alternates, releasePaths),
       tree,
       motion: jsonForHtml(motionDataFor(configs, input.breakpoints)),
       // The page-level View Transition block (M6): null unless a node carries

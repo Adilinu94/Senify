@@ -502,6 +502,28 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
       expect(page.body.meta.ogImage).toBe("https://example.com/og.png");
     }, 120_000);
 
+    it("writes the language versions of the head to the page meta", async () => {
+      const own = await createTestSite(env.api, "Import Sprachfassungen");
+      const html = framerHtml().replace(
+        "</head>",
+        '<link rel="alternate" href="/en/" hreflang="en"><link rel="alternate" href="/de/" hreflang="de"><link rel="alternate" href="/de/" hreflang="x-default"></head>',
+      );
+      const written = await runImport(
+        { source: { html }, write: true, pagePath: "/de", assets: "skip", fonts: "skip" },
+        own.id,
+      );
+      expect(written.status, JSON.stringify(written.body)).toBe(201);
+      const page = await env.api.request<{ meta: { alternates?: { lang: string; path: string }[] } }>({
+        method: "GET",
+        path: `/api/pages/${written.body.report.pageId}`,
+      });
+      expect(page.body.meta.alternates).toEqual([
+        { lang: "en", path: "/en" },
+        { lang: "de", path: "/de" },
+        { lang: "x-default", path: "/de" },
+      ]);
+    }, 120_000);
+
     it("keeps the draft an import replaces as a revision, restorable with the existing restore", async () => {
       const own = await createTestSite(env.api, "Import Rückweg");
       const first = await runImport({ source: { html: framerHtml() }, write: true, pagePath: "/weg", assets: "skip", fonts: "skip", idempotencyKey: "rueckweg-eins" }, own.id);

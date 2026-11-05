@@ -40,7 +40,7 @@ import {
 } from "./import-cms.ts";
 import { planImportBreakpoints, type ImportBreakpointsPlan } from "./site-breakpoints.ts";
 import { DEFAULT_BREAKPOINTS } from "@senify/widget-engine/breakpoints";
-import type { CodePayloadLicense, CodePayloadProvenance, PageMeta } from "./types.ts";
+import type { CodePayloadLicense, CodePayloadProvenance, PageAlternate, PageMeta } from "./types.ts";
 import type { PreparedCodePayload, Store } from "./store.ts";
 import type { AuthorInput } from "./mutations/contract.ts";
 import type {
@@ -75,13 +75,41 @@ const MOBILE_SUFFIX = "_mobile";
 // can hold: a description (the meta description, else the share description)
 // and a share image. An image that is not an absolute http(s) URL or a rooted
 // path is dropped rather than stored as a reference that resolves nowhere.
-export function pageMetaOf(page: { description?: string; meta?: { ogDescription?: string; ogImage?: string } } | undefined): PageMeta {
+// The language versions of the head are taken over as page meta; a language
+// tag or a path that could not be an alternate is dropped here, so the
+// renderer never has to trust stored meta.
+const ALTERNATE_LANG = /^(?:x-default|[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)$/;
+
+function alternatesOf(entries: readonly { lang?: string; path?: string }[] | undefined): PageAlternate[] {
+  const found: PageAlternate[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries ?? []) {
+    const lang = (entry.lang ?? "").trim();
+    const raw = (entry.path ?? "").trim();
+    if (!ALTERNATE_LANG.test(lang) || !raw.startsWith("/") || raw.startsWith("//") || raw.length > 500) continue;
+    const path = raw.replace(/\/+$/, "") || "/";
+    const key = `${lang}|${path}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    found.push({ lang, path });
+    if (found.length >= 50) break;
+  }
+  return found;
+}
+
+export function pageMetaOf(page: {
+  description?: string;
+  meta?: { ogDescription?: string; ogImage?: string };
+  alternates?: { lang?: string; path?: string }[];
+} | undefined): PageMeta {
   if (page === undefined) return {};
   const description = (page.description ?? page.meta?.ogDescription ?? "").trim();
   const image = (page.meta?.ogImage ?? "").trim();
+  const alternates = alternatesOf(page.alternates);
   return {
     ...(description === "" ? {} : { description: description.slice(0, 500) }),
     ...(/^(https?:\/\/|\/)/.test(image) ? { ogImage: image.slice(0, 2000) } : {}),
+    ...(alternates.length === 0 ? {} : { alternates }),
   };
 }
 

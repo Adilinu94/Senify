@@ -121,6 +121,28 @@ auf eine andere Quelle ausgewichen.
 - **Alles, was nicht abbildbar ist, steht im Bericht.** Der Import verwirft nichts stillschweigend: Jede nicht
   übernommene Regel, jedes fehlende Asset und jedes Framer-Code-Stück erscheint als Befund.
 
+## Mehrsprachige Seiten
+
+Framer schreibt die Sprachfassungen einer Seite in den Kopf, nicht in den sichtbaren Inhalt: je Sprache ein
+`<link rel="alternate" hreflang="…" href="…">`. Gemessen an `framer.com/ja/` (02.11.2026) steht dort
+`en → /`, `ja-JP → /ja/` und `x-default → /`; die japanische Seite verlinkt im sichtbaren Text nicht auf ihre
+Übersetzungen. Der Import liest deshalb den Kopf:
+
+- Ein Verweis auf dieselbe Site (absolute Adresse gleicher Herkunft oder wurzelrelativer Pfad) wird zur
+  Sprachfassung der Seite und wie ein sichtbarer Link als **weitere Seite** angeboten; der Bericht nennt die Zahl
+  der gefundenen Fassungen. Ein Verweis auf eine andere Site wird nicht übernommen und als Befund `locale` mit der
+  Adresse genannt.
+- Die Fassungen landen als `alternates` im Seiten-Meta. Der Bake schreibt sie als
+  `<link rel="alternate" hreflang="…">` in den Kopf der veröffentlichten Seite, absolut gegen die Site-Adresse.
+  Verlinkt wird nur, was der Release wirklich enthält — eine Fassung, die nicht importiert wurde, wäre ein 404 und
+  bleibt weg.
+- Die Sprache der Seite selbst kommt aus `<html lang>` der Quelle (z. B. `ja-JP`) und setzt das `lang`-Attribut des
+  Dokuments, nicht die Sprache einzelner Textstellen.
+
+**Grenzen:** Es gibt keinen Sprachumschalter in der Oberfläche (die Fassungen stehen als eigene Seiten in der
+Liste) und keine getrennte Pflege von CMS-Feldern je Sprache. `x-default` wird als Fassung übernommen, wie die
+Quelle ihn schreibt.
+
 ## Zwei Ausgaben: bearbeitbarer Baum und Original-Code
 
 Der Import erzeugt **beides**:

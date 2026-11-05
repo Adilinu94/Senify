@@ -147,4 +147,27 @@ describe("parseIr", () => {
       expect(result.document.motion[1]?.library).toBe("unknown");
     }
   });
+
+  it("keeps the language versions of a page and drops broken ones", () => {
+    const document = validDocument() as unknown as {
+      pages: { alternates?: unknown }[];
+    };
+    const page = document.pages[0];
+    expect(page).toBeDefined();
+    if (page === undefined) return;
+    page.alternates = [
+      { lang: "en", path: "/en" },
+      { lang: "", path: "/de" },
+      { lang: "de", path: "de" },
+      { lang: "x-default", path: "/" },
+    ];
+    const result = parseIr(document);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.document.pages[0]?.alternates).toEqual([
+        { lang: "en", path: "/en" },
+        { lang: "x-default", path: "/" },
+      ]);
+    }
+  });
 });

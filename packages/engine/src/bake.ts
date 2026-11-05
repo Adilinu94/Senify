@@ -43,6 +43,7 @@ import type {
   Collection,
   Entry,
   Page,
+  PageAlternate,
   Site,
 } from "./types.ts";
 import type { BakedPayload } from "@senify/renderer";
@@ -242,6 +243,7 @@ export async function buildBakeInput(
     title: string;
     description?: string;
     ogImage?: string;
+    alternates?: PageAlternate[];
     tree: NodeTree;
     source: BindingSource;
     currentEntryId: string | null;
@@ -269,6 +271,9 @@ export async function buildBakeInput(
       title: route.title,
       ...(route.description === undefined ? {} : { description: route.description }),
       ...(route.ogImage === undefined ? {} : { ogImage: route.ogImage }),
+      ...(route.alternates === undefined || route.alternates.length === 0
+        ? {}
+        : { alternates: route.alternates }),
       ...(nodeIdMap === undefined ? {} : { nodeIdMap }),
       tree: route.tree,
     });
@@ -329,6 +334,7 @@ export async function buildBakeInput(
         ? {}
         : { description: page.meta.description }),
       ...(page.meta.ogImage === undefined ? {} : { ogImage: page.meta.ogImage }),
+      ...(page.meta.alternates === undefined ? {} : { alternates: page.meta.alternates }),
       tree,
       source: { site: siteInfo, entries },
       currentEntryId: null,

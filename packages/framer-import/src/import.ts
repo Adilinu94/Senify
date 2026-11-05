@@ -854,6 +854,16 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     );
   }
   if (payloads.length > 0) report.steps.push(`${payloads.length} Framer-Islands gebündelt und als Payload vorgemerkt`);
+  // A localized page names its translations in the head, not in its body
+  // (measured on framer.com/ja/, 02.11.2026): the alternates are the only
+  // reliable way to reach them, so they seed the page discovery.
+  const alternates = document.pages[0]?.alternates ?? [];
+  if (alternates.length > 0) {
+    const langs = alternates.map((alternate) => alternate.lang).join(", ");
+    report.steps.push(
+      `Lokalisierung: ${alternates.length} Sprachfassung(en) im Kopf der Seite gefunden (${langs}) — sie werden als eigene Seiten angeboten.`,
+    );
+  }
   return {
     document,
     normalized,
@@ -866,6 +876,8 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     discoveredPages: discoverPagePaths(
       document.pages[0]?.root ?? ({ children: [], href: null } as never),
       document.pages[0]?.path ?? "/",
+      undefined,
+      alternates.map((alternate) => alternate.path),
     ),
   };
 }

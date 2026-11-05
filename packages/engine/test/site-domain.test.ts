@@ -169,6 +169,7 @@ function heroTree(): NodeTree {
 async function bakeFor(
   site: Site,
   ogImage?: string,
+  alternates?: Page["meta"]["alternates"],
 ): Promise<ReturnType<typeof loadBakedSite>> {
   const store = env.engine.store;
   let stored = (await store.listPageDrafts(site.id))[0];
@@ -182,9 +183,16 @@ async function bakeFor(
     stored = await store.getPage(created.id);
   }
   const page: Page =
-    ogImage === undefined
+    ogImage === undefined && alternates === undefined
       ? stored
-      : { ...stored, meta: { ...stored.meta, ogImage } };
+      : {
+          ...stored,
+          meta: {
+            ...stored.meta,
+            ...(ogImage === undefined ? {} : { ogImage }),
+            ...(alternates === undefined ? {} : { alternates }),
+          },
+        };
   const outDir = mkdtempSync(join(env.engine.dataDir, "domain-bake-"));
   outDirs.push(outDir);
   const result = await bakePages(store, {
@@ -211,6 +219,23 @@ describe("site address in the baked release", () => {
     expect(await baked.read("robots.txt")).toContain(
       "Sitemap: https://kunde.de/sitemap.xml",
     );
+  }, 180000);
+
+  it("links the language versions of a page against the site address", async () => {
+    const created = await newSite("Kunde Sprachen");
+    await patchBaseUrl(created.id, "https://kunde.de");
+    const site = await env.engine.store.getSite(created.id);
+    const baked = await bakeFor(site, undefined, [
+      { lang: "de", path: "/" },
+      { lang: "x-default", path: "/" },
+      { lang: "en", path: "/en" },
+    ]);
+
+    const html = await baked.read("index.html");
+    expect(html).toContain('<link rel="alternate" hreflang="de" href="https://kunde.de/"');
+    expect(html).toContain('<link rel="alternate" hreflang="x-default" href="https://kunde.de/"');
+    // Only this page is in the release: /en would 404, so it is not linked.
+    expect(html).not.toContain('hreflang="en"');
   }, 180000);
 
   it("keeps the senify.xyz placeholder while no address is set", async () => {

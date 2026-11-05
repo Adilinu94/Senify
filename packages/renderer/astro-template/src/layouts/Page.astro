@@ -9,6 +9,9 @@ type Props = {
     title: string;
     description?: string;
     ogImage?: string;
+    // The language versions of this page; the bake leaves out every path the
+    // release does not carry, so each link here has a page behind it.
+    alternates: { lang: string; path: string }[];
     // The language of the page root, when it is a valid tag; the site default applies otherwise.
     lang?: string;
     tree: { rootNodeId: string; nodes: Record<string, unknown> };
@@ -114,6 +117,13 @@ const PRELOADER_SCRIPT =
     {ogImage && <meta property="og:image" content={ogImage} />}
     <meta name="twitter:card" content={ogImage ? "summary_large_image" : "summary"} />
     <link rel="canonical" href={`${site.baseUrl}${page.path}`} />
+    {page.alternates.map((alternate) => (
+      <link
+        rel="alternate"
+        hreflang={alternate.lang}
+        href={`${site.baseUrl}${alternate.path}`}
+      />
+    ))}
     <link rel="stylesheet" href="/assets/theme.css" />
     {sectionsCss && <link rel="stylesheet" href="/assets/sections.css" />}
     {fontPreloads.map((font) => (

@@ -41,7 +41,7 @@ import {
 } from "./ir.ts";
 import { expandBox, parseDeclaration, splitCommas, splitDeclarations } from "./css-util.ts";
 import { devicesContaining } from "./devices.ts";
-import { rewriteLinks } from "./link-paths.ts";
+import { pagePathOf, rewriteLinks } from "./link-paths.ts";
 import { springDurationMs, type SpringTransition } from "./spring.ts";
 
 /* ------------------------------------------------------------------ types */
@@ -1613,6 +1613,19 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     });
   }
 
+  const { droppedAlternates, ...head } = pageMeta(html, input.url);
+  for (const href of droppedAlternates) {
+    findings.push({
+      kind: "locale",
+      nodeKey: null,
+      message: `Ein Sprachverweis zeigt auf "${href}", nicht auf eine Seite dieser Site; er wird nicht als Sprachfassung uebernommen.`,
+      evidence: href,
+      severity: "info",
+      suggestion:
+        "Die Sprachfassung liegt auf einer anderen Adresse; ein eigener Import-Lauf dorthin legt sie als Seite an.",
+    });
+  }
+
   return {
     ir: IR_VERSION,
     source: {
@@ -1627,7 +1640,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
       {
         path: pagePath,
         title: input.title ?? htmlTitle(html),
-        ...pageMeta(html),
+        ...head,
         root,
       },
     ],
@@ -1992,12 +2005,71 @@ function metaContent(html: string, key: string): string | null {
   return null;
 }
 
-function pageMeta(html: string): {
+// A language tag as `hreflang` allows it: a language (two or three letters)
+// with optional subtags, or `x-default` for the fallback version.
+const HREFLANG = /^(?:x-default|[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)$/i;
+
+// The language versions of the page (`<link rel="alternate" hreflang>`). Framer
+// writes the WHOLE set on every localized page (measured on framer.com/ja/,
+// 02.11.2026: `en` → `/`, `ja-JP` → `/ja/`, `x-default` → `/`). A target on
+// another origin is not a page of this site: it is reported, not carried.
+function alternateLinks(
+  html: string,
+  pageUrl: string | null | undefined,
+): { alternates: { lang: string; path: string }[]; dropped: string[] } {
+  let origin: string | null = null;
+  if (pageUrl !== undefined && pageUrl !== null) {
+    try {
+      origin = new URL(pageUrl).origin;
+    } catch {
+      origin = null;
+    }
+  }
+  const alternates: { lang: string; path: string }[] = [];
+  const dropped = new Set<string>();
+  const seen = new Set<string>();
+  for (const match of html.matchAll(/<link\b[^>]*>/gi)) {
+    const attrs = parseAttrs(match[0].slice(5).replace(/\/?>$/, ""));
+    if (!(attrs["rel"] ?? "").toLowerCase().split(/\s+/).includes("alternate")) continue;
+    const lang = (attrs["hreflang"] ?? "").trim();
+    const href = (attrs["href"] ?? "").trim();
+    if (!HREFLANG.test(lang) || href === "") continue;
+    let path: string | null = null;
+    if (/^https?:\/\//i.test(href)) {
+      try {
+        const url = new URL(href);
+        if (origin === null || url.origin !== origin) {
+          dropped.add(href);
+          continue;
+        }
+        path = pagePathOf(`${url.pathname}${url.search}`);
+      } catch {
+        dropped.add(href);
+        continue;
+      }
+    } else {
+      path = pagePathOf(href);
+    }
+    if (path === null) continue;
+    const key = `${lang}|${path}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    alternates.push({ lang, path });
+  }
+  return { alternates, dropped: [...dropped] };
+}
+
+function pageMeta(
+  html: string,
+  pageUrl: string | null | undefined,
+): {
   lang?: string;
   description?: string;
   meta?: { ogTitle?: string; ogDescription?: string; ogImage?: string };
+  alternates?: { lang: string; path: string }[];
+  droppedAlternates: string[];
 } {
-  const out: ReturnType<typeof pageMeta> = {};
+  const out: ReturnType<typeof pageMeta> = { droppedAlternates: [] };
   const lang = /<html\b[^>]*\blang\s*=\s*["']?([A-Za-z]{2,3}(?:-[A-Za-z0-9]+)*)/i.exec(html)?.[1];
   if (lang !== undefined) out.lang = lang;
   const description = metaContent(html, "description");
@@ -2010,6 +2082,9 @@ function pageMeta(html: string): {
   if (ogDescription !== null) og.ogDescription = ogDescription;
   if (ogImage !== null) og.ogImage = ogImage;
   if (Object.keys(og).length > 0) out.meta = og;
+  const { alternates, dropped } = alternateLinks(html, pageUrl);
+  if (alternates.length > 0) out.alternates = alternates;
+  out.droppedAlternates = dropped;
   return out;
 }
 
