@@ -6240,6 +6240,24 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   let variableSaving = false;
   let lastVariableDeletion = null;
   let lastVariableRename = null;
+  const variableHistoryKey = `senify:variable-history:${siteId}:${pageId}`;
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(variableHistoryKey) ?? "null");
+    if (saved && ["color", "spacing"].includes(saved.group) && typeof saved.receiptId === "string") {
+      if (saved.kind === "delete" && typeof saved.name === "string" && typeof saved.restored === "boolean") {
+        lastVariableDeletion = { group: saved.group, name: saved.name, receiptId: saved.receiptId, restored: saved.restored };
+      } else if (saved.kind === "rename" && typeof saved.original === "string" && typeof saved.renamed === "string" && typeof saved.undone === "boolean") {
+        lastVariableRename = { group: saved.group, original: saved.original, renamed: saved.renamed, receiptId: saved.receiptId, undone: saved.undone };
+      }
+    }
+  } catch { /* Storage can be unavailable or contain invalid data. */ }
+  const rememberVariableHistory = () => {
+    try {
+      if (lastVariableDeletion) window.sessionStorage.setItem(variableHistoryKey, JSON.stringify({ kind: "delete", ...lastVariableDeletion }));
+      else if (lastVariableRename) window.sessionStorage.setItem(variableHistoryKey, JSON.stringify({ kind: "rename", ...lastVariableRename }));
+      else window.sessionStorage.removeItem(variableHistoryKey);
+    } catch { /* The action remains available for the current editor session. */ }
+  };
   const pendingVariableKey = `senify:pending-variable:${siteId}:${pageId}`;
   let pendingVariableOperation = null;
   try {
@@ -6439,6 +6457,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
             ? { group: operation.group, original: history.original, renamed: history.renamed, undone: history.undone, receiptId: operation.body.receiptId }
             : { group: operation.group, original: operation.name, renamed: operation.body.newName, undone: false, receiptId: operation.body.receiptId };
         }
+        rememberVariableHistory();
         pendingVariableOperation = null;
         try { window.sessionStorage.removeItem(pendingVariableKey); } catch { /* A replay remains idempotent. */ }
         variableSaving = false;
@@ -6499,6 +6518,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
             throw new Error("Der Editorstand hat sich inzwischen geändert. Bitte offene Änderungen prüfen und erneut versuchen.");
           }
           const loaded = editor.loadDocument(fresh.draft, { styleRules: registry.rules }).document;
+          window.sessionStorage.removeItem(variableHistoryKey);
           window.sessionStorage.removeItem(pendingVariableKey);
           pendingVariableOperation = null;
           lastVariableDeletion = null;

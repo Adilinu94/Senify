@@ -309,6 +309,9 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("button", { name: "Löschen von marker rückgängig" }).waitFor();
       expect(attempts).toBe(2);
       expect(await tab.getByRole("button", { name: "Editorstand laden (offene Änderungen verwerfen)" }).count()).toBe(0);
+      await tab.reload();
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Löschen von marker rückgängig" }).waitFor();
       let restoreAttempts = 0;
       await tab.route(`**/api/sites/${site.id}/theme/variables/color/marker/restore`, async (route) => {
         restoreAttempts += 1;
@@ -329,11 +332,17 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.reload();
       await tab.getByRole("tab", { name: "Variablen" }).click();
       expect(await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).count()).toBe(0);
+      await tab.getByRole("button", { name: "Löschen von marker wiederholen" }).click();
+      await tab.getByRole("button", { name: "Löschen von marker rückgängig" }).waitFor();
+      await tab.reload();
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Löschen von marker rückgängig" }).click();
+      expect(await tab.getByRole("textbox", { name: "Farbe marker", exact: true }).inputValue()).toBe("#123456");
       await tab.evaluate(() => { Object.defineProperty(Storage.prototype, "setItem", { configurable: true, value: () => { throw new Error("blocked"); } }); });
       await tab.getByRole("button", { name: "Farbe marker löschen", exact: true }).click();
       await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
       await tab.getByRole("status").getByText("Der Vorgang kann nicht sicher vorgemerkt werden.", { exact: false }).waitFor();
-      expect(attempts).toBe(2);
+      expect(attempts).toBe(3);
     } finally {
       await browser.close();
       await running.close();
@@ -397,6 +406,9 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       expect(await tab.getByRole("textbox", { name: "Farbe farbe", exact: true }).inputValue()).toBe("#123456");
       const again = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as { draft: { nodes: Record<string, { props: { background: unknown } }> } };
       expect(again.draft.nodes.frame00001!.props.background).toEqual({ $token: "color.farbe" });
+      await tab.reload();
+      await tab.getByRole("tab", { name: "Variablen" }).click();
+      await tab.getByRole("button", { name: "Umbenennung von marke rückgängig" }).waitFor();
       let undoAttempts = 0;
       await tab.route(`**/api/sites/${site.id}/theme/variables/color/farbe/rename`, async (route) => {
         undoAttempts += 1;
@@ -414,6 +426,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("button", { name: "Umbenennung von marke wiederholen" }).waitFor();
       expect(undoAttempts).toBe(2);
       expect(await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).inputValue()).toBe("#123456");
+      await tab.reload();
+      await tab.getByRole("tab", { name: "Variablen" }).click();
       await tab.getByRole("button", { name: "Umbenennung von marke wiederholen" }).click();
       await tab.getByRole("button", { name: "Umbenennung von marke rückgängig" }).waitFor();
       expect(await tab.getByRole("textbox", { name: "Farbe farbe", exact: true }).inputValue()).toBe("#123456");

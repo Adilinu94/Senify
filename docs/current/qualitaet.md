@@ -8,8 +8,8 @@
 | Gate | Kommando | Ergebnis und Umfang |
 |---|---|---|
 | Build, Typprüfung, Lint und Volltest | `pnpm verify` | **Grün am 05.11.2026** für die Undo-Umsetzung; danach folgten der gezielte Schutz reservierter Namen und die UI-Konfliktauflösung. |
-| Editor-Konfliktauflösung | `pnpm exec vitest run packages/app/test/variables-editor-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026** für die nachfolgende UI-Änderung, einschließlich Antwortverlust und konkurrierender Eingaben. |
-| Visueller Editor-Gate | `pnpm test:visual` | **Grün am 05.11.2026** nach der UI-Konfliktauflösung; die vorhandenen Desktop-Baselines decken nicht alle Variablenzustände ab. |
+| Editor-Konfliktauflösung | `pnpm exec vitest run packages/app/test/variables-editor-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026** für die nachfolgenden UI-Änderungen, einschließlich Antwortverlust, konkurrierender Eingaben und Undo/Redo nach Neuladen. |
+| Visueller Editor-Gate | `pnpm test:visual` | **Grün am 05.11.2026** nach den UI-Änderungen; die Desktop-Baselines decken nicht alle Variablenzustände ab. |
 | Coverage | `pnpm test:coverage` | **Grün am 05.11.2026** nach dem Schutz reservierter Namen; Messwerte siehe Coverage-Block. Die spätere Änderung betrifft App-Dateien außerhalb dieses Coverage-Laufs. |
 | PostgreSQL, gezielt | `TEST_DATABASE_URL=… pnpm exec vitest run packages/engine/test/theme-variable-rename.test.ts packages/engine/test/backup-restore.test.ts --no-file-parallelism` | **Grün am 05.11.2026** gegen einen isolierten PostgreSQL-18.6-Cluster für Umbenennung, Undo, Migration, Konkurrenz und Rollback. Der Schutz reservierter Namen wurde danach gezielt in der In-Memory-Suite geprüft. |
 | Doku-Messwerte | `pnpm quality:render` und `pnpm quality:check` | **Grün am 05.11.2026**; der erzeugte Coverage-Block stimmt mit dem Messlauf überein. |
