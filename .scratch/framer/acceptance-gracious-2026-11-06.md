@@ -69,7 +69,7 @@ Die vier nicht gespiegelten Routen sind damit per Manifest und Browser-Capture v
 1. Der Koordinator-Schreiblauf für `/404` und die drei nicht gespiegelten CMS-Routen ist durch den lokalen PostgreSQL-Ausfall blockiert (siehe oben), nicht durch den Code. Ein Lauf auf einer funktionsfähigen Datenbank bleibt offen.
 2. `runtimeFreeVerified` bleibt `false`; ein runtimefreier Zielbetrieb ist mit diesem Lauf nicht bewiesen.
 3. Die Startseite meldet 951 anfangs verborgene Elemente ohne Appear-Daten, mehrere generische SVG-Symbole, Lenis-Smooth-Scroll und nicht vollständig abgebildete Animationen.
-4. `/contact` meldet 12 verborgene Elemente, 93 Pseudo-Zustandsregeln, 45 Font-Subsets und vier nicht als Senify-Motion-Preset abbildbare Framer-Interaktionen.
+4. `/contact` meldet 12 verborgene Elemente. Die 93 Pseudo-Zustandsregeln werden erkannt, aber **0** in `contextStyles` übernommen; die 45 Font-Subsets stehen **1** Theme-Font gegenüber (DSGVO-Umschreibung ist Roadmap-Scheibe S2.3b); vier Framer-Interaktionen sind nicht als Senify-Motion-Preset abbildbar. Das sind geplante Roadmap-Scheiben, keine stillen Fehler.
 5. Ein vollständiger visueller und zeitlicher Vergleich Original gegen gebackene Senify-Ausgabe wurde in diesem Lauf nicht ausgeführt. Die Seiten sind geschrieben, aber Pixel-, Font-, Zustands- und Motion-Treue sind offen.
 6. Das isolierte Projekt lief auf dem lokalen Testcluster; es sind keine Produktions- oder Nutzerdaten betroffen.
 
