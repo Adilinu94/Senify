@@ -11,6 +11,7 @@
 import type { EditorDocument } from "@senify/editor/state";
 import type { StyleRule } from "@senify/widget-engine";
 import { captureFixture, captureHtml, type CaptureHtmlInput } from "./capture-html.ts";
+import { captureBrowser } from "./capture-browser.ts";
 import type { FramerIrDocument, IrFinding, IrNode } from "./ir.ts";
 import { normalize, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
 import { mapDocument, type MapperResult, type ThemePatch } from "./mapper.ts";
@@ -43,6 +44,12 @@ export type RunImportInput = {
   // `dna` (default) rewrites what the design DNA forbids; `fidelity` keeps the
   // source's look and only consolidates.
   mode?: NormalizeMode;
+  // URL sources: render the live page in Chromium first. Framer's exported
+  // subpages are client-rendered shells — their static HTML carries no page
+  // tree, so only the browser capture can see them. Default false keeps the
+  // fast SSR path.
+  browser?: boolean;
+  browserSettleMs?: number;
 };
 
 export type ImportRun = {
@@ -108,13 +115,22 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   let document: FramerIrDocument;
   let baseUrl = input.baseUrl;
   if (input.source.kind === "url") {
-    const response = await fetch(input.source.url);
-    if (!response.ok) {
-      throw new Error(`Quelle nicht ladbar: ${response.status} ${input.source.url}`);
+    if (input.browser === true) {
+      const captured = await captureBrowser({
+        url: input.source.url,
+        ...(input.pagePath === undefined ? {} : { pagePath: input.pagePath }),
+        ...(input.browserSettleMs === undefined ? {} : { settleMs: input.browserSettleMs }),
+      });
+      document = captured.document;
+    } else {
+      const response = await fetch(input.source.url);
+      if (!response.ok) {
+        throw new Error(`Quelle nicht ladbar: ${response.status} ${input.source.url}`);
+      }
+      const html = await response.text();
+      const css = await fetchLinkedCss(html, input.source.url);
+      document = captureHtml({ html, url: input.source.url, pagePath: input.pagePath ?? "/", css });
     }
-    const html = await response.text();
-    const css = await fetchLinkedCss(html, input.source.url);
-    document = captureHtml({ html, url: input.source.url, pagePath: input.pagePath ?? "/", css });
     if (baseUrl === undefined) baseUrl = new URL(input.source.url).origin;
   } else if (input.source.kind === "mirror") {
     // Offline mode (S2.4): the local mirror is the input, no network beyond

@@ -553,6 +553,12 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     expect(ambiguous.status).toBe(400);
   }, 60_000);
 
+  it("rejects the browser capture without a URL source", async () => {
+    const response = await runImport({ source: { html: framerHtml() }, browser: true });
+    expect(response.status).toBe(400);
+    expect(response.body.error.field).toBe("browser");
+  });
+
   it("works from a mirror folder (offline mode)", async () => {
     const response = await runImport({
       source: { rootDir: mirrorDir },

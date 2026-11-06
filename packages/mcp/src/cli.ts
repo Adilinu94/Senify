@@ -377,6 +377,7 @@ export function createProgram(): Command {
     .option("--base-draft-version <version>", "Aktuelle Draft-Version der Zielseite")
     .option("--apply-theme", "Theme-Font-Patch mit übernehmen")
     .option("--mode <modus>", "fidelity für Originaltreue oder dna für Design-DNA")
+    .option("--browser", "Live-Seite vor dem Import in Chromium rendern")
     .option("--report", "Vollen Bericht als JSON ausgeben")
     .option("--api <url>")
     .action(async (quelle, options) => {
@@ -407,6 +408,7 @@ export function createProgram(): Command {
           : { baseDraftVersion: Number.parseInt(String(options.baseDraftVersion), 10) }),
         ...(options.applyTheme === true ? { applyTheme: true } : {}),
         ...(options.mode === undefined ? {} : { mode: String(options.mode) }),
+        ...(options.browser === true ? { browser: true } : {}),
       };
       const answer = await client.request<{
         job: { id: string; status: string; dryRun: boolean };

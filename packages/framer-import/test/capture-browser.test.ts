@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import http from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { captureBrowser, mapFramerMotion } from "@senify/framer-import";
+import { captureBrowser, mapFramerMotion, runImport } from "@senify/framer-import";
 
 // The browser capture (plan S2.1/S2.2) against local servers, so the whole
 // path runs offline and deterministic:
@@ -133,6 +133,13 @@ describe.skipIf(!browserAvailable)("captureBrowser", () => {
     // The static channels survive the round trip (the fixture is a real export).
     expect(result.document.breakpoints.length).toBeGreaterThan(0);
     expect(result.document.findings.some((finding) => finding.kind === "smooth-scroll")).toBe(true);
+  }, 60_000);
+
+  it("uses the browser capture when runImport receives a URL with browser: true", async () => {
+    const run = await runImport({ source: { kind: "url", url: `${fixtureOrigin}/` }, browser: true });
+    expect(run.document.source.kind).toBe("browser");
+    expect(run.document.pages[0]?.root.children.length).toBeGreaterThan(0);
+    expect(run.mapped.stats.nodes).toBeGreaterThan(0);
   }, 60_000);
 
   it("measures IO registrations and the endless WAAPI loop with the probes", async () => {

@@ -17,14 +17,15 @@
 | Serverbestätigte History, Library | `pnpm exec vitest run packages/editor/test/state/external-history.test.ts packages/editor/test/history.test.ts packages/editor/test/state/store.test.ts packages/editor/test/state/persist.test.ts packages/editor/test/state/session.test.ts packages/app/test/variables-editor-browser.test.ts packages/app/test/canvas-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026**, 117 bestanden in 7 Dateien nach rot/grünen Regressionen für atomare Beobachterbestätigung, ungültige Antworten, Ownership/Recovery und Registry-Belege. `pnpm typecheck`, `pnpm lint`, `pnpm quality:check` und `git diff --check` grün. App-/Canvas-Runner noch nicht angebunden; kein neuer Voll-, Coverage-, PostgreSQL-, Visual-, Parity- oder Importlauf für diese Scheibe. |
 | History-Sperrerhalt | `pnpm exec vitest run packages/app/test/variables-editor-browser.test.ts packages/app/test/canvas-browser.test.ts packages/editor/test/history.test.ts packages/editor/test/state/store.test.ts packages/editor/test/state/persist.test.ts packages/editor/test/state/session.test.ts --no-file-parallelism` | **Grün am 05.11.2026**, 91 bestanden in 6 Dateien nach den Unknown-/Reload-/Dokumentwechsel- und Storage-Retry-Korrekturen. Storage-Retry-Regression vorher gezielt rot. `pnpm typecheck` und `pnpm lint` danach grün. Kein Backend-Vertrag geändert; kein neuer Voll-, Coverage-, PostgreSQL- oder Paritätslauf. |
 | Externe History, Vorbereitung | `pnpm exec vitest run packages/editor/test/history.test.ts packages/editor/test/state/store.test.ts packages/editor/test/state/persist.test.ts packages/editor/test/state/session.test.ts packages/app/test/variables-editor-browser.test.ts packages/app/test/canvas-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026**, 89 bestanden in 6 Dateien. Danach Browser-Storage-Typisierung und eine Session-/Pipeline-Regression ergänzt: vier vollständige History-/State-Dateien erneut grün (79 bestanden), Retry-/Dialog-Browserfall erneut grün (gefilterter Lauf: 12 bestanden, 77 gezielt nicht ausgewählt). `pnpm typecheck` und `pnpm lint` danach grün. Kein neuer Voll-, Coverage-, PostgreSQL- oder Paritätslauf für diesen Diff. |
-| Build, Typprüfung, Lint und Volltest | `pnpm verify` | **Grün am 05.11.2026 nach dem 09a/09b-Diff**: Build, Typecheck, `verify:dist`, Lint, Patch-Gate und vollständige Tests. 2094 bestanden, 36 übersprungen, 0 fehlgeschlagen in 219 Testdateien (216 bestanden, 3 mit erwarteten Skips). Ein früherer Lauf war einmal durch einen ephemeren Port in der Fetch-Sperrliste rot (`redesign-cards-browser`); derselbe Test war isoliert grün. |
+| Build, Typprüfung, Lint und Volltest | `pnpm verify` | **Grün am 06.11.2026 nach dem Framer-Browser-Import-Diff**: Build, Typecheck, `verify:dist`, Lint, Patch-Gate und vollständige Tests. 2096 bestanden, 36 übersprungen, 0 fehlgeschlagen in 219 Testdateien (216 bestanden, 3 mit erwarteten Skips). Ein früherer Lauf war einmal durch einen ephemeren Port in der Fetch-Sperrliste rot (`redesign-cards-browser`); derselbe Test war isoliert grün. |
 | Editor-Konfliktauflösung | `pnpm exec vitest run packages/app/test/variables-editor-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026** für die nachfolgenden UI-Änderungen, einschließlich Antwortverlust, konkurrierender Eingaben und Undo/Redo nach Neuladen. Anschließende Fixes der Pipeline und des Konflikt-Neuladens wurden mit Pipeline- und Browser-Tests geprüft. |
-| Visueller Editor-Gate | `pnpm test:visual` | **Grün am 05.11.2026 nach dem 09b-Diff**: 1 Browsertest, Desktop-Baselines bei 1440/1024 px stabil. Die Baselines decken nicht alle Variablenzustände ab. |
-| Coverage | `pnpm test:coverage` | **Grün am 05.11.2026 nach dem 09b-Diff**: 1226 bestanden, 36 übersprungen, 0 fehlgeschlagen in 112 Dateien, keine Schwellenfehler. Messwerte siehe Coverage-Block. |
-| PostgreSQL-Lane | `TEST_DATABASE_URL=… pnpm test:postgres` | **Grün am 05.11.2026 nach dem 09b-Diff** gegen den isolierten PostgreSQL-18.6-Cluster (Port 55486): 6 Fälle in 2 Dateien, 0 übersprungen. Deckt Transaktions- und Redesign-Apply-Atomarität ab; der Cluster wurde danach gestoppt. |
+| Visueller Editor-Gate | `pnpm test:visual` | **Grün am 06.11.2026 nach dem Framer-Browser-Import-Diff**: 1 Browsertest, Desktop-Baselines bei 1440/1024 px stabil. Die Baselines decken nicht alle Variablenzustände ab. |
+| Coverage | `pnpm test:coverage` | **Grün am 06.11.2026 nach dem Framer-Browser-Import-Diff**: 1227 bestanden, 36 übersprungen, 0 fehlgeschlagen in 112 Dateien, keine Schwellenfehler. Messwerte siehe Coverage-Block. |
+| PostgreSQL-Lane | `TEST_DATABASE_URL=… pnpm test:postgres` | **Grün am 06.11.2026 nach dem Framer-Browser-Import-Diff** gegen den isolierten PostgreSQL-18.6-Cluster (Port 55486): 6 Fälle in 2 Dateien, 0 übersprungen. Deckt Transaktions- und Redesign-Apply-Atomarität ab; der Cluster wurde danach gestoppt. |
 | PostgreSQL, gezielt | `TEST_DATABASE_URL=… pnpm exec vitest run packages/engine/test/theme-variable-rename.test.ts packages/engine/test/backup-restore.test.ts --no-file-parallelism` | **Grün am 05.11.2026** gegen einen isolierten PostgreSQL-18.6-Cluster für Umbenennung, Undo, Migration, Konkurrenz und Rollback. Der Schutz reservierter Namen wurde danach gezielt in der In-Memory-Suite geprüft. |
 | Doku-Messwerte | `pnpm quality:render` und `pnpm quality:check` | **Grün am 05.11.2026**; der erzeugte Coverage-Block stimmt mit dem Messlauf überein. |
-| Parity und Import, separat | `pnpm verify:parity`, `pnpm verify:import` | **Grün am 05.11.2026 nach dem 09b-Diff**: `verify:parity` 1 Cutover-Browsertest (Kopf 0, Sektion ≈0,000006); `verify:import` 1 Import-Browsertest (Desktop/Tablet/Mobil Ratio 0, absichtliche Degradation wird rot erkannt). |
+| Parity und Import, separat | `pnpm verify:parity`, `pnpm verify:import` | **Grün am 06.11.2026 nach dem Framer-Browser-Import-Diff**: `verify:parity` 1 Cutover-Browsertest (Kopf 0, Sektion ≈0,000006); `verify:import` 1 Import-Browsertest (Desktop/Tablet/Mobil Ratio 0, absichtliche Degradation wird rot erkannt). |
+| Framer-Echtabnahme (Relay) | `senify export framer`, `senify prepare framer`, `senify import framer … --browser` | **Teilweise am 06.11.2026**: Unframer 5 Seiten/15 Komponenten/1 CMS-Collection (6 Einträge); Mirror 51,6 MB, 24 Assets/43 Fonts, 0 Fehler. Alle 6 veröffentlichten Routen in ein isoliertes Projekt geschrieben (Startseite 2166 Knoten/Score 59; Contact 334/57; Blog-Index 324/76; drei Beiträge 232/73, 208/78, 204/79), 0 Assetfehler. Flache Unterseiten sind client-gerenderte Hüllen und benötigen den neuen `--browser`-Modus; Mehrseiten-Manifest, drei nicht veröffentlichte CMS-Einträge, Fonts, Pseudo-Zustände, Motion, `runtimeFreeVerified` und der visuelle/zeitliche Original-gegen-Build-Vergleich bleiben offen. Kein CI-Gate; externe Site und Zugang erforderlich. Beleg: `.scratch/framer/acceptance-gracious-2026-11-06.md`. |
 
 ## Volltest
 
@@ -34,12 +35,12 @@ Der Canvas-Abschlussgate vom 05.11.2026 umfasst außerdem `pnpm quality:check` u
 
 Der Abschluss-Gate der Backend-Delete/Restore-Scheibe vom 05.11.2026 umfasst außerdem grüne Läufe von `pnpm quality:check` und `git diff --check` nach dem Dokumentationsabgleich. Das Graphify-Update ist AST-only und kein Produkt- oder Paritätsnachweis.
 
-Der letzte vollständige Lauf `pnpm verify` vom 05.11.2026 lief nach dem 09a/09b-Diff und umfasst Build, Typecheck, `verify:dist`, Lint, Patch-Gate und die vollständige Testsuite. Die Tabelle ist der Messstand dieses Volltests. Ein früherer Lauf war einmal an einem ephemeren Port in der Fetch-Sperrliste rot; derselbe Browsertest war isoliert grün.
+Der letzte vollständige Lauf `pnpm verify` vom 06.11.2026 lief nach dem Framer-Browser-Import-Diff und umfasst Build, Typecheck, `verify:dist`, Lint, Patch-Gate und die vollständige Testsuite. Die Tabelle ist der Messstand dieses Volltests. Ein früherer Lauf war einmal an einem ephemeren Port in der Fetch-Sperrliste rot; derselbe Browsertest war isoliert grün.
 
 | Kategorie | Anzahl | Bedeutung |
 |---|---:|---|
-| Tests gesamt | 2130 | inklusive Skip-Fälle |
-| bestanden | 2094 | Volltest vom 05.11.2026 nach 09a/09b |
+| Tests gesamt | 2132 | inklusive Skip-Fälle |
+| bestanden | 2096 | Volltest vom 06.11.2026 nach dem Framer-Browser-Import-Diff |
 | übersprungen | 36 | unter anderem PostgreSQL-Fälle ohne Testdatenbank und UI-Vorschau-Paritätsfälle |
 | fehlgeschlagen | 0 | gemessener Volltest |
 | Testdateien | 219 | 216 bestanden, 3 mit erwarteten Skips |
@@ -50,7 +51,7 @@ Die PostgreSQL-Gates für die betroffenen Transaktionspfade liefen separat gegen
 
 Geführt über `pnpm test:coverage`, v8-Provider und `perFile: true`. Der Lauf umfasst `engine`, `editor` und `mcp`, nicht die schweren Browser-Suiten. Die Schwellen liegen in `vitest.config.ts`.
 
-Der Lauf vom 05.11.2026 meldete **1226 bestanden / 36 übersprungen / 0 fehlgeschlagen** in 112 Dateien und keine Schwellenfehler. Die Übersicht unten wurde aus derselben Messung gerendert und mit `pnpm quality:check` geprüft.
+Der Lauf vom 06.11.2026 meldete **1227 bestanden / 36 übersprungen / 0 fehlgeschlagen** in 112 Dateien und keine Schwellenfehler. Die Übersicht unten wurde aus derselben Messung gerendert und mit `pnpm quality:check` geprüft.
 
 ### Gemessene Coverage der geschützten Pfade
 
@@ -65,13 +66,13 @@ Der Lauf vom 05.11.2026 meldete **1226 bestanden / 36 übersprungen / 0 fehlgesc
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
 | `packages/engine/src/http.ts` | 90.85 | 72.62 | 92.47 | 90.85 |
-| `packages/engine/src/store.ts` | 85.92 | 79.05 | 93.61 | 85.92 |
+| `packages/engine/src/store.ts` | 85.92 | 79.07 | 93.61 | 85.92 |
 | `packages/engine/src/lifecycle.ts` | 87.01 | 74.19 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.09 | 73.60 | 100.00 | 84.09 |
 | `packages/mcp/src/tools.ts` | 91.84 | 61.10 | 85.06 | 91.84 |
 | `packages/editor/src/state/*` (16 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 88.51 · Branches 75.83 · Functions 90.94 · Lines 88.51
+**Über alle gemessenen Dateien:** Statements 88.51 · Branches 75.84 · Functions 90.94 · Lines 88.51
 
 <!-- messwerte:ende -->
 

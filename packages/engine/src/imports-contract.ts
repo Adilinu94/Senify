@@ -36,6 +36,9 @@ export const CreateImportBodySchema = Type.Object(
     // "dna" (default) rewrites what the design DNA forbids (gradients, shadows,
     // radii, centered headings); "fidelity" keeps the source's look.
     mode: Type.Optional(Type.Union([Type.Literal("dna"), Type.Literal("fidelity")])),
+    // URL sources only: render the live page in Chromium before capture.
+    // Framer subpages are often client-rendered shells without a static tree.
+    browser: Type.Optional(Type.Boolean()),
     // The `irHash` the analysis (dry run) reported. A write whose source no
     // longer produces this hash (the live site changed between "Analysieren"
     // and "Übernehmen") is rejected instead of writing something the person

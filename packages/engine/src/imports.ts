@@ -144,6 +144,9 @@ function sourceOf(body: CreateImportBody, pagePath: string): FramerImportSource 
       { field: "source" },
     );
   }
+  if (body.browser === true && !hasUrl) {
+    throw new SenifyError("validation", "Browser-Capture benötigt eine URL-Quelle", { field: "browser" });
+  }
   if (hasUrl) {
     return { kind: "url", url: source.url ?? "" };
   }
@@ -271,6 +274,7 @@ export async function runFramerImportJob(
       includeFonts,
       pagePath,
       mode: input.body.mode ?? "dna",
+      ...(input.body.browser === true ? { browser: true } : {}),
     });
   } catch (error) {
     if (media !== undefined) {
