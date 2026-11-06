@@ -127,6 +127,91 @@ function fingerprint(dir: string): string[] {
 }
 
 describe("restore a backup", () => {
+  it("preserves variable-rename receipts for idempotent retries", async () => {
+    const author = { kind: "human" as const, id: "tester", label: "Tester" };
+    const site = await createTestSite(env.api, "Variablenumbenennung im Backup");
+    const page = await createTestPage(env.api, site.id, { path: "/" });
+    const initial = await env.engine.store.getTheme(site.id);
+    const theme = await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { marker: "#123456" } } } }, author, initial.version);
+    const input = { receiptId: "backup-rename-receipt-1", newName: "marke", baseThemeVersion: theme.version, pageContext: { pageId: page.id, baseDraftVersion: page.draftVersion } };
+    const renamed = await env.engine.store.renameVariable(site.id, "color", "marker", input, author);
+    const backup = await createBackup();
+    await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { extra: "#abcdef" } } } }, author, renamed.version);
+    expect((await restore(backup.id, { confirm: true })).status).toBe(200);
+    expect(await env.engine.store.renameVariable(site.id, "color", "marker", input, author)).toEqual(renamed);
+    expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marke: "#123456" });
+    const receiptRow = await env.db.query<{ resource_hashes: unknown }>(`SELECT resource_hashes FROM theme_variable_renames WHERE id = $1`, [renamed.receiptId]);
+    const rawHashes = receiptRow.rows[0]!.resource_hashes;
+    const hashes = (typeof rawHashes === "string" ? JSON.parse(rawHashes) : rawHashes) as { registry?: unknown; registryContract?: unknown };
+    expect(hashes.registryContract).toBe("raw-registry-updatedAt-excluded");
+    expect(hashes.registry).toMatch(/^[0-9a-f]{64}$/);
+    const restoredPage = await env.engine.store.getPage(page.id);
+    await env.engine.store.updatePage(page.id, restoredPage.draftVersion, { draft: restoredPage.draft, title: "Zwischenstand", path: restoredPage.path });
+    const editedPage = await env.engine.store.getPage(page.id);
+    const restoredVersion = await env.engine.store.updatePage(page.id, editedPage.draftVersion, { draft: editedPage.draft, title: restoredPage.title, path: restoredPage.path });
+    const undo = { receiptId: "backup-rename-receipt-2", newName: "marker", undoOf: renamed.receiptId, baseThemeVersion: renamed.version, pageContext: { pageId: page.id, baseDraftVersion: restoredVersion } };
+    const undone = await env.engine.store.renameVariable(site.id, "color", "marke", undo, author);
+    const undoBackup = await createBackup();
+    await env.engine.store.renameVariable(site.id, "color", "marker", { receiptId: "backup-rename-receipt-3", newName: "marke", undoOf: undone.receiptId, baseThemeVersion: undone.version, pageContext: { pageId: page.id, baseDraftVersion: undone.pageDraftVersion } }, author);
+    expect((await restore(undoBackup.id, { confirm: true })).status).toBe(200);
+    expect(await env.engine.store.renameVariable(site.id, "color", "marke", undo, author)).toEqual(undone);
+    expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marker: "#123456" });
+    await env.engine.store.deleteSite(site.id);
+  });
+
+  it("preserves variable-deletion receipts for later restoration", async () => {
+    const author = { kind: "human" as const, id: "tester", label: "Tester" };
+    const site = await createTestSite(env.api, "Variablenbeleg im Backup");
+    const page = await createTestPage(env.api, site.id, { path: "/" });
+    const initial = await env.engine.store.getTheme(site.id);
+    const theme = await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { marker: "#123456" } } } }, author, initial.version);
+    const deleted = await env.engine.store.deleteUnusedVariable(site.id, "color", "marker", { receiptId: "backup-variable-receipt-1", baseThemeVersion: theme.version, pageContext: { pageId: page.id, baseDraftVersion: page.draftVersion } }, author);
+    const backup = await createBackup();
+    const input = { receiptId: deleted.receiptId, baseThemeVersion: deleted.version, pageContext: { pageId: page.id, baseDraftVersion: deleted.pageDraftVersion } };
+    await env.engine.store.restoreVariable(site.id, "color", "marker", input, author);
+    expect((await restore(backup.id, { confirm: true })).status).toBe(200);
+    const restoredPage = await env.engine.store.getPage(page.id);
+    const changedVersion = await env.engine.store.updatePage(page.id, restoredPage.draftVersion, { draft: restoredPage.draft, title: "Zwischenstand", path: restoredPage.path });
+    const revertedVersion = await env.engine.store.updatePage(page.id, changedVersion, { draft: restoredPage.draft, title: restoredPage.title, path: restoredPage.path });
+    const currentInput = { ...input, pageContext: { pageId: page.id, baseDraftVersion: revertedVersion } };
+    const restored = await env.engine.store.restoreVariable(site.id, "color", "marker", currentInput, author);
+    const restoredBackup = await createBackup();
+    await env.engine.store.updateTheme(site.id, { tokens: { primitive: { color: { marker: "#abcdef" } } } }, author, restored.version);
+    expect((await restore(restoredBackup.id, { confirm: true })).status).toBe(200);
+    expect(await env.engine.store.restoreVariable(site.id, "color", "marker", currentInput, author)).toEqual(restored);
+    await expect(env.engine.store.restoreVariable(site.id, "color", "marker", input, author)).rejects.toThrow(/bereits wiederhergestellt/);
+    expect((await env.engine.store.getTheme(site.id)).theme.tokens.primitive?.color).toMatchObject({ marker: "#123456" });
+    await env.engine.store.deleteSite(site.id);
+  });
+
+  it("preserves class-deletion receipts so assignments remain restorable", async () => {
+    const author = { kind: "human" as const, id: "tester", label: "Tester" };
+    const site = await createTestSite(env.api, "Klassenbeleg im Backup");
+    const page = await createTestPage(env.api, site.id, { path: "/" });
+    const created = await env.humanApi.request<{ id: string }>({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name: "cta" } });
+    const draft = (await env.engine.store.getPage(page.id)).draft;
+    draft.nodes[draft.rootNodeId]!.classes = ["cta"];
+    const pageVersion = await env.engine.store.updatePage(page.id, page.draftVersion, { draft, title: page.title, path: page.path });
+    const removed = await env.engine.store.deleteGlobalClass(site.id, created.body.id, { baseVersion: 1, pageContext: { pageId: page.id, baseDraftVersion: pageVersion } }, author);
+    const backup = await createBackup();
+    await env.engine.store.restoreGlobalClass(site.id, created.body.id, { receiptId: removed.receiptId, baseVersion: 2, pageContext: { pageId: page.id, baseDraftVersion: removed.pageDraftVersion } }, author);
+    expect((await restore(backup.id, { confirm: true })).status).toBe(200);
+    const before = await env.engine.store.getPage(page.id);
+    const changed = await env.engine.store.updatePage(page.id, before.draftVersion, { draft: before.draft, title: "Zwischenstand", path: before.path });
+    const reverted = await env.engine.store.updatePage(page.id, changed, { draft: before.draft, title: before.title, path: before.path });
+    const input = { receiptId: removed.receiptId, baseVersion: 2, pageContext: { pageId: page.id, baseDraftVersion: reverted } };
+    const result = await env.engine.store.restoreGlobalClass(site.id, created.body.id, input, author);
+    const restored = await env.engine.store.getPage(page.id);
+    expect(restored.draft.nodes[restored.draft.rootNodeId]?.classes).toEqual(["cta"]);
+    const restoredBackup = await createBackup();
+    await env.engine.store.createStyleRule(site.id, { name: "spaeter" }, author);
+    expect((await restore(restoredBackup.id, { confirm: true })).status).toBe(200);
+    expect(await env.engine.store.restoreGlobalClass(site.id, created.body.id, input, author)).toEqual(result);
+    await expect(env.engine.store.restoreGlobalClass(site.id, created.body.id, { ...input, pageContext: { ...input.pageContext, baseDraftVersion: removed.pageDraftVersion } }, author)).rejects.toThrow(/erneut wiederhergestellt/);
+    expect((await env.engine.store.getPage(page.id)).draftVersion).toBe(result.pageDraftVersion);
+    await env.engine.store.deleteSite(site.id);
+  });
+
   it("writes tables and files back and leaves the backup untouched", async () => {
     const site = await createTestSite(env.api, "Vor der Sicherung");
     await createTestPage(env.api, site.id, { title: "Startseite" });

@@ -214,7 +214,7 @@ const SAMPLES: Sample[] = [
     apply: (store) => {
       return store.apply({ op: "deleteStyleRule", id: "r-cta" });
     },
-    route: "/api/sites/site1/style-rules/r-cta",
+    route: "/api/sites/site1/style-rules/r-cta/delete-globally",
   },
   {
     op: "reorderStyleRule",

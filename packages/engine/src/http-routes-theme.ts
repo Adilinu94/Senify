@@ -14,14 +14,23 @@ import { parseBody } from "./mutations/contract.ts";
 import { UpdateThemeBodySchema, type UpdateThemeBody } from "./mutations/contract.ts";
 import {
   CreateStyleRuleBodySchema,
+  DeleteGlobalClassBodySchema,
+  DeleteStyleRuleBodySchema,
   ReorderStyleRuleBodySchema,
-  SiteEventBodySchema,
+  RestoreGlobalClassBodySchema,
   UpdateStyleRuleBodySchema,
+  VariableDeletionBodySchema,
+  VariableRenameBodySchema,
   type CreateStyleRuleBody,
+  type DeleteGlobalClassBody,
+  type DeleteStyleRuleBody,
   type ReorderStyleRuleBody,
-  type SiteEventBody,
+  type RestoreGlobalClassBody,
   type UpdateStyleRuleBody,
+  type VariableDeletionBody,
+  type VariableRenameBody,
 } from "./site-contract.ts";
+import { getVariableUsage } from "./variable-usage.ts";
 import { buildThemeReport } from "./theme-report.ts";
 import { buildDesignReport } from "./design-report.ts";
 import { SenifyError } from "@senify/core";
@@ -78,8 +87,50 @@ export const themeRoutes: Route[] = [
         siteId,
         themeBody.theme,
         resolveAuthor(auth),
+        themeBody.baseVersion,
       );
       return { status: 200, body: updated };
+    },
+  },
+
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "theme", "variables", ":family", ":name", "usage"],
+    scope: "read",
+    handler: async (context, params) => ({
+      status: 200,
+      body: await getVariableUsage(context.store, requireParam(params, "siteId"), requireParam(params, "family"), requireParam(params, "name")),
+    }),
+  },
+
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "theme", "variables", ":family", ":name", "rename"],
+    scope: "write",
+    handler: async (context, params, req, _url, auth) => {
+      const body = parseBody<VariableRenameBody>(VariableRenameBodySchema, (await readJsonBody(req)) ?? {}, "variable rename");
+      return { status: 200, body: await context.store.renameVariable(requireParam(params, "siteId"), requireParam(params, "family"), requireParam(params, "name"), body, resolveAuthor(auth)) };
+    },
+  },
+
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "theme", "variables", ":family", ":name", "delete"],
+    scope: "publish",
+    destructive: true,
+    handler: async (context, params, req, _url, auth) => {
+      const body = parseBody<VariableDeletionBody>(VariableDeletionBodySchema, (await readJsonBody(req)) ?? {}, "variable deletion");
+      return { status: 200, body: await context.store.deleteUnusedVariable(requireParam(params, "siteId"), requireParam(params, "family"), requireParam(params, "name"), body, resolveAuthor(auth)) };
+    },
+  },
+
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "theme", "variables", ":family", ":name", "restore"],
+    scope: "write",
+    handler: async (context, params, req, _url, auth) => {
+      const body = parseBody<VariableDeletionBody>(VariableDeletionBodySchema, (await readJsonBody(req)) ?? {}, "variable restoration");
+      return { status: 200, body: await context.store.restoreVariable(requireParam(params, "siteId"), requireParam(params, "family"), requireParam(params, "name"), body, resolveAuthor(auth)) };
     },
   },
 
@@ -151,6 +202,53 @@ export const themeRoutes: Route[] = [
   },
 
   {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId", "delete-globally"],
+    scope: "publish",
+    destructive: true,
+    handler: async (context, params, req, _url, auth) => {
+      const body = parseBody<DeleteGlobalClassBody>(DeleteGlobalClassBodySchema, (await readJsonBody(req)) ?? {}, "global class deletion");
+      const result = await context.store.deleteGlobalClass(requireParam(params, "siteId"), requireParam(params, "ruleId"), body, resolveAuthor(auth));
+      return { status: 200, body: result, headers: styleVersionHeaders(result.version) };
+    },
+  },
+
+  {
+    method: "POST",
+    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId", "restore-globally"],
+    scope: "write",
+    handler: async (context, params, req, _url, auth) => {
+      const body = parseBody<RestoreGlobalClassBody>(RestoreGlobalClassBodySchema, (await readJsonBody(req)) ?? {}, "global class restore");
+      const result = await context.store.restoreGlobalClass(requireParam(params, "siteId"), requireParam(params, "ruleId"), body, resolveAuthor(auth));
+      return { status: 200, body: result, headers: styleVersionHeaders(result.version) };
+    },
+  },
+
+  {
+    method: "GET",
+    segments: ["api", "sites", ":siteId", "style-rules", ":ruleId", "usage"],
+    scope: "read",
+    handler: async (context, params) => {
+      const siteId = requireParam(params, "siteId");
+      const ruleId = requireParam(params, "ruleId");
+      const [rule, pages] = await Promise.all([
+        context.store.getStyleRule(siteId, ruleId),
+        context.store.listPageDrafts(siteId),
+      ]);
+      if (rule.kind !== "class" || rule.scope !== undefined) {
+        throw new SenifyError("validation", "Die Verwendungsübersicht gilt für globale Klassen", { field: "ruleId" });
+      }
+      const usage = pages.flatMap((page) => {
+        const nodeIds = Object.values(page.draft.nodes)
+          .filter((node) => node.classes?.includes(rule.name))
+          .map((node) => node.id);
+        return nodeIds.length === 0 ? [] : [{ pageId: page.id, title: page.title, path: page.path, nodeIds }];
+      });
+      return { status: 200, body: { ruleId, name: rule.name, usage } };
+    },
+  },
+
+  {
     method: "GET",
     segments: ["api", "sites", ":siteId", "style-rules", ":ruleId"],
     scope: "read",
@@ -174,10 +272,9 @@ export const themeRoutes: Route[] = [
         body,
         "style rule update",
       );
-      const { author: _suggestion, ...patch } = parsed;
-      const rule = await context.store.updateStyleRule(siteId, ruleId, patch, resolveAuthor(auth));
-      const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 200, body: rule, headers: styleVersionHeaders(version) };
+      const { author: _suggestion, pageContext, ...patch } = parsed;
+      const result = await context.store.updateStyleRule(siteId, ruleId, patch, resolveAuthor(auth), pageContext);
+      return { status: 200, body: { ...result.rule, version: result.version, ...(result.pageDraftVersion === undefined ? {} : { pageDraftVersion: result.pageDraftVersion }) }, headers: styleVersionHeaders(result.version) };
     },
   },
 
@@ -194,15 +291,18 @@ export const themeRoutes: Route[] = [
         body,
         "style rule reorder",
       );
+      if ((parsed.index === undefined) === (parsed.classIndex === undefined)) {
+        throw new SenifyError("validation", "Genau ein Index muss angegeben werden", { field: "index" });
+      }
       const rules = await context.store.reorderStyleRule(
         siteId,
         ruleId,
-        parsed.index,
+        parsed.classIndex === undefined ? parsed.index! : { classIndex: parsed.classIndex },
         resolveAuthor(auth),
         parsed.baseVersion,
       );
       const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 200, body: { rules }, headers: styleVersionHeaders(version) };
+      return { status: 200, body: { rules, version }, headers: styleVersionHeaders(version) };
     },
   },
 
@@ -216,15 +316,17 @@ export const themeRoutes: Route[] = [
       const ruleId = requireParam(params, "ruleId");
       const body = (await readJsonBody(req)) ?? {};
       // The body stays validated (closed shape); the token is the identity.
-      const parsed = parseBody<SiteEventBody>(SiteEventBodySchema, body, "style rule delete");
-      await context.store.deleteStyleRule(
+      const parsed = parseBody<DeleteStyleRuleBody>(DeleteStyleRuleBodySchema, body, "style rule delete");
+      const result = await context.store.deleteStyleRule(
         siteId,
         ruleId,
         resolveAuthor(auth),
         parsed.baseVersion,
+        parsed.pageContext,
       );
-      const version = (await context.store.getStyleRegistry(siteId)).version;
-      return { status: 204, headers: styleVersionHeaders(version) };
+      return parsed.pageContext === undefined
+        ? { status: 204, headers: styleVersionHeaders(result.version) }
+        : { status: 200, body: result, headers: styleVersionHeaders(result.version) };
     },
   },
 ];

@@ -2,19 +2,22 @@
 //
 // The rows come from the store's `HistoryStack` (time + action label), the
 // cursor marks the current state and the future entries stay visible dimmed.
-// A click jumps to that state through `store.restoreTo` — the ordinary
-// undo/redo gate, so document, history and save pipeline never drift apart.
-// The history belongs to the document: the store is replaced when another page
-// loads, and so is this list.
+// A click jumps to that state step by step: local steps use the store's patch
+// gate, external steps use the session's registered runner and confirmed server
+// state. Without a session, only purely local routes are offered. The history
+// belongs to the document: the store is replaced when another page loads, and
+// so is this list.
 
 import type { DomDocument, DomElement, DomEvent } from "../dom.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
+import type { EditorSession } from "../state/session.ts";
 import type { EditorStore } from "../state/store.ts";
 import { ensureHistoryStyles } from "./styles.ts";
 
 export type HistoryDialogOptions = {
   doc: DomDocument;
   store: EditorStore;
+  session?: EditorSession;
   onOpenChange?: (open: boolean) => void;
 };
 
@@ -55,7 +58,7 @@ function clock(at: number): string {
 }
 
 export function createHistoryDialog(options: HistoryDialogOptions): HistoryDialog {
-  const { doc, store } = options;
+  const { doc, store, session } = options;
   ensureHistoryStyles(doc);
   const root = h(doc, "div", { className: "senify-history", data: { open: "false" } });
   root.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
@@ -73,7 +76,9 @@ export function createHistoryDialog(options: HistoryDialogOptions): HistoryDialo
   });
   head.appendChild(close);
   const list = h(doc, "div", { className: "senify-history__list" });
+  const status = h(doc, "div", { className: "senify-history__status", attributes: { "aria-live": "polite" } });
   sheet.appendChild(head);
+  sheet.appendChild(status);
   sheet.appendChild(list);
   root.appendChild(backdrop);
   root.appendChild(sheet);
@@ -81,9 +86,18 @@ export function createHistoryDialog(options: HistoryDialogOptions): HistoryDialo
 
   let open = false;
   let restoreFocus: DomElement | null = null;
+  let jumping = false;
 
   function render(): void {
     list.textContent = "";
+    status.textContent = "";
+    const externalState = session?.externalHistoryState();
+    if (externalState && externalState.status !== "idle" && externalState.message) {
+      status.textContent = externalState.message;
+      status.setAttribute("data-status", externalState.status);
+    } else {
+      status.removeAttribute("data-status");
+    }
     const entries = store.history.entries();
     const applied = store.history.applied();
     if (entries.length === 0) {
@@ -96,21 +110,31 @@ export function createHistoryDialog(options: HistoryDialogOptions): HistoryDialo
       return;
     }
     const currentId = applied[applied.length - 1]?.id ?? null;
+    const running = jumping || store.pendingExternalId !== null || externalState?.status === "running";
     // Newest first: the state the user is looking at stays at the top.
     for (let index = entries.length - 1; index >= 0; index -= 1) {
       const entry = entries[index];
       if (entry === undefined) continue;
       const future = index >= applied.length;
+      const local = store.history.canRestoreTo(entry.id);
+      const asyncRoute = session ? session.canRestoreToAsync(entry.id) : store.canRestoreToAsync(entry.id);
+      const blocked = running || (!local && !asyncRoute);
+      let title = `${clock(entry.at)} · ${entry.label}`;
+      if (running) title = store.pendingExternalId !== null || jumping ? "Ein Verlaufsschritt wird noch ausgeführt." : "Ein externer Vorgang wird noch ausgeführt.";
+      else if (!local && asyncRoute) title = `${title} · wird Schritt für Schritt bestätigt`;
+      else if (blocked) title = "Dieser Sprung ist gerade nicht möglich.";
       const row = h(doc, "button", {
         className: "senify-history__row",
         data: {
           "entry-id": entry.id,
           current: String(entry.id === currentId),
           future: String(future),
+          external: String(asyncRoute && !local),
         },
         attributes: {
           type: "button",
-          title: `${clock(entry.at)} · ${entry.label}`,
+          title,
+          ...(blocked ? { disabled: "", "aria-disabled": "true" } : {}),
         },
       });
       row.appendChild(h(doc, "span", { className: "senify-history__time", text: clock(entry.at) }));
@@ -118,7 +142,20 @@ export function createHistoryDialog(options: HistoryDialogOptions): HistoryDialo
       if (entry.id === currentId) {
         row.appendChild(h(doc, "span", { className: "senify-history__mark", text: "jetzt" }));
       }
-      row.addEventListener("click", () => store.restoreTo(entry.id));
+      row.addEventListener("click", () => {
+        if (jumping || store.pendingExternalId !== null) return;
+        if (session) {
+          if (!session.canRestoreToAsync(entry.id)) return;
+          jumping = true;
+          render();
+          void session.restoreToAsync(entry.id).catch(() => undefined).finally(() => {
+            jumping = false;
+            if (open) render();
+          });
+          return;
+        }
+        if (store.history.canRestoreTo(entry.id)) store.restoreTo(entry.id);
+      });
       list.appendChild(row);
     }
   }

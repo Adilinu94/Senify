@@ -401,6 +401,10 @@ function translate(
       return formatted === undefined ? [] : names.map((name) => ({ property: name, value: formatted }));
     }
     case "spacing": {
+      if (typeof value === "string") {
+        const parsed = parseCssValue(value);
+        return parsed.ok ? names.map((name) => ({ property: name, value: parsed.value })) : [];
+      }
       const formatted = formatSpacing(value, resolveToken);
       return formatted === undefined ? [] : names.map((name) => ({ property: name, value: formatted }));
     }
@@ -414,7 +418,8 @@ function translate(
       // grammar. It is validated here and emitted in its normalized form
       // (ADR-0005, ticket 07 stage 0) — the compiler is the last line of
       // defence, the write path rejects loudly.
-      const formatted = formatText(value);
+      const ref = tokenRef(value);
+      const formatted = ref === undefined ? formatText(value) : resolveTokenRef(ref, resolveToken);
       if (formatted === undefined) return [];
       // `view()` / `scroll()` are timeline sources and belong to one property
       // only. Here they would be `filter: view(1px)` — rejected.

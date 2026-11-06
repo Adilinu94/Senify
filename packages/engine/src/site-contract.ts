@@ -41,6 +41,26 @@ export const SiteEventBodySchema = Type.Object(
 );
 export type SiteEventBody = Static<typeof SiteEventBodySchema>;
 
+export const DeleteStyleRuleBodySchema = Type.Object(
+  {
+    baseVersion: Type.Optional(Type.Number({ minimum: 0 })),
+    pageContext: Type.Optional(Type.Object({ pageId: Type.String({ minLength: 1 }), baseDraftVersion: Type.Integer({ minimum: 1 }) }, CLOSED)),
+    author: Type.Optional(AuthorSchema),
+  },
+  CLOSED,
+);
+export type DeleteStyleRuleBody = Static<typeof DeleteStyleRuleBodySchema>;
+
+const ClassPageContextSchema = Type.Object({ pageId: Type.String({ minLength: 1 }), baseDraftVersion: Type.Integer({ minimum: 1 }) }, CLOSED);
+export const VariableDeletionBodySchema = Type.Object({ receiptId: Type.String({ minLength: 14, maxLength: 64 }), baseThemeVersion: Type.Integer({ minimum: 1 }), pageContext: ClassPageContextSchema, author: Type.Optional(AuthorSchema) }, CLOSED);
+export type VariableDeletionBody = Static<typeof VariableDeletionBodySchema>;
+export const VariableRenameBodySchema = Type.Object({ receiptId: Type.String({ minLength: 14, maxLength: 64 }), newName: Type.String({ minLength: 1, maxLength: 128 }), undoOf: Type.Optional(Type.String({ minLength: 14, maxLength: 64 })), baseThemeVersion: Type.Integer({ minimum: 1 }), pageContext: ClassPageContextSchema, author: Type.Optional(AuthorSchema) }, CLOSED);
+export type VariableRenameBody = Static<typeof VariableRenameBodySchema>;
+export const DeleteGlobalClassBodySchema = Type.Object({ receiptId: Type.String({ minLength: 14, maxLength: 64 }), baseVersion: Type.Integer({ minimum: 0 }), pageContext: ClassPageContextSchema, author: Type.Optional(AuthorSchema) }, CLOSED);
+export type DeleteGlobalClassBody = Static<typeof DeleteGlobalClassBodySchema>;
+export const RestoreGlobalClassBodySchema = Type.Object({ receiptId: Type.String({ minLength: 1 }), baseVersion: Type.Integer({ minimum: 0 }), baseThemeVersion: Type.Optional(Type.Integer({ minimum: 1 })), pageContext: ClassPageContextSchema, author: Type.Optional(AuthorSchema) }, CLOSED);
+export type RestoreGlobalClassBody = Static<typeof RestoreGlobalClassBodySchema>;
+
 export const DuplicateSiteBodySchema = Type.Object(
   {
     withContent: Type.Optional(Type.Boolean()),
@@ -117,6 +137,7 @@ export const CreateStyleRuleBodySchema = Type.Object(
     rawCss: Type.Optional(Type.String()),
     authoredBy: Type.Optional(StyleRuleAuthorSchema),
     baseVersion: Type.Optional(Type.Number({ minimum: 0 })),
+    baseThemeVersion: Type.Optional(Type.Integer({ minimum: 1 })),
     author: Type.Optional(AuthorSchema),
   },
   CLOSED,
@@ -125,18 +146,21 @@ export type CreateStyleRuleBody = Static<typeof CreateStyleRuleBodySchema>;
 
 export const UpdateStyleRuleBodySchema = Type.Object(
   {
+    replaceStyleValues: Type.Optional(Type.Boolean()),
     name: Type.Optional(Type.String({ minLength: 1 })),
     selector: Type.Optional(Type.String({ minLength: 1 })),
     description: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     styles: Type.Optional(StyleBagSchema),
-    stylePriorities: Type.Optional(PriorityMapSchema),
-    states: Type.Optional(StatesSchema),
-    statePriorities: Type.Optional(StatePrioritiesSchema),
+    stylePriorities: Type.Optional(Type.Union([PriorityMapSchema, Type.Null()])),
+    states: Type.Optional(Type.Union([StatesSchema, Type.Null()])),
+    statePriorities: Type.Optional(Type.Union([StatePrioritiesSchema, Type.Null()])),
     contextStyles: Type.Optional(ContextStylesSchema),
-    contextStylePriorities: Type.Optional(Type.Record(Type.String(), PriorityMapSchema)),
+    contextStylePriorities: Type.Optional(Type.Union([Type.Record(Type.String(), PriorityMapSchema), Type.Null()])),
     rawCss: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     authoredBy: Type.Optional(StyleRuleAuthorSchema),
     baseVersion: Type.Optional(Type.Number({ minimum: 0 })),
+    baseThemeVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+    pageContext: Type.Optional(Type.Object({ pageId: Type.String({ minLength: 1 }), baseDraftVersion: Type.Integer({ minimum: 1 }) }, CLOSED)),
     author: Type.Optional(AuthorSchema),
   },
   CLOSED,
@@ -145,7 +169,8 @@ export type UpdateStyleRuleBody = Static<typeof UpdateStyleRuleBodySchema>;
 
 export const ReorderStyleRuleBodySchema = Type.Object(
   {
-    index: Type.Integer({ minimum: 0 }),
+    index: Type.Optional(Type.Integer({ minimum: 0 })),
+    classIndex: Type.Optional(Type.Integer({ minimum: 0 })),
     baseVersion: Type.Optional(Type.Number({ minimum: 0 })),
     author: Type.Optional(AuthorSchema),
   },

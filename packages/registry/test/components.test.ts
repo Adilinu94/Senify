@@ -8,6 +8,18 @@ import type { Node, PropValue } from "@senify/section-sdk";
 
 const ctx = { pagePaths: {}, assets: {} };
 
+describe("imported image assets", () => {
+  it("resolves the image asset reference against the delivery context", () => {
+    const nodes: Record<string, Node> = {
+      root: { id: "root", type: "page", props: {}, children: ["image"] },
+      image: { id: "image", type: "image", props: { asset: { assetId: "hero" }, alt: "Hero" } },
+    };
+    const html = renderToStaticMarkup(SectionTree({ rootNodeId: "root", nodes, ctx: { pagePaths: {}, assets: { hero: "/media/hero.png" } } }));
+    expect(html).toContain('src="/media/hero.png"');
+    expect(html).toContain('alt="Hero"');
+  });
+});
+
 function render(nodes: Record<string, Node>, rootNodeId = "root"): string {
   return renderToStaticMarkup(
     SectionTree({ rootNodeId, nodes, ctx }),

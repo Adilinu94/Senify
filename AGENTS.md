@@ -18,6 +18,7 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/
 
 - Fragen an den Nutzer immer über den interaktiven Frage-Dialog (anklickbare Optionen) stellen — nie als Freitext-Runden.
 - Antworten und Artefakte auf Deutsch (Fachbegriffe Englisch).
+- Testläufe nach Änderung und Risiko wählen; für die Entwicklung gilt die Teststrategie in `docs/fahrplan.md`.
 
 ## Dokumentationsvertrag
 

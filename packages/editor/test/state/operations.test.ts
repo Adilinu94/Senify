@@ -273,11 +273,11 @@ describe("class operations", () => {
       {
         patch: "setNodeFields",
         id: "head000001",
-        fields: { hiddenDevices: ["tablet", "mobile"] },
+        fields: { hiddenDevices: ["tablet", "mobile"], shownDevices: [] },
       },
     ]);
     expect(result.inverse).toEqual([
-      { patch: "setNodeFields", id: "head000001", fields: { hiddenDevices: null } },
+      { patch: "setNodeFields", id: "head000001", fields: { hiddenDevices: null, shownDevices: null } },
     ]);
     const next = nextOf(document, {
       op: "setNodeHiddenDevices",

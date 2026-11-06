@@ -312,7 +312,7 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     for (let i = 0; i < zeilen.length; i++) {
       if (/^ {2}function render[a-zA-Z0-9_]*\(/.test(zeilen[i]!)) starts.push(i);
     }
-    expect(starts.length, "der Inspektor hat keine Renderer mehr - die Messung passt nicht mehr").toBe(22);
+    expect(starts.length, "der Inspektor hat keine Renderer mehr - die Messung passt nicht mehr").toBe(24);
 
     // Closure-Namen auf Ebene 2.
     const closure = new Set<string>();
@@ -343,10 +343,10 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // `renderSelect`. Nur `renderSwitcher` ist wirklich eigenstaendig - 24
     // Zeilen. Genau deshalb steht die Zahl in der Begruendung: sie ist kleiner,
     // als der erste Blick suggeriert.
-    expect(eigenstaendig.sort()).toEqual(["renderSwitcher"]);
+    expect(eigenstaendig.sort()).toEqual(["renderSpacingUnit", "renderSwitcher"]);
 
     // Und die Begruendung muss die Zahl tragen, die sie behauptet.
-    expect(module).toContain("22 Renderer");
+    expect(module).toContain("24 Renderer");
     expect(module).toContain("elf Fremdnamen");
   });
 
@@ -401,7 +401,7 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // die Datei so gross sein darf).
     //
     // Die Zahl steht deshalb HIER und wird unten gegen eine Messung geprueft:
-    // 203 von 245 Delegaten.
+    // 203 von 250 Delegaten.
     const zeilen = readFileSync(join(root, "packages/engine/src/store.ts"), "utf8").split(/\r?\n/);
     const start: number[] = [];
     for (let i = 0; i < zeilen.length; i++) {

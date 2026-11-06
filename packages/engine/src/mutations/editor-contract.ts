@@ -68,6 +68,9 @@ export const EditorNodeSpecSchema = Type.Object(
     hiddenDevices: Type.Optional(
       Type.Array(Type.Union([Type.Literal("tablet"), Type.Literal("mobile")])),
     ),
+    shownDevices: Type.Optional(
+      Type.Array(Type.Union([Type.Literal("tablet"), Type.Literal("mobile")])),
+    ),
     locked: Type.Optional(Type.Boolean()),
     // A fresh node may already carry its motion spec (ticket 19): undo of a
     // delete restores whole subtrees, motion included.
@@ -147,6 +150,7 @@ const SetNodeHiddenDevicesSchema = Type.Object(
     op: Type.Literal("setNodeHiddenDevices"),
     id: NodeIdSchema,
     devices: Type.Array(Type.Union([Type.Literal("tablet"), Type.Literal("mobile")])),
+    shownDevices: Type.Optional(Type.Array(Type.Union([Type.Literal("tablet"), Type.Literal("mobile")]))),
   },
   CLOSED,
 );
@@ -382,6 +386,8 @@ export function parseEditorMutationBatch(input: readonly unknown[]): EditorMutat
 const ApplyEditorMutationsShapeSchema = Type.Object(
   {
     baseDraftVersion: Type.Integer({ minimum: 1 }),
+    baseStyleRegistryVersion: Type.Optional(Type.Integer({ minimum: 0 })),
+    baseThemeVersion: Type.Optional(Type.Integer({ minimum: 1 })),
     author: Type.Optional(AuthorSchema),
     dry_run: Type.Optional(Type.Boolean()),
     mutations: Type.Array(EditorMutationSchema, { minItems: 1, maxItems: 500 }),

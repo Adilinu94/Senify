@@ -6,6 +6,9 @@
 // Reihenfolge in `IMPORT_TOOLS` ist die Reihenfolge im Manifest.
 
 import { SenifyError } from "@senify/core";
+import { prepareMirrorSite } from "@senify/framer-import";
+import { exportFramerSite } from "./framer-export.ts";
+import { importFramerSite } from "./framer-site-import.ts";
 import {
   objectSchema,
   optionalBoolean,
@@ -13,6 +16,7 @@ import {
   optionalString,
   requireString,
 } from "./tools-support.ts";
+import { snapshotUnframer } from "./unframer.ts";
 import type { ToolDefinition } from "./tools.ts";
 
 /** Die Werkzeuge des Imports. */
@@ -28,6 +32,7 @@ export const IMPORT_TOOLS: ToolDefinition[] = [
         siteId: { type: "string" },
         url: { type: "string" },
         rootDir: { type: "string" },
+        sourcePagePath: { type: "string" },
         html: { type: "string" },
         baseUrl: { type: "string" },
         pagePath: { type: "string" },
@@ -38,6 +43,7 @@ export const IMPORT_TOOLS: ToolDefinition[] = [
         assets: { type: "string", enum: ["upload", "skip"] },
         fonts: { type: "string", enum: ["rewrite", "skip"] },
         capture: { type: "string", enum: ["static", "browser"] },
+        mode: { type: "string", enum: ["dna", "fidelity"] },
         idempotencyKey: { type: "string" },
       },
       ["siteId"],
@@ -47,6 +53,7 @@ export const IMPORT_TOOLS: ToolDefinition[] = [
       const siteId = requireString(args, "siteId");
       const url = optionalString(args, "url");
       const rootDir = optionalString(args, "rootDir");
+      const sourcePagePath = optionalString(args, "sourcePagePath");
       const html = optionalString(args, "html");
       const baseUrl = optionalString(args, "baseUrl");
       if (url === undefined && rootDir === undefined && html === undefined) {
@@ -63,6 +70,7 @@ export const IMPORT_TOOLS: ToolDefinition[] = [
       const assets = optionalString(args, "assets");
       const fonts = optionalString(args, "fonts");
       const capture = optionalString(args, "capture");
+      const mode = optionalString(args, "mode");
       const idempotencyKey = optionalString(args, "idempotencyKey");
       return context.client.request(
         "POST",
@@ -71,6 +79,7 @@ export const IMPORT_TOOLS: ToolDefinition[] = [
           source: {
             ...(url === undefined ? {} : { url }),
             ...(rootDir === undefined ? {} : { rootDir }),
+            ...(sourcePagePath === undefined ? {} : { page: sourcePagePath }),
             ...(html === undefined ? {} : { html }),
             ...(baseUrl === undefined ? {} : { baseUrl }),
           },
@@ -82,6 +91,7 @@ export const IMPORT_TOOLS: ToolDefinition[] = [
           ...(assets === undefined ? {} : { assets }),
           ...(fonts === undefined ? {} : { fonts }),
           ...(capture === undefined ? {} : { capture }),
+          ...(mode === undefined ? {} : { mode }),
           ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
         },
       );
@@ -100,5 +110,112 @@ export const IMPORT_TOOLS: ToolDefinition[] = [
         "GET",
         `/api/imports/${requireString(args, "jobId")}`,
       ),
+  },
+  {
+    name: "snapshot_unframer_project",
+    title: "Save Unframer project locally",
+    description:
+      "Reads Framer page and component structure and all CMS items through the Unframer MCP connection, verifies the published source URL, and saves a local snapshot without the secret URL. The snapshot is an input for a future editable conversion, not a runtime-free website.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        secretUrl: { type: "string" },
+        sourceUrl: { type: "string" },
+        outputDir: { type: "string" },
+      },
+      ["secretUrl", "sourceUrl", "outputDir"],
+    ),
+    entity: () => "unframer-snapshot",
+    handler: async (_context, args) =>
+      snapshotUnframer({
+        secretUrl: requireString(args, "secretUrl"),
+        sourceUrl: requireString(args, "sourceUrl"),
+        outputDir: requireString(args, "outputDir"),
+      }),
+  },
+  {
+    name: "prepare_framer_export",
+    title: "Prepare a multi-page Framer export",
+    description:
+      "Captures structured HTML export pages and downloads supported assets to a new local folder, including a site-ir.json and failure report. This is an import input, not a complete editable site or a verified runtime-free build. Flattened FramerExport subpages are flagged as unprocessed.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        rootDir: { type: "string" },
+        outputDir: { type: "string" },
+        unframerSnapshot: { type: "string" },
+      },
+      ["rootDir", "outputDir"],
+    ),
+    entity: () => "framer-site-preparation",
+    handler: async (_context, args) => {
+      const unframerSnapshot = optionalString(args, "unframerSnapshot");
+      const result = await prepareMirrorSite({
+        rootDir: requireString(args, "rootDir"),
+        outputDir: requireString(args, "outputDir"),
+        ...(unframerSnapshot === undefined ? {} : { unframerSnapshot }),
+      });
+      return {
+        outputDir: result.outputDir,
+        pages: result.pages,
+        blockedPages: result.blockedPages,
+        ignoredFlattenedPages: result.ignoredFlattenedPages,
+        snapshot: result.snapshot,
+        downloadedAssets: result.assets.downloads.length,
+        fonts: result.assets.fonts.length,
+        failedAssets: result.assets.failed,
+        runtimeFreeVerified: false,
+      };
+    },
+  },
+  {
+    name: "export_framer_site",
+    title: "Export Framer site locally",
+    description:
+      "Runs FramerExport on a published URL and saves a local mirror in a new output folder. The mirror can contain Framer runtime code; use import_framer_page with rootDir to begin conversion into editable Senify content.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        url: { type: "string" },
+        outputDir: { type: "string" },
+        subpages: { type: "boolean" },
+      },
+      ["url", "outputDir"],
+    ),
+    entity: () => "framer-export",
+    handler: async (_context, args) => {
+      const outputDir = await exportFramerSite({
+        url: requireString(args, "url"),
+        outputDir: requireString(args, "outputDir"),
+        subpages: optionalBoolean(args, "subpages") ?? true,
+      });
+      return { outputDir, runtimeFreeVerified: false };
+    },
+  },
+  {
+    name: "import_framer_site",
+    title: "Import a multi-page Framer export",
+    description:
+      "Analyze all pages in a structured local export, or create them one at a time when write is true. Flattened FramerExport subpages are expanded from the published sitemap through the live browser capture when sourceUrl is set. Existing pages are never overwritten. A partial run is reported explicitly; CMS bindings, animation fidelity and runtime freedom remain unverified.",
+    scope: "write",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        rootDir: { type: "string" },
+        write: { type: "boolean" },
+        sourceUrl: { type: "string" },
+      },
+      ["siteId", "rootDir"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}:framer-import`,
+    handler: async (context, args) => {
+      const sourceUrl = optionalString(args, "sourceUrl");
+      return importFramerSite(context.client, {
+        siteId: requireString(args, "siteId"),
+        rootDir: requireString(args, "rootDir"),
+        write: optionalBoolean(args, "write") ?? false,
+        ...(sourceUrl === undefined ? {} : { sourceUrl }),
+      });
+    },
   },
 ];

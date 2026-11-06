@@ -19,7 +19,7 @@ function isRecord(value: PropValue): value is { [key: string]: PropValue } {
 }
 
 export function isTokenRef(value: PropValue): boolean {
-  return isRecord(value) && typeof value["$token"] === "string";
+  return isRecord(value) && typeof value["$token"] === "string" && value["$token"] !== "";
 }
 
 export function isAssetRef(value: PropValue): boolean {
@@ -66,9 +66,9 @@ export function matchesValueType(valueType: ValueType, value: PropValue): boolea
     case "enum":
       return typeof value === "string";
     case "spacing":
-      return isSpacingValue(value);
+      return isSpacingValue(value) || isTokenRef(value);
     case "gaps":
-      return isGapsValue(value);
+      return isGapsValue(value) || isTokenRef(value);
     case "list":
       return Array.isArray(value);
     case "asset":

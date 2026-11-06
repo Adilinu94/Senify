@@ -31,6 +31,8 @@ describe("senify CLI skeleton", () => {
       "shortcut",
       "setup",
       "deploy",
+      "export",
+      "prepare",
       "import",
       "doctor",
       "mcp",
@@ -56,6 +58,7 @@ describe("senify CLI skeleton", () => {
     expect(importer?.commands.map((command) => command.name())).toEqual([
       "framer",
       "framer-project",
+      "framer-site",
     ]);
     // ADR-0028: the license check runs before any file is read.
     await expect(

@@ -175,7 +175,7 @@ export function parseToolCalls(toolsSource: string): Map<string, { method: strin
   const text = toolsSource.replace(/\r\n/g, "\n");
   const blocks = text.split(/\n {2}\{\n {4}name: "/);
   const byTool = new Map<string, { method: string; path: string }[]>();
-  for (const block of blocks) {
+  for (const block of blocks.slice(1)) {
     const name = /^([^"]+)"/.exec(block)?.[1];
     if (name === undefined) continue;
     byTool.set(name, parseRequestCalls(block));

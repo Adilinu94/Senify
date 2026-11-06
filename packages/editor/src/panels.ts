@@ -156,7 +156,7 @@ export function tokenOptionsFor(group: TokenGroup, theme: Theme): TokenOption[] 
           return typeof size === "string";
         })
         .map(([name, role]) => ({
-          ref: `type.${name}`,
+          ref: `type.${name}.size`,
           label: name,
           value: (role as { size: string }).size,
         }));

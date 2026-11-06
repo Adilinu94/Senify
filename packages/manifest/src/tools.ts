@@ -11,7 +11,7 @@
 // `@senify/mcp` - moving those here would move ownership of the wire format
 // into a package with no business owning it.
 //
-// 109 Werkzeuge.
+// 114 Werkzeuge.
 import type { ToolFact } from "./types.ts";
 export const TOOL_MANIFEST: ToolFact[] = [
   {
@@ -174,6 +174,22 @@ export const TOOL_MANIFEST: ToolFact[] = [
     writes: false,
     parameters: [
       { name: "siteId", type: "string", required: true },
+    ],
+  },
+  {
+    name: "get_variable_usage",
+    title: "Get variable usage",
+    scope: "read",
+    group: "seiten",
+    description: "Lists recognizable direct references to a saved color or spacing variable in page drafts, style rules and theme aliases. This is a snapshot; unsaved changes, external libraries and indirect or dynamic references may be missing.",
+    route: "GET /api/sites/:param/theme/variables/:param/param/usage",
+    routeExample: "GET /api/sites/{param}/theme/variables/{param}/param/usage",
+    routes: ["GET /api/sites/:param/theme/variables/:param/param/usage"],
+    writes: false,
+    parameters: [
+      { name: "siteId", type: "string", required: true },
+      { name: "family", type: "string", required: true },
+      { name: "name", type: "string", required: true },
     ],
   },
   {
@@ -1766,6 +1782,7 @@ export const TOOL_MANIFEST: ToolFact[] = [
       { name: "siteId", type: "string", required: true },
       { name: "url", type: "string", required: false },
       { name: "rootDir", type: "string", required: false },
+      { name: "sourcePagePath", type: "string", required: false },
       { name: "html", type: "string", required: false },
       { name: "baseUrl", type: "string", required: false },
       { name: "pagePath", type: "string", required: false },
@@ -1776,6 +1793,7 @@ export const TOOL_MANIFEST: ToolFact[] = [
       { name: "assets", type: "string", required: false },
       { name: "fonts", type: "string", required: false },
       { name: "capture", type: "string", required: false },
+      { name: "mode", type: "string", required: false },
       { name: "idempotencyKey", type: "string", required: false },
     ],
   },
@@ -1791,6 +1809,71 @@ export const TOOL_MANIFEST: ToolFact[] = [
     writes: false,
     parameters: [
       { name: "jobId", type: "string", required: true },
+    ],
+  },
+  {
+    name: "snapshot_unframer_project",
+    title: "Save Unframer project locally",
+    scope: "write",
+    group: "seiten",
+    description: "Reads Framer page and component structure and all CMS items through the Unframer MCP connection, verifies the published source URL, and saves a local snapshot without the secret URL. The snapshot is an input for a future editable conversion, not a runtime-free website.",
+    route: null,
+    routeExample: null,
+    routes: [],
+    writes: true,
+    parameters: [
+      { name: "secretUrl", type: "string", required: true },
+      { name: "sourceUrl", type: "string", required: true },
+      { name: "outputDir", type: "string", required: true },
+    ],
+  },
+  {
+    name: "prepare_framer_export",
+    title: "Prepare a multi-page Framer export",
+    scope: "write",
+    group: "seiten",
+    description: "Captures structured HTML export pages and downloads supported assets to a new local folder, including a site-ir.json and failure report. This is an import input, not a complete editable site or a verified runtime-free build. Flattened FramerExport subpages are flagged as unprocessed.",
+    route: null,
+    routeExample: null,
+    routes: [],
+    writes: true,
+    parameters: [
+      { name: "rootDir", type: "string", required: true },
+      { name: "outputDir", type: "string", required: true },
+      { name: "unframerSnapshot", type: "string", required: false },
+    ],
+  },
+  {
+    name: "export_framer_site",
+    title: "Export Framer site locally",
+    scope: "write",
+    group: "seiten",
+    description: "Runs FramerExport on a published URL and saves a local mirror in a new output folder. The mirror can contain Framer runtime code; use import_framer_page with rootDir to begin conversion into editable Senify content.",
+    route: null,
+    routeExample: null,
+    routes: [],
+    writes: true,
+    parameters: [
+      { name: "url", type: "string", required: true },
+      { name: "outputDir", type: "string", required: true },
+      { name: "subpages", type: "boolean", required: false },
+    ],
+  },
+  {
+    name: "import_framer_site",
+    title: "Import a multi-page Framer export",
+    scope: "write",
+    group: "seiten",
+    description: "Analyze all pages in a structured local export, or create them one at a time when write is true. Flattened FramerExport subpages are expanded from the published sitemap through the live browser capture when sourceUrl is set. Existing pages are never overwritten. A partial run is reported explicitly; CMS bindings, animation fidelity and runtime freedom remain unverified.",
+    route: null,
+    routeExample: null,
+    routes: [],
+    writes: true,
+    parameters: [
+      { name: "siteId", type: "string", required: true },
+      { name: "rootDir", type: "string", required: true },
+      { name: "write", type: "boolean", required: false },
+      { name: "sourceUrl", type: "string", required: false },
     ],
   },
 ];

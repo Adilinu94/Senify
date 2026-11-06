@@ -53,6 +53,7 @@ const GRUPPEN = {
   list_sections: "seiten",
   get_section: "seiten",
   get_theme: "seiten",
+  get_variable_usage: "seiten",
   list_widgets: "seiten",
   get_widget: "seiten",
   search_docs: "katalog",
@@ -149,6 +150,10 @@ const GRUPPEN = {
   update_library_instances: "referenzen",
   find_similar_library_components: "referenzen",
   library_audit: "referenzen",
+  snapshot_unframer_project: "seiten",
+  export_framer_site: "seiten",
+  prepare_framer_export: "seiten",
+  import_framer_site: "seiten",
   import_framer_page: "seiten",
   get_import_report: "seiten",
 };

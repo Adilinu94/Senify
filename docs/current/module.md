@@ -10,7 +10,7 @@
 
 ## Engine: Store-Fachmodule
 
-**38 Dateien**, davon **27** mit eigener Repository-Klasse.
+**39 Dateien**, davon **27** mit eigener Repository-Klasse.
 
 | Modul | Repository | Zeilen | Zweck | Test |
 |---|---|---|---|---|
@@ -18,6 +18,7 @@
 | `store-assets.ts` | `AssetsRepository` | 370 | Asset records of a site (ADR 0019, P3-2): the rows, their encoded derivatives (ladder and blur hash), the usage map of the check pipeline and the restore from a release snapshot. `Store` delegates here. The site existence check comes in as a function, because sites stay on the Store. The folder guard (`getAssetFolderOfSite`) and the cross-domain copy (`duplicateAssetRecords`) stay on the Store too. | - |
 | `store-audit.ts` | - | 57 | One entry in the append-only audit log that every write path feeds — page mutations, theme writes, style-rule writes, settings. `pageId: null` marks a site-wide change (a style rule is site-wide, so it logs here with null). | - |
 | `store-bake-jobs.ts` | `BakeJobsRepository` | 197 | Re-bake job queue of the Store (ADR 0019, E12): enqueue with per-site dedup, lease-based claim, retry/backoff and crash recovery. `Store` delegates here. | - |
+| `store-class-guards.ts` | - | 151 | Schutz- und Belegtypen fuer Klassen- und Variablen-Operationen. Das Modul stammt aus dem Editor-Zweig (C) und wurde beim Merge am 06.11.2026 als eigene Datei angelegt, weil zwei Besitzer es brauchen: `StyleRuleStore` (Registry-Schreibweg) und `Store` (die fachuebergreifenden Transaktionen ueber Seiten, Theme und Registry, ADR-0019 Punkt 4). | - |
 | `store-code-payloads.ts` | `CodePayloadsRepository` | 107 | Imported foreign code of the Store (ADR 0019, ADR 0010): create, list, read, read with bundle and delete a site's code payloads. `Store` delegates here. | - |
 | `store-collections.ts` | `CollectionsRepository` | 153 | Collection schemas of the Store (ADR 0019, T09): list, read, find by slug, create and update the field definitions of a site's collections. `Store` delegates here. | - |
 | `store-deploy.ts` | `DeployRepository` | 290 | Deployments and deploy settings of the Store (ADR 0019): deploy records of a release and the per-site hosted-provider target. `Store` delegates here. | - |
@@ -48,21 +49,21 @@
 | `store-settings-mappers.ts` | - | 179 | Row types, defaults and mappers for the engine settings: SMTP, engine and image provider settings (P3-2, moved out of store.ts). | - |
 | `store-settings.ts` | `SettingsRepository` | 359 | Settings operations of the Store (ADR 0019): the four single-row settings tables (SMTP, engine, image, references). `Store` delegates here. | - |
 | `store-sites.ts` | `SitesRepository` | 500 | Die Sites des Stores (ADR-0019): anlegen, lesen, umbenennen, das Profil, der Papierkorb, die Basis-URL, die Breakpoints und der Design-Contract. `Store` delegiert hier. | - |
-| `store-style-rules.ts` | `StyleRuleStore` | 760 | The style-rule registry, extracted from `Store` (P3-2). The registry is site-wide: a reusable class (`hero-button`) applies to every page, so it belongs to the site and not to a page draft. Reads are tolerant (a corrupt entry drops, it never blocks the registry), writes are hard (the shape either matches `StyleRuleSchema` or the write fails with the offending field). | - |
-| `store-themes.ts` | `ThemesRepository` | 216 | Das Theme und das Ereignisprotokoll der Sites (ADR-0019). `Store` delegiert hier. | - |
+| `store-style-rules.ts` | `StyleRuleStore` | 913 | The style-rule registry, extracted from `Store` (P3-2). The registry is site-wide: a reusable class (`hero-button`) applies to every page, so it belongs to the site and not to a page draft. Reads are tolerant (a corrupt entry drops, it never blocks the registry), writes are hard (the shape either matches `StyleRuleSchema` or the write fails with the offending field). | - |
+| `store-themes.ts` | `ThemesRepository` | 257 | Das Theme und das Ereignisprotokoll der Sites (ADR-0019). `Store` delegiert hier. | - |
 | `store-token-mappers.ts` | - | 45 | Zeilentypen und Mapper der API-Tokens (P3-2): nur vom Token-Modul gebraucht, aber getrennt wie bei den anderen Fachgebieten - die Zeilentypen gehoeren zum Speicherformat, die Operationen zum Verhalten. | - |
 | `store-tokens.ts` | `TokensRepository` | 148 | Die API-Tokens des Stores (ticket 18, ADR-0019): anlegen, lesen, widerrufen, ihre letzte Benutzung festhalten und die Art heilen. `Store` delegiert hier. | - |
 
 ## Engine: HTTP-Routen-Module
 
-**25 Dateien** mit zusammen **178 Routen**.
+**25 Dateien** mit zusammen **185 Routen**.
 
 | Modul | Routen | Zeilen | Zweck |
 |---|---|---|---|
 | `http-build-files.ts` | - | 334 | Serving files out of a bake (P3-2 extraction from `http.ts`). |
 | `http-contract.ts` | - | 118 | Der Vertrag der HTTP-Schicht: der Kontext, den eine Route bekommt, die Form einer Route und die Form ihrer Antwort. Die Routen liegen in `http-routes-*.ts`, der Dispatcher in `http.ts`; dieses Modul ist, was beide sprechen (ADR-0019). |
 | `http-response.ts` | - | 231 | The response primitives of the HTTP surface (P3-2 extraction from `http.ts`). Everything that writes bytes to the socket lives here, so the two rules that must hold for EVERY answer are written once: |
-| `http-route-support.ts` | - | 712 | Die Helfer der HTTP-Schicht: was die Routen und der Dispatcher gemeinsam brauchen - Body lesen, Idempotenz, die Kontexte der Fach-Module, die Mutation auf einer Seite (ADR-0019). |
+| `http-route-support.ts` | - | 730 | Die Helfer der HTTP-Schicht: was die Routen und der Dispatcher gemeinsam brauchen - Body lesen, Idempotenz, die Kontexte der Fach-Module, die Mutation auf einer Seite (ADR-0019). |
 | `http-routes-assets.ts` | 11 | 219 | Die Asset-Routen einer Site (P3-2, Schritt 53): Upload-Adresse, Liste, Lesen, Aendern, Papierkorb, Wiederherstellen, Verlauf, Massenoperation und die Asset-Ordner. |
 | `http-routes-content.ts` | 17 | 500 | Die Routen des Bereichs api/reviews, api/forms, api/redesign-proposals, api/collections, api/code-payloads, api/imports. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-deploy.ts` | 4 | 139 | Deploy und Deploy-Einstellungen einer Site (P3-2, Schritt 62): eine Veroeffentlichung ausliefern, die Auslieferungshistorie und die Ziele (statisch, Netlify, Vercel) samt verschluesseltem Token. |
@@ -83,8 +84,8 @@
 | `http-routes-site-references.ts` | 3 | 101 | Referenzen einer Site (P3-2, Schritt 67): die Zuordnung der Referenzprojekte samt abgeleitetem Theme-Entwurf, das Anwenden einer Referenz und das Loesen einer Zuordnung. |
 | `http-routes-site-reviews.ts` | 4 | 134 | Die zwei Vorschau- und zwei Review-Routen einer Site: eine Vorschau ausstellen, die Vorschauen lesen (und dabei abgelaufene aufraeumen), einen Review einreichen und Reviews lesen. Der Zuschnitt aus `http-routes-sites.ts` (Schritt 69). |
 | `http-routes-sites.ts` | 9 | 270 | Die verbleibenden Routen einer Site: Seiten, Audit, Releases, Bake-Jobs, Formulare, Benachrichtigungen und Redesign. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
-| `http-routes-theme.ts` | 11 | 230 | Theme und Style-Regeln einer Site (P3-2, Schritt 57): das Theme lesen, als CSS ausliefern, schreiben, den Theme-Bericht, den Design-Bericht und die sechs Style-Regel-Routen (lesen, anlegen, aendern, sortieren, loeschen). |
-| **Summe** | **178** | | |
+| `http-routes-theme.ts` | 18 | 332 | Theme und Style-Regeln einer Site (P3-2, Schritt 57): das Theme lesen, als CSS ausliefern, schreiben, den Theme-Bericht, den Design-Bericht und die sechs Style-Regel-Routen (lesen, anlegen, aendern, sortieren, loeschen). |
+| **Summe** | **185** | | |
 
 ## Oberfläche: ES-Module
 
@@ -143,7 +144,7 @@ Vertrags und die Reihenfolge der Spreizungen, jedes Werkzeug steht in seinem Fac
 | `tools-bibliothek.ts` | 10 | 120 | Die Bibliotheks-Werkzeuge der MCP-Fassade (R12, Schritt 71). |
 | `tools-components.ts` | - | 112 | The component view of a page draft (P3-2 extraction from `tools.ts`). |
 | `tools-doku.ts` | 2 | 65 | Die Doku-Werkzeuge (R12-Schnitt): die Senify-Dokumentation durchsuchen und eine Seite als Markdown lesen. |
-| `tools-import.ts` | 2 | 104 | Die Import-Werkzeuge (R12-Schnitt): eine Framer-Seite importieren und den Bericht eines Import-Jobs lesen. |
+| `tools-import.ts` | 6 | 221 | Die Import-Werkzeuge (R12-Schnitt): eine Framer-Seite importieren und den Bericht eines Import-Jobs lesen. |
 | `tools-katalog.ts` | 4 | 148 | Der Katalog (R12-Schnitt): Abschnitte und Bausteine lesen - Typen, Props, Steuerelemente, Stil-Gruppen, Stil-Eigenschaften. |
 | `tools-komponenten.ts` | 6 | 394 | Die Komponenten-Werkzeuge der MCP-Fassade (R12). |
 | `tools-medien.ts` | 21 | 622 | Die Medien-Werkzeuge der MCP-Fassade (P3-2, Schritt 57): Assets lesen, hochladen, aendern, ersetzen, loeschen und wiederherstellen, Bilder erzeugen und abfragen, Sammlungen und Eintraege samt Einsendungen. |
@@ -155,9 +156,9 @@ Vertrags und die Reihenfolge der Spreizungen, jedes Werkzeug steht in seinem Fac
 | `tools-sites.ts` | 5 | 110 | Identitaet und Projekte (R12-Schnitt): wer bin ich, welche Sites gibt es, eine laden, anlegen, kopieren. |
 | `tools-stile.ts` | 2 | 252 | Die Stil-Werkzeuge (R12-Schnitt): Stil-Deklarationen auf einen Knoten schreiben und Stil-Regeln anlegen. |
 | `tools-support.ts` | - | 291 | The machinery every tool goes through (P3-2 extraction from `tools.ts`): the argument readers, the schema helpers, paging and the shared HTTP calls. |
-| `tools-theme.ts` | 2 | 54 | Das Theme (R12-Schnitt): die Design-Token einer Site lesen und schreiben. |
+| `tools-theme.ts` | 3 | 113 | Das Theme (R12-Schnitt): die Design-Token einer Site lesen und schreiben. |
 | `tools.ts` | - | 94 | Die Werkzeug-Tabelle der MCP-Fassade: der Komponist der Fachmodule. |
-| **Summe** | **109** | | |
+| **Summe** | **114** | | |
 
 ## Die grossen Dateien und warum sie so gross sind
 
@@ -171,24 +172,25 @@ er laeuft selbst durch `packages` und meldet jede Datei ueber der Schwelle, die 
 
 | Datei | Zeilen | Warum sie so gross ist |
 |---|---|---|
-| `packages/framer-import/src/capture-html.ts` | 2934 | der HTML-Capture des Imports - **gemessen am 26.10.2026, und der Schnitt wurde versucht und verworfen.** Der CSS-Block am Dateiende (21 Funktionen) sieht wie ein eigenes Fachgebiet aus, ist aber keine Senke: `applyClassRules` ist die einzige öffentliche Funktion und liest den BAUM (`SPACED_TEXT`, `KEEPS_SPACES`, `FRAMER_TEXT_PROPS`, `IrInteraction`, `IrVisual`, `elementStyleToParts`) und neun interne Helfer (`parseCssRules`, `buildIndex`, `devicesOf`, `tokenDefinitionsOf`, `matchingRules`, `cascade`, `resolveVars`, `tokensOf`, `Vars`). Ein Modul mit 15 Importen aus der Quelldatei waere keine Naht, sondern eine Verschiebung. Die anderen 50 Funktionen lesen denselben Rohtext (HTML-Scan, Appear-Ableitung, IR-Bau) |
-| `packages/engine/src/store.ts` | 2794 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; 203 von 245 Methoden sind reine Delegaten (gemessen), der Rest steht in 38 `store-*`-Modulen |
+| `packages/engine/src/store.ts` | 3248 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; 203 von 250 Methoden sind reine Delegaten (gemessen), der Rest steht in 38 `store-*`-Modulen |
+| `packages/framer-import/src/capture-html.ts` | 2947 | der HTML-Capture des Imports - **gemessen am 26.10.2026, und der Schnitt wurde versucht und verworfen.** Der CSS-Block am Dateiende (21 Funktionen) sieht wie ein eigenes Fachgebiet aus, ist aber keine Senke: `applyClassRules` ist die einzige öffentliche Funktion und liest den BAUM (`SPACED_TEXT`, `KEEPS_SPACES`, `FRAMER_TEXT_PROPS`, `IrInteraction`, `IrVisual`, `elementStyleToParts`) und neun interne Helfer (`parseCssRules`, `buildIndex`, `devicesOf`, `tokenDefinitionsOf`, `matchingRules`, `cascade`, `resolveVars`, `tokensOf`, `Vars`). Ein Modul mit 15 Importen aus der Quelldatei waere keine Naht, sondern eine Verschiebung. Die anderen 50 Funktionen lesen denselben Rohtext (HTML-Scan, Appear-Ableitung, IR-Bau) |
+| `packages/editor/src/inspector/inspector.ts` | 2220 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält. **Gemessen am 06.11.2026:** 24 Renderer, und nur ZWEI kommen ohne Fremdnamen aus (`renderSpacingUnit` und `renderSwitcher`, 24 Zeilen); alle anderen brauchen `commitProp`, ein Geschwister oder den Zustand. `renderFieldRow` allein nennt elf Fremdnamen (`breakpoint`, `tokenPanelKey`, `apply`, `commitProp`, `toggleVariant`, `removeVariant`, `clearProp`, `clearField`, `commitMotion`, `motionModel`) und zehn Geschwister-Renderer. Eine Fabrik, die elf Rückrufe durchreicht, ist keine Naht, sondern eine Verschiebung mit mehr Parametern: dieselbe Prüfung, mit der die Betriebsgruppe der Routen verworfen wurde |
 | `packages/framer-import/src/mapper.ts` | 2080 | die Abbildung Framer nach NodeTree. **Gemessen am 01.11.2026:** 58 Funktionen, und `mapNode` allein sind 336 Zeilen. Sie liest dieselben Tabellen wie `mapDocument` und die Zustaende des Mappers - ein Schnitt muesste diese als Parameter durchreichen. Die Datei ist am 26.10.2026 um 190 Zeilen gewachsen (Browser-Abgriff der Animationen, `appearStyleRulesOf` und `ruleFamilyWeights`): der Abgriff liefert die Daten, die Abbildung auf den NodeTree bleibt hier |
-| `packages/editor/src/inspector/inspector.ts` | 1884 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält. **Gemessen am 26.10.2026:** 22 Renderer, und nur EINER kommt ohne Fremdnamen aus (`renderSwitcher`, 24 Zeilen); alle anderen brauchen `commitProp`, ein Geschwister oder den Zustand. `renderFieldRow` allein nennt elf Fremdnamen (`breakpoint`, `tokenPanelKey`, `apply`, `commitProp`, `toggleVariant`, `removeVariant`, `clearProp`, `clearField`, `commitMotion`, `motionModel`) und zehn Geschwister-Renderer. Eine Fabrik, die elf Rückrufe durchreicht, ist keine Naht, sondern eine Verschiebung mit mehr Parametern: dieselbe Prüfung, mit der die Betriebsgruppe der Routen verworfen wurde |
-| `packages/manifest/src/tools.ts` | 1796 | ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 109 Werkzeugen mit je vier Angaben |
+| `packages/manifest/src/tools.ts` | 1879 | ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 114 Werkzeugen mit je vier Angaben |
 | `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
-| `packages/editor/src/inspector/model.ts` | 1490 | das Modell des Inspektors |
+| `packages/editor/src/inspector/model.ts` | 1538 | das Modell des Inspektors |
 | `packages/engine/src/types.ts` | 1487 | die öffentlichen Typen der Engine; keine Logik |
-| `packages/editor/src/canvas/canvas.ts` | 1336 | die Bühne des Editors |
+| `packages/editor/src/canvas/canvas.ts` | 1421 | die Bühne des Editors |
 | `packages/engine/src/forms.ts` | 1285 | Formulare, Einsendungen und die Einsendungs-Ansicht. Der CSV-Export ist am 31.10.2026 als reine Formatierung nach `forms-csv.ts` gewandert (die Regeln einer Tabellenkalkulation: Trenner, RFC 4180, BOM, Formelanfang); was bleibt, ist das Fachgebiet - Snapshot, Token, Spam-Schutz, Benachrichtigungen, Sammlung aus dem Formular |
-| `packages/editor/src/state/operations.ts` | 1240 | die Editor-Operationen: ein Dispatcher (`applyEditorMutation`) und je eine Funktion pro Operation, dazu die gemeinsamen Pruefer fuer Katalog, Props, Styles und Motion. Die Pruefer teilen den Katalog und die Fehlerform - sie zu trennen hiesse, den Katalog zweimal zu lesen. Geteilt wird ueber `applyEditorMutation`, geprueft ueber `EditorStore` (`mutations.test.ts`, `history.test.ts`, `save-pipeline.test.ts`) |
+| `packages/editor/src/state/operations.ts` | 1251 | die Editor-Operationen: ein Dispatcher (`applyEditorMutation`) und je eine Funktion pro Operation, dazu die gemeinsamen Pruefer fuer Katalog, Props, Styles und Motion. Die Pruefer teilen den Katalog und die Fehlerform - sie zu trennen hiesse, den Katalog zweimal zu lesen. Geteilt wird ueber `applyEditorMutation`, geprueft ueber `EditorStore` (`mutations.test.ts`, `history.test.ts`, `save-pipeline.test.ts`) |
 | `packages/engine/src/lifecycle.ts` | 1190 | der Release-Lebenszyklus in einem Fachgebiet: Revision, Re-Bake, Veroeffentlichung, Preview und Review gehoeren zusammen, weil ein Release ohne die anderen drei nicht entsteht; ein Schnitt muesste die gemeinsame Transaktion teilen |
-| `packages/renderer/src/motion.ts` | 1149 | die Motion-Auslieferung: `renderPageScript` und `renderIslandsScript` sind die beiden Laufzeit-Skripte, die als TEXT ausgeliefert werden - der groesste Teil der Datei steht in Template-Literalen, also in ausgeliefertem Code, nicht in Quellcode. Ein Schnitt wuerde zwei Skripte mit gemeinsamem Zustand (Lenis, GSAP, ScrollTrigger) auf zwei Dateien verteilen |
-| `packages/engine/src/mutations/apply.ts` | 1144 | die Mutationen der Engine: ein Dispatcher (`applyOne`) und je eine Funktion pro Operation, dazu die Platzierungspruefer (`assertChildPlacement`, `assertSlotPlacement`, `assertSlotAllowedTypes`). Allen gemeinsam ist der `ApplierState`: der Dispatcher setzt `currentOpIndex`, die Faelle lesen ihn. Ein Schnitt muesste diesen Zustand teilen. Geprueft in `mutations.test.ts`, `transactions.test.ts`, `undo-batch.test.ts` |
+| `packages/engine/src/mutations/apply.ts` | 1179 | die Mutationen der Engine: ein Dispatcher (`applyOne`) und je eine Funktion pro Operation, dazu die Platzierungspruefer (`assertChildPlacement`, `assertSlotPlacement`, `assertSlotAllowedTypes`). Allen gemeinsam ist der `ApplierState`: der Dispatcher setzt `currentOpIndex`, die Faelle lesen ihn. Ein Schnitt muesste diesen Zustand teilen. Geprueft in `mutations.test.ts`, `transactions.test.ts`, `undo-batch.test.ts` |
+| `packages/renderer/src/motion.ts` | 1168 | die Motion-Auslieferung: `renderPageScript` und `renderIslandsScript` sind die beiden Laufzeit-Skripte, die als TEXT ausgeliefert werden - der groesste Teil der Datei steht in Template-Literalen, also in ausgeliefertem Code, nicht in Quellcode. Ein Schnitt wuerde zwei Skripte mit gemeinsamem Zustand (Lenis, GSAP, ScrollTrigger) auf zwei Dateien verteilen |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
 | `packages/renderer/src/bake.ts` | 1053 | der Bake: `bakeSite` haelt Warnungen, Manifest-Seiten, Motion-/Lenis-/Formular-Flags, Island-Arten und benutzte Payload-Ids ueber alle Seiten - genau dieser geteilte Zustand ist der Grund, warum der Bake in einem Durchgang laeuft. Die Helfer (`stageTemplate`, `runAstroBuild`, `writeAeoFiles`, `assertBakeable`) sind bereits eigenstaendig |
 | `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
 | `packages/mcp/src/tools-referenzen.ts` | 1026 | die 32 Werkzeuge der Referenz- und Design-Arbeit: 24 Referenz, 4 Redesign, 4 Design. Am 26.10.2026 bei 993 Zeilen angelegt, am 01.11.2026 mit `set_design_contract` zu seinem Lese-Paar gewachsen (1 026). Der Block definiert keine lokalen Helfer (gemessen: 0 auf oberster Ebene) - die Groesse ist die Zahl der Werkzeug-Literale; ein Schnitt muesste die drei verwandten Fachgebiete trennen, die dieselben Schemas und Dokument-Arten lesen |
+| `packages/framer-import/src/unframer-ir.ts` | 1022 | der Leser des Unframer-Projekt-XML (ADR-0028): ein toleranter XML-Baum, die Stapel-/Box-/Text-Metadaten und die Ableitung ins Import-IR greifen auf dieselben Tabellen und denselben Elementbaum zu. Ein Schnitt wuerde den Baum und die Zustands-Tabellen als Parameter durchreichen; die Datei ist eine Uebersetzung mit einem Eingang und einem Ausgang |
 
 ## Der laufende Zuschnitt
 

@@ -97,6 +97,7 @@ describe.skipIf(!browserAvailable)("global library in the program", () => {
 
       await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`, { waitUntil: "domcontentloaded" });
       await tab.waitForSelector(".senify-canvas");
+      await tab.locator('.canvas-view__sidebar-tabs [data-panel="layers"]').click();
       await tab.locator('.senify-explorer__tab[data-tab="library"]').click();
       const item = tab.locator(".senify-explorer__tabitem", { hasText: "Bibliothekskarte" });
       await expect.poll(async () => item.count()).toBe(1);

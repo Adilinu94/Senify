@@ -32,6 +32,8 @@ import { applyEditorSkin, EDITOR_SKIN_DEFAULT } from "../ui/skin.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import { injectMotionRuntime, MOTION_VENDOR_BASE, profileLenis } from "../motion-inject.ts";
 import { EditorStore, typingCoalesceKey } from "../state/store.ts";
+import type { EditorSession } from "../state/session.ts";
+import type { HistoryDirection } from "../history.ts";
 import { copyNode, pasteNode } from "../state/clipboard.ts";
 import { sanitizeInlineText } from "../inline-text.ts";
 import { createHistoryDialog } from "../history/dialog.ts";
@@ -52,8 +54,12 @@ import { firstChildId, resolveClick, selectionLabel } from "./selection.ts";
 import { locateParent } from "../state/document.ts";
 import { createDropController } from "./dnd-dom.ts";
 
+let inlineSessionCounter = 0;
+
 export type CanvasOptions = {
   store: EditorStore;
+  // Optional session navigation; it must own the same store as this canvas.
+  session?: EditorSession;
   registry: Registry;
   renderer?: FrameRenderer;
   // Extra stylesheets every frame loads (theme tokens, section styles).
@@ -76,6 +82,7 @@ export type CanvasOptions = {
   profile?: MotionProfile;
   motionVendorBase?: string;
   onMessage?: (message: string | null) => void;
+  onSelect?: (id: string) => void;
   // Reports view changes (zoom, selection, mode, breakpoint, forced state) so
   // the session can persist them; the canvas itself stays storage-free.
   onState?: (state: CanvasState) => void;
@@ -110,6 +117,7 @@ export type CanvasInstance = {
   // the canvas was mounted with `toolbar: "external"`.
   toolbar: DomElement;
   refresh(): void;
+  setTheme(theme: Theme, css: string): void;
   setZoom(zoom: number): void;
   fit(): void;
   setPreviewState(state: StateName | null): void;
@@ -147,6 +155,8 @@ export type CanvasInstance = {
   flashNodes(ids: string[]): void;
   undo(): boolean;
   redo(): boolean;
+  undoAsync(): Promise<boolean>;
+  redoAsync(): Promise<boolean>;
   state(): CanvasState;
   destroy(): void;
 };
@@ -182,6 +192,7 @@ const PREVIEW_STATES: readonly (StateName | "none")[] = [
 const FRAME_BASE_CSS = `
 html, body { margin: 0; padding: 0; }
 body { background: #ffffff; }
+[data-node-id][data-hidden="true"] { display: none !important; }
 `;
 
 // Bundled @font-face rules (Inter/Inter Display for the tool, Sora for content)
@@ -227,8 +238,15 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
   const doc: DomDocument = hostDoc;
   const store = options.store;
+  const session = options.session;
+  if (session !== undefined && session.store !== store) {
+    throw new Error("Canvas und Session müssen denselben Store verwenden.");
+  }
+  let destroyed = false;
   const renderer = options.renderer ?? createReactRenderer();
-  const resolveToken =
+  let theme = options.theme;
+  let themeCss: string | undefined;
+  let resolveToken =
     options.resolveToken ??
     (options.theme === undefined ? undefined : themeTokenResolver(options.theme));
   ensureCanvasStyles(doc);
@@ -265,7 +283,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   const stage = create(doc, "div", "senify-canvas__stage");
   const overlay = create(doc, "div", "senify-canvas__overlay", { "data-role": "overlay" });
   const footer = create(doc, "div", "senify-canvas__footer");
-  const status = create(doc, "span", "senify-canvas__status", { "data-role": "status" });
+  const status = create(doc, "span", "senify-canvas__status", { "data-role": "status", role: "status", "aria-live": "polite" });
   if ((options.toolbar ?? "inside") === "inside") {
     root.appendChild(topbar);
   } else {
@@ -311,6 +329,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   });
 
   function message(value: string | null): void {
+    if (destroyed) return;
     status.textContent = value ?? "";
     options.onMessage?.(value);
   }
@@ -363,7 +382,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   });
   setIcon(undoButton, "undo", "Rückgängig");
   undoButton.addEventListener("click", () => {
-    if (store.undo()) message(null);
+    void navigateAsync("undo");
   });
   const redoButton = create(doc, "button", "senify-canvas__button", {
     type: "button",
@@ -371,11 +390,46 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   });
   setIcon(redoButton, "redo", "Wiederholen");
   redoButton.addEventListener("click", () => {
-    if (store.redo()) message(null);
+    void navigateAsync("redo");
   });
+  let historyMessage: string | null = null;
+  // The boolean API remains local and synchronous. External boundaries use
+  // the additive async API instead of silently moving the cursor locally.
+  function navigateLocal(direction: HistoryDirection): boolean {
+    if (destroyed || !(direction === "undo" ? store.canUndo : store.canRedo)) return false;
+    return direction === "undo" ? store.undo() : store.redo();
+  }
+
+  async function navigateAsync(direction: HistoryDirection): Promise<boolean> {
+    if (destroyed) return false;
+    try {
+      const changed = session === undefined ? navigateLocal(direction) : await (direction === "undo" ? session.undoAsync() : session.redoAsync());
+      const state = session?.externalHistoryState();
+      if (changed) message(null);
+      else if (state?.message) message(state.message);
+      return changed;
+    } catch (error) {
+      message(error instanceof Error ? error.message : "Verlaufsnavigation fehlgeschlagen. Bitte erneut prüfen.");
+      return false;
+    }
+  }
+
+  function updateHistoryChrome(): void {
+    for (const [button, enabled] of [[undoButton, session?.canUndoAsync ?? store.canUndo], [redoButton, session?.canRedoAsync ?? store.canRedo]] as const) {
+      if (enabled) button.removeAttribute("disabled");
+      else button.setAttribute("disabled", "");
+    }
+    const state = session?.externalHistoryState();
+    root.setAttribute("data-history-status", state?.status ?? "idle");
+    status.setAttribute("aria-busy", String(state?.status === "running"));
+    const nextMessage = state?.status === "running" ? "Verlauf wird geprüft …" : state?.message ?? null;
+    // Clear only our own completed status, never a newer message from another tool.
+    if (nextMessage !== null || (historyMessage !== null && status.textContent === historyMessage)) message(nextMessage);
+    historyMessage = nextMessage;
+  }
   // The history sheet (ticket 03 point 5): time + action per row, a click
   // jumps to that state through the ordinary undo/redo gate.
-  const historyDialog = createHistoryDialog({ doc, store });
+  const historyDialog = createHistoryDialog({ doc, store, ...(session === undefined ? {} : { session }) });
   const historyButton = create(doc, "button", "senify-canvas__button", {
     type: "button",
     "data-action": "history",
@@ -561,6 +615,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       message(null);
     } else {
       store.select(resolution.id);
+      options.onSelect?.(resolution.id);
       message(resolution.kind === "drill" ? "Ebene tiefer gewählt" : null);
     }
     options.onState?.(stateOf());
@@ -578,6 +633,9 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     key: string;
     original: string;
     element: DomElement;
+    coalesceKey: string;
+    historyEntryId: string | null;
+    historyInterleaved: boolean;
   } | null = null;
 
   function inlineTargetOf(
@@ -601,7 +659,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     if (session === null) return;
     try {
       // A no-op value produces no patch and no history entry (the store gate).
-      store.apply(
+      const result = store.apply(
         {
           op: "setNodeProp",
           id: session.nodeId,
@@ -609,10 +667,15 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
           value: sanitizeInlineText(value),
         },
         {
-          coalesceKey: typingCoalesceKey(session.nodeId, session.key),
+          coalesceKey: session.coalesceKey,
           label: "Text bearbeiten",
         },
       );
+      if (result.changed) {
+        const entry = store.history.top();
+        if (session.historyEntryId === null) session.historyEntryId = entry?.id ?? null;
+        else if (entry?.id !== session.historyEntryId) session.historyInterleaved = true;
+      }
     } catch (error) {
       message(error instanceof Error ? error.message : "Text konnte nicht gespeichert werden.");
     }
@@ -620,11 +683,15 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
 
   function startInline(target: { element: DomElement; nodeId: string; key: string }): void {
     finishInline();
+    inlineSessionCounter += 1;
     inlineSession = {
       nodeId: target.nodeId,
       key: target.key,
       original: target.element.textContent ?? "",
       element: target.element,
+      coalesceKey: `${typingCoalesceKey(target.nodeId, target.key)}:inline:${inlineSessionCounter}`,
+      historyEntryId: null,
+      historyInterleaved: false,
     };
     target.element.setAttribute("contenteditable", "plaintext-only");
     target.element.focus?.();
@@ -645,6 +712,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   function revertInline(): void {
     const session = inlineSession;
     if (session === null) return;
+    const ownsTop = !session.historyInterleaved && session.historyEntryId !== null && store.history.top()?.id === session.historyEntryId;
     if (inlineValue() !== session.original) {
       store.apply(
         {
@@ -654,13 +722,13 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
           value: session.original,
         },
         {
-          coalesceKey: typingCoalesceKey(session.nodeId, session.key),
+          ...(ownsTop ? { coalesceKey: session.coalesceKey } : {}),
           label: "Text bearbeiten",
         },
       );
     }
     const top = store.history.top();
-    if (top !== null && top.coalesceKey === typingCoalesceKey(session.nodeId, session.key)) {
+    if (ownsTop && top?.id === session.historyEntryId) {
       store.history.remove(top.id);
     }
     session.element.textContent = session.original;
@@ -719,16 +787,12 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     }
     if (mod && key === "z") {
       event.preventDefault?.();
-      if (event.shiftKey === true) {
-        if (store.redo()) message(null);
-      } else if (store.undo()) {
-        message(null);
-      }
+      void navigateAsync(event.shiftKey === true ? "redo" : "undo");
       return;
     }
     if (mod && key === "y") {
       event.preventDefault?.();
-      if (store.redo()) message(null);
+      void navigateAsync("redo");
       return;
     }
     if (mod && key === "d") {
@@ -961,6 +1025,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
 
   function updateChrome(): void {
+    updateHistoryChrome();
     const selected = selectedId();
     root.setAttribute("data-mode", mode);
     stage.setAttribute("data-mode", mode);
@@ -1048,7 +1113,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       doc: entry.doc,
       body: entry.body,
       tree: canvasNodeTree(store.document),
-      ...(options.theme === undefined ? {} : { theme: options.theme }),
+      ...(theme === undefined ? {} : { theme }),
       profile,
       lenis: profileLenis(profile),
       vendorBase,
@@ -1060,6 +1125,14 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   // DOM), the shared rules, the forced state and — in live — the runtime.
   function renderEntry(entry: MountedFrame, tree: NodeTree, rules: FrameRules): void {
     if (entry.body === null) return;
+    if (themeCss !== undefined) {
+      let style = entry.doc.querySelector("[data-senify-theme-update]");
+      if (style === null) {
+        style = create(entry.doc, "style", undefined, { "data-senify-theme-update": "" });
+        (entry.doc.head ?? entry.body).appendChild(style);
+      }
+      if (style.textContent !== themeCss) style.textContent = themeCss;
+    }
     // While an inline edit runs the frame DOM belongs to the user: React
     // would rewrite the leaf and drop the caret. The document still updates
     // through the store gate; commit and revert refresh the frames.
@@ -1241,6 +1314,8 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     if (mode === "live") rebuildFrames();
     else refresh();
   });
+  // Runner registration and pipeline completion need no document event.
+  const unsubscribeSession = session?.subscribe(updateHistoryChrome);
 
   // The outer shortcut layer (Ticket 03 Punkt 7): the frame handler covers the
   // content focus, this one covers the editor chrome. Text entry keeps its own
@@ -1285,6 +1360,12 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     element: root,
     toolbar: topbar,
     refresh,
+    setTheme(nextTheme: Theme, css: string): void {
+      theme = nextTheme;
+      themeCss = css;
+      resolveToken = options.resolveToken ?? themeTokenResolver(theme);
+      refresh();
+    },
     setZoom,
     fit,
     setPreviewState,
@@ -1316,11 +1397,15 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       }
       markers.flash(flashIds(ids));
     },
-    undo: () => store.undo(),
-    redo: () => store.redo(),
+    undo: () => navigateLocal("undo"),
+    redo: () => navigateLocal("redo"),
+    undoAsync: () => navigateAsync("undo"),
+    redoAsync: () => navigateAsync("redo"),
     state: stateOf,
     destroy(): void {
+      destroyed = true;
       unsubscribe();
+      unsubscribeSession?.();
       doc.removeEventListener("keydown", onKeydown);
       global.removeEventListener?.("resize", onResize);
       stageObserver?.disconnect();

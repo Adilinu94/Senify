@@ -24,6 +24,65 @@ export const THEME_READ_TOOLS: ToolDefinition[] = [
         `/api/sites/${requireString(args, "siteId")}/theme`,
       ),
   },
+  {
+    name: "get_variable_usage",
+    title: "Get variable usage",
+    description:
+      "Lists recognizable direct references to a saved color or spacing variable in page drafts, style rules and theme aliases. This is a snapshot; unsaved changes, external libraries and indirect or dynamic references may be missing.",
+    scope: "read",
+    inputSchema: objectSchema(
+      {
+        siteId: { type: "string" },
+        family: { type: "string", enum: ["color", "spacing"] },
+        name: { type: "string" },
+      },
+      ["siteId", "family", "name"],
+    ),
+    outputSchema: objectSchema(
+      {
+        ref: { type: "string" },
+        pages: {
+          type: "array",
+          items: objectSchema(
+            {
+              pageId: { type: "string" },
+              pagePath: { type: "string" },
+              nodes: {
+                type: "array",
+                items: objectSchema(
+                  {
+                    nodeId: { type: "string" },
+                    paths: { type: "array", items: { type: "string" } },
+                  },
+                  ["nodeId", "paths"],
+                ),
+              },
+            },
+            ["pageId", "pagePath", "nodes"],
+          ),
+        },
+        rules: {
+          type: "array",
+          items: objectSchema(
+            {
+              ruleId: { type: "string" },
+              name: { type: "string" },
+              paths: { type: "array", items: { type: "string" } },
+            },
+            ["ruleId", "name", "paths"],
+          ),
+        },
+        themePaths: { type: "array", items: { type: "string" } },
+      },
+      ["ref", "pages", "rules", "themePaths"],
+    ),
+    entity: (args) => `site:${String(args.siteId ?? "")}`,
+    handler: async (context, args) =>
+      context.client.request(
+        "GET",
+        `/api/sites/${encodeURIComponent(requireString(args, "siteId"))}/theme/variables/${encodeURIComponent(requireString(args, "family"))}/${encodeURIComponent(requireString(args, "name"))}/usage`,
+      ),
+  },
 ];
 
 /** Das Theme schreiben. */

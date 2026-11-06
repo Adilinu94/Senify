@@ -4,7 +4,7 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 
 **Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.
 
-**Zahlen:** 178 Routen — 93 Tool, 1 Workflow-gebündelt, 84 Operator.
+**Zahlen:** 185 Routen — 94 Tool, 1 Workflow-gebündelt, 90 Operator.
 
 | Methode | Route | Scope | Status | MCP-Tool(s) / Anmerkung |
 |---|---|---|---|---|
@@ -178,10 +178,17 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | GET | `/api/sites/:siteId/theme` | read | Tool | `get_theme`, `server (automatisch)` |
 | GET | `/api/sites/:siteId/theme.css` | read | Operator | UI/CLI |
 | PUT | `/api/sites/:siteId/theme` | write | Tool | `update_theme` |
+| GET | `/api/sites/:siteId/theme/variables/:family/:name/usage` | read | Tool | `get_variable_usage` |
+| POST | `/api/sites/:siteId/theme/variables/:family/:name/rename` | write | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/theme/variables/:family/:name/delete` | publish | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/theme/variables/:family/:name/restore` | write | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/theme/report` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/design-report` | read | Tool | `get_design_report` |
 | GET | `/api/sites/:siteId/style-rules` | read | Tool | `set_styles` |
 | POST | `/api/sites/:siteId/style-rules` | write | Tool | `create_style_rule`, `set_styles` |
+| POST | `/api/sites/:siteId/style-rules/:ruleId/delete-globally` | publish | Operator | UI/CLI |
+| POST | `/api/sites/:siteId/style-rules/:ruleId/restore-globally` | write | Operator | UI/CLI |
+| GET | `/api/sites/:siteId/style-rules/:ruleId/usage` | read | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/style-rules/:ruleId` | read | Operator | UI/CLI |
 | PATCH | `/api/sites/:siteId/style-rules/:ruleId` | write | Tool | `set_styles` |
 | POST | `/api/sites/:siteId/style-rules/:ruleId/reorder` | write | Operator | UI/CLI |

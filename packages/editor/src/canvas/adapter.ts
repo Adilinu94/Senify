@@ -64,12 +64,14 @@ function expandCanvasNodeTree(document: EditorDocument): {
     if (node.hidden !== undefined) sectionNode.hidden = node.hidden;
     // Ticket 11: the per-breakpoint flags travel as v1 overrides so
     // `isHiddenAt` marks the node in exactly the affected frames.
-    if (node.hiddenDevices !== undefined && node.hiddenDevices.length > 0) {
+    if ((node.hiddenDevices?.length ?? 0) > 0 || (node.shownDevices?.length ?? 0) > 0) {
       const overrides: NonNullable<Node["overrides"]> = {};
-      for (const device of node.hiddenDevices) overrides[device] = { hidden: true };
+      for (const device of node.shownDevices ?? []) overrides[device] = { hidden: false };
+      for (const device of node.hiddenDevices ?? []) overrides[device] = { hidden: true };
       sectionNode.overrides = overrides;
     }
     if (node.locked !== undefined) sectionNode.locked = node.locked;
+    if (node.classes !== undefined && node.classes.length > 0) sectionNode.classes = [...node.classes];
     if (node.variant !== undefined) sectionNode.variant = node.variant;
     if (node.motion !== undefined) sectionNode.motion = structuredClone(node.motion);
     nodes[id] = sectionNode;

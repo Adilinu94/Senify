@@ -10,8 +10,7 @@ import { browserAvailable, browserSkip, memoryDb, runSpotlightCommand } from "./
 // Dauerhaftes PNG-Gate. Die versionierten Baselines liegen unter
 // packages/app/test/visual-baselines; bei einer Abweichung entstehen im
 // Scratch-Ordner erwartete, aktuelle und rot markierte Diff-PNGs.
-// UPDATE_VISUAL_SNAPSHOTS=1 ist ausschliesslich fuer eine beabsichtigte
-// Baseline-Aktualisierung vorgesehen.
+// UPDATE_VISUAL_SNAPSHOTS=1 aktualisiert alle Baselines, =editor nur den Editor.
 
 const baselineDir = resolve(process.cwd(), "packages/app/test/visual-baselines");
 const artifactDir = resolve(process.cwd(), ".scratch/editor-v2-rebuild/visual-diffs");
@@ -77,6 +76,18 @@ async function waitForStableUi(tab: import("playwright").Page, snapshot: Snapsho
     // One frame, in design and in live.
     await tab.waitForFunction('document.querySelectorAll(".senify-canvas__frame").length === 1');
     await tab.waitForSelector(".senify-canvas__iframe", { timeout: 30000 });
+    expect(await tab.locator(".senify-canvas__frame:visible").count()).toBe(1);
+    const sidebar = tab.locator(".canvas-view__sidebar");
+    const background = await sidebar.evaluate((element) => {
+      const target = element as unknown as { ownerDocument: { defaultView: { getComputedStyle(node: unknown): { backgroundColor: string } } } };
+      return target.ownerDocument.defaultView.getComputedStyle(element).backgroundColor;
+    });
+    expect(background).toBe(snapshot.mode === "dark" ? "rgb(26, 26, 31)" : "rgb(255, 255, 255)");
+    const chipBackground = await tab.locator(".canvas-view__elements .senify-canvas__chip").first().evaluate((element) => {
+      const target = element as unknown as { ownerDocument: { defaultView: { getComputedStyle(node: unknown): { backgroundColor: string } } } };
+      return target.ownerDocument.defaultView.getComputedStyle(element).backgroundColor;
+    });
+    expect(chipBackground).toBe(snapshot.mode === "dark" ? "rgb(21, 21, 26)" : "rgb(244, 245, 246)");
   }
   await tab.waitForTimeout(250);
 }
@@ -178,7 +189,7 @@ describe.skipIf(browserSkip)("desktop visual snapshots", () => {
       headless: true,
       args: ["--disable-lcd-text", "--font-render-hinting=none", "--force-color-profile=srgb"],
     });
-    const update = process.env["UPDATE_VISUAL_SNAPSHOTS"] === "1";
+    const update = process.env["UPDATE_VISUAL_SNAPSHOTS"];
     const errors: string[] = [];
     const mismatches: string[] = [];
     rmSync(artifactDir, { recursive: true, force: true });
@@ -241,10 +252,15 @@ describe.skipIf(browserSkip)("desktop visual snapshots", () => {
             { key: "editor-live", name: "editor-live", mode, viewport },
           ];
           for (const snapshot of snapshots) {
+            snapshot.key = `${viewport.label}-${snapshot.name}-${mode}`;
             if (snapshot.name.startsWith("editor")) {
               await tab.goto(`${running.dashboardUrl}/${editorHash}`, { waitUntil: "domcontentloaded" });
-              await tab.evaluate((pageId) => localStorage.removeItem(`senify-editor-session:${pageId}`), page.id);
+              await tab.evaluate((pageId) => {
+                localStorage.removeItem(`senify-editor-session:${pageId}`);
+                localStorage.removeItem(`senify-editor-single-frame:${pageId}`);
+              }, page.id);
               await tab.reload({ waitUntil: "domcontentloaded" });
+              await tab.locator('[data-start-fit="done"], [data-start-fit="skipped"]').waitFor({ state: "attached" });
               if (snapshot.name === "editor-overflow") {
                 await tab.locator('[data-action="canvas-overflow"]').click();
                 await tab.locator(".toolbar-overflow__menu").waitFor({ state: "visible" });
@@ -262,7 +278,7 @@ describe.skipIf(browserSkip)("desktop visual snapshots", () => {
             }
             await waitForStableUi(tab, snapshot);
             const actual = await settledScreenshot(tab, snapshot);
-            if (update) {
+            if (update === "1" || (update === "editor" && snapshot.name.startsWith("editor"))) {
               mkdirSync(baselineDir, { recursive: true });
               writeFileSync(baselinePath(snapshot), actual);
             } else {

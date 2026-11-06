@@ -298,6 +298,28 @@ export type BootEnv = {
   close(): Promise<void>;
 };
 
+// The OS may allocate a port that fetch refuses (for example 6000). Check the
+// actual listener and retry only that transport error; other failures remain loud.
+export async function listenForFetch(
+  engine: Pick<Engine, "listen">,
+  probe: (origin: string) => Promise<unknown> = async (origin) => {
+    const response = await fetch(`${origin}/__test_probe`, { signal: AbortSignal.timeout(5000) });
+    await response.arrayBuffer();
+  },
+): Promise<EngineServer> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const server = await engine.listen({ port: 0 });
+    try {
+      await probe(server.origin);
+      return server;
+    } catch (error) {
+      await server.close();
+      if (!(error instanceof TypeError && error.cause instanceof Error && error.cause.message === "bad port")) throw error;
+    }
+  }
+  throw new Error("Could not allocate a fetch-compatible test port");
+}
+
 export async function bootEngine(
   options: {
     rateLimits?: RateLimitConfig;
@@ -345,7 +367,7 @@ export async function bootEngine(
         destructivePerMinute: 10_000,
       },
   });
-  const server = await engine.listen({ port: 0 });
+  const server = await listenForFetch(engine);
   // Tokens are the only way in: the suite seeds both identities through the
   // Store, because HTTP token management is reserved for human operators.
   const created = await engine.store.createToken({

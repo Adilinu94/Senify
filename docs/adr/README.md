@@ -31,10 +31,12 @@
 | [ADR-0026](0026-struktur-baum-als-vollwertige-seite.md) | Der Struktur-Baum ist die vollwertige Seite, der Payload nur eine Zugabe | angenommen |
 | [ADR-0027](0027-browser-capture-als-standard.md) | Der Browser-Capture ist der Standard für URL-Importe, mit Rückfall auf das SSR-HTML | angenommen |
 | [ADR-0028](0028-unframer-als-zweite-quelle.md) | Der Unframer-MCP wird die zweite Import-Quelle für Projektstruktur | angenommen |
+| [ADR-0029](0029-deklarative-import-animationen.md) | Deklarative Framer-Importanimationen | angenommen |
+| [ADR-0030](0030-historische-tokenmigration-bei-umbenennung.md) | Historische Tokenverweise bei einer Umbenennung | angenommen |
 
 ## Nächste Nummer
 
-Die nächste freie Nummer ist `ADR-0029`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
+Die nächste freie Nummer ist `ADR-0031`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
 
 ## Regeln
 

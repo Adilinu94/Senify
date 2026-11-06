@@ -149,6 +149,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "list_sections",
       "get_section",
       "get_theme",
+      "get_variable_usage",
       "list_widgets",
       "get_widget",
       "search_docs",
@@ -247,6 +248,10 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "find_similar_library_components",
       "import_framer_page",
       "get_import_report",
+      "snapshot_unframer_project",
+      "prepare_framer_export",
+      "export_framer_site",
+      "import_framer_site",
     ]);
     for (const tool of listed.tools) {
       expect(tool.description?.length ?? 0).toBeGreaterThan(30);
@@ -256,6 +261,20 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     expect(applyTool?.annotations?.readOnlyHint).toBe(false);
     const readTool = listed.tools.find((tool) => tool.name === "get_page");
     expect(readTool?.annotations?.readOnlyHint).toBe(true);
+  });
+
+  it("reports saved variable references through the agent interface", async () => {
+    const siteId = await createSite(env, "Variablen für Agenten");
+    const changed = await call(session, "update_theme", { siteId, theme: {
+      tokens: { primitive: { color: { marker: "#123456" } }, semantic: { custom: { $ref: "color.marker" } } },
+    } });
+    expect(changed.ok).toBe(true);
+    const usage = await call(session, "get_variable_usage", { siteId, family: "color", name: "marker" });
+    expect(usage.ok).toBe(true);
+    expect(usage.data).toMatchObject({ ref: "color.marker", pages: [], rules: [], themePaths: ["tokens.semantic.custom.$ref"] });
+    const structured = await session.client.callTool({ name: "get_variable_usage", arguments: { siteId, family: "color", name: "marker" } });
+    expect(structured.structuredContent).toEqual(usage.data);
+    expect((await call(session, "get_variable_usage", { siteId, family: "color", name: "fehlend" })).ok).toBe(false);
   });
 
   // P3-3 (R8): the reading tools promise a shape, and the promise has to be
@@ -274,6 +293,7 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "get_site",
       "list_pages",
       "get_page",
+      "get_variable_usage",
       "list_assets",
       "list_references",
     ]) {

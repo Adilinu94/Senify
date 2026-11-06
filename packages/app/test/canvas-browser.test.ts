@@ -223,6 +223,22 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       await expect.poll(headingText).toContain("Neu-");
       await expect.poll(async () => inlineLeaf.getAttribute("contenteditable")).toBeNull();
       await expect.poll(async () => (await probe()).canUndo).toBe(true);
+      // Opening the same text and cancelling without edits must not consume
+      // the previously committed text step.
+      await inlineLeaf.dblclick();
+      await tab.keyboard.press("Escape");
+      await expect.poll(async () => (await probe()).canUndo).toBe(true);
+      const firstText = await headingText();
+      await inlineLeaf.dblclick();
+      await inlineLeaf.pressSequentially("Verworfen-");
+      await tab.keyboard.press("Escape");
+      await expect.poll(headingText).toBe(firstText);
+      await inlineLeaf.dblclick();
+      await inlineLeaf.pressSequentially("Zweiter-");
+      await tab.keyboard.press("Enter");
+      await expect.poll(headingText).toContain("Zweiter-");
+      await tab.locator('.senify-canvas__button[data-action="undo"]').click();
+      await expect.poll(headingText).toBe(firstText);
       await tab.locator('.senify-canvas__button[data-action="undo"]').click();
       await expect.poll(headingText).toBe("Katalogbaustein");
 
@@ -393,6 +409,11 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       await tab.keyboard.press("Delete");
       await expect.poll(dividerCount).toBe(1);
       await tab.keyboard.press("Control+z");
+      await expect.poll(dividerCount).toBe(2);
+      // Additive async API also falls back to the same local store without a session.
+      expect(await tab.evaluate(() => (globalThis as unknown as { __canvas: { redoAsync(): Promise<boolean> } }).__canvas.redoAsync())).toBe(true);
+      await expect.poll(dividerCount).toBe(1);
+      expect(await tab.evaluate(() => (globalThis as unknown as { __canvas: { undoAsync(): Promise<boolean> } }).__canvas.undoAsync())).toBe(true);
       await expect.poll(dividerCount).toBe(2);
       await tab.keyboard.press("Escape");
       await expect.poll(async () => (await probe()).focus).toBe("root000001");

@@ -35,6 +35,8 @@ export function themeTokenResolver(theme: Theme): TokenResolver {
     if (ref === "") return undefined;
     const fromVariables = variables[tokenVariableName(ref)];
     if (fromVariables !== undefined) return fromVariables;
+    // Older editor documents store the type role without its `.size` suffix.
+    if (/^type\.[^.]+$/.test(ref)) return variables[`${tokenVariableName(ref)}-size`];
     return resolveTokenRef(theme, ref);
   };
 }

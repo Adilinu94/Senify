@@ -31,6 +31,7 @@ import {
   validateTheme,
   type Theme,
 } from "@senify/tokens";
+import { isSafeCssProperty, parseCssValue } from "@senify/widget-engine";
 import { validateShape } from "./mutations/contract.ts";
 import type { SiteTheme } from "./types.ts";
 
@@ -154,6 +155,7 @@ async updateTheme(
   siteId: string,
   patch: Record<string, unknown>,
   author: Author,
+  baseVersion?: number,
 ): Promise<SiteTheme> {
   if (Object.keys(patch).length === 0) {
     throw new SenifyError("validation", "Theme patch is empty", {
@@ -161,10 +163,39 @@ async updateTheme(
       suggestion: "Provide at least one change.",
     });
   }
+  // Spacing variables are named CSS values; reject anything that is not one
+  // before it can reach the stored theme (merge from the editor branch, C).
+  let safePatch = patch;
+  const tokenPatch = patch.tokens;
+  const primitivePatch = tokenPatch && typeof tokenPatch === "object" && !Array.isArray(tokenPatch)
+    ? (tokenPatch as Record<string, unknown>).primitive : undefined;
+  const spacingPatch = primitivePatch && typeof primitivePatch === "object" && !Array.isArray(primitivePatch)
+    ? (primitivePatch as Record<string, unknown>).spacing : undefined;
+  if (spacingPatch !== undefined) {
+    if (!spacingPatch || typeof spacingPatch !== "object" || Array.isArray(spacingPatch)) {
+      throw new SenifyError("validation", "Abstände müssen benannte CSS-Werte sein", { field: "tokens.primitive.spacing" });
+    }
+    const spacing: Record<string, string> = {};
+    for (const [name, value] of Object.entries(spacingPatch)) {
+      const parsed = typeof value === "string" ? parseCssValue(value) : undefined;
+      if (["__proto__", "prototype", "constructor"].includes(name) || !isSafeCssProperty(`--space-${name.replace(/\./g, "-")}`) || !parsed?.ok) {
+        throw new SenifyError("validation", "Ungültiger Name oder CSS-Wert für den Abstand", { field: `tokens.primitive.spacing.${name}` });
+      }
+      spacing[name] = parsed.value;
+    }
+    safePatch = { ...patch, tokens: { ...(tokenPatch as Record<string, unknown>), primitive: { ...(primitivePatch as Record<string, unknown>), spacing } } };
+  }
   await this.#host.getSite(siteId);
   const current = await this.ensureSiteTheme(siteId);
+  const currentVersion = toFiniteNumber(current.version, "version");
+  if (baseVersion !== undefined && baseVersion !== currentVersion) {
+    throw new SenifyError("conflict", "Die Variablen wurden zwischenzeitlich geändert", {
+      field: "baseVersion",
+      suggestion: "Lade die Variablen neu und übernimm die Änderung erneut.",
+    });
+  }
   const currentDefinition = toJson<Theme>(current.definition);
-  const merged = mergeThemePatch(currentDefinition, patch);
+  const merged = mergeThemePatch(currentDefinition, safePatch);
   merged.id = current.id;
   validateShape(ThemeSchema, merged, "theme");
   const issues = validateTheme(merged);
@@ -185,13 +216,23 @@ async updateTheme(
   await this.#db.withTransaction(async (tx) => {
     const updated = await tx.query<{ version: unknown }>(
       `UPDATE themes SET definition = $2, name = $3, version = version + 1, updated_at = $4
-       WHERE id = $1 RETURNING version`,
-      [current.id, toJsonParam(merged), merged.name, now],
+         WHERE id = $1 AND version = $5 RETURNING version`,
+        [current.id, toJsonParam(merged), merged.name, now, currentVersion],
     );
     const versionRow = updated.rows[0];
     if (!versionRow) {
-      throw new SenifyError("not_found", `Theme for site "${siteId}" does not exist`, {
-        field: "siteId",
+      const still = await tx.query<{ id: string }>(
+        `SELECT id FROM themes WHERE id = $1`,
+        [current.id],
+      );
+      if (still.rows[0] === undefined) {
+        throw new SenifyError("not_found", `Theme for site "${siteId}" does not exist`, {
+          field: "siteId",
+        });
+      }
+      throw new SenifyError("conflict", "Die Variablen wurden zwischenzeitlich geändert", {
+        field: "baseVersion",
+        suggestion: "Lade die Variablen neu und übernimm die Änderung erneut.",
       });
     }
     const newVersion = toFiniteNumber(versionRow.version, "version");

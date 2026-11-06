@@ -3,6 +3,7 @@ import {
   conflictDialogModel,
   createComponent,
   createSavePipeline,
+  EditorStore,
   patchesToPending,
   setComponentOverride,
   type SaveRequest,
@@ -39,7 +40,7 @@ function harness(script: Scripted = () => ({ status: 200, body: { newDraftVersio
   return { store, pipeline, requests };
 }
 
-const rule = (id: string, name: string, styles: Record<string, unknown> = {}) => ({
+const rule = (id: string, name: string, styles: import("@senify/widget-engine").DeviceValueMap = {}) => ({
   id,
   name,
   kind: "class" as const,
@@ -50,6 +51,355 @@ const rule = (id: string, name: string, styles: Record<string, unknown> = {}) =>
 });
 
 describe("save pipeline", () => {
+  it("rejects a mixed batch containing global deletion before changing the document", () => {
+    const store = baseStore();
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
+    expect(() => store.applyBatch([
+      { op: "deleteStyleRule", id: "r-cta" },
+      { op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 },
+    ])).toThrow(/eigenen Schritt/);
+    expect(store.document.styleRules.some((entry) => entry.id === "r-cta")).toBe(true);
+  });
+
+  it("orders a quick undo after the deletion has its receipt", async () => {
+    const store = baseStore();
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, styleRegistryVersion: 1, themeVersion: 4,
+      request: async (request) => {
+        requests.push(request);
+        if (request.path.endsWith("/delete-globally")) return { status: 200, body: { version: 2, pageDraftVersion: 2, receiptId: (request.body as { receiptId: string }).receiptId } };
+        return { status: 200, body: { version: 3, pageDraftVersion: 3 } };
+      },
+    });
+    store.apply({ op: "deleteStyleRule", id: "r-cta" });
+    store.undo();
+    await pipeline.flush();
+    expect(requests.map((request) => request.path)).toEqual(["/api/sites/site1/style-rules/r-cta/delete-globally", "/api/sites/site1/style-rules/r-cta/restore-globally"]);
+    expect((requests[1]?.body as { receiptId: string }).receiptId).toBe((requests[0]?.body as { receiptId: string }).receiptId);
+    expect(requests[1]?.body).toMatchObject({ baseThemeVersion: 4 });
+    expect(pipeline.state().status).toBe("saved");
+    pipeline.dispose();
+  });
+
+  it("retries a global deletion with the same receipt after a lost response", async () => {
+    let attempts = 0;
+    const { store, pipeline, requests } = harness((request) => {
+      if (!request.path.endsWith("/delete-globally")) return { status: 200, body: { version: 1 } };
+      attempts += 1;
+      return attempts === 1 ? { status: 500, body: {} } : { status: 200, body: { version: 2, pageDraftVersion: 2, receiptId: (request.body as { receiptId: string }).receiptId } };
+    });
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
+    await pipeline.flush();
+    store.apply({ op: "deleteStyleRule", id: "r-cta" });
+    await pipeline.flush();
+    expect(pipeline.state().status).toBe("error");
+    await pipeline.flush();
+    expect((requests[1]?.body as { receiptId: string }).receiptId).toBe((requests[2]?.body as { receiptId: string }).receiptId);
+    expect(pipeline.state().status).toBe("saved");
+    pipeline.dispose();
+  });
+
+  it("persists a global deletion and its undo as single site operations", async () => {
+    const { store, pipeline, requests } = harness((request) => {
+      if (request.path.endsWith("/delete-globally")) return { status: 200, body: { version: 2, pageDraftVersion: 3, receiptId: (request.body as { receiptId: string }).receiptId } };
+      if (request.path.endsWith("/restore-globally")) return { status: 200, body: { version: 3, pageDraftVersion: 4 } };
+      return { status: 200, body: { version: 1, newDraftVersion: 2 } };
+    });
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
+    store.apply({ op: "assignClass", id: "btn0000001", classId: "cta" });
+    await pipeline.flush();
+    store.apply({ op: "deleteStyleRule", id: "r-cta" });
+    await pipeline.flush();
+    expect(requests[2]?.path).toBe("/api/sites/site1/style-rules/r-cta/delete-globally");
+    expect(requests[2]?.body).toMatchObject({ baseVersion: 1, pageContext: { pageId: "page1", baseDraftVersion: 2 } });
+    expect(requests).toHaveLength(3);
+    store.undo();
+    await pipeline.flush();
+    expect(requests[3]?.path).toBe("/api/sites/site1/style-rules/r-cta/restore-globally");
+    expect(requests[3]?.body).toMatchObject({ receiptId: (requests[2]?.body as { receiptId: string }).receiptId, baseVersion: 2, pageContext: { pageId: "page1", baseDraftVersion: 3 } });
+    expect(pipeline.state().version).toBe(4);
+    expect(requests).toHaveLength(4);
+    pipeline.dispose();
+  });
+
+  it("uses the returned page version after removing an unused global class", async () => {
+    const { store, pipeline, requests } = harness((request) => {
+      if (request.method === "DELETE") return { status: 200, body: { version: 2, pageDraftVersion: 3 } };
+      return { status: 200, body: { version: 1, newDraftVersion: 2 } };
+    });
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
+    store.undo();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    await pipeline.flush();
+    expect(requests[1]?.body).toMatchObject({ pageContext: { pageId: "page1", baseDraftVersion: 1 } });
+    expect(requests[2]?.body).toMatchObject({ baseDraftVersion: 3 });
+    expect(pipeline.state().status).toBe("saved");
+    pipeline.dispose();
+  });
+
+  it("explains a rejected class name in the conflict dialog", async () => {
+    const { store, pipeline } = harness(() => ({ status: 409, body: { error: { field: "name", message: "Der Name wird bereits verwendet." } } }));
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
+    await pipeline.flush();
+    expect(conflictDialogModel(pipeline.state())?.hint).toContain("Der Name wird bereits verwendet.");
+    pipeline.dispose();
+  });
+
+  it("tracks the page version returned by a global class rename", async () => {
+    const { store, pipeline, requests } = harness((request) => {
+      if (request.method === "PATCH") return { status: 200, body: { version: 2, pageDraftVersion: 3 } };
+      return { status: 200, body: { version: 1, newDraftVersion: 2 } };
+    });
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta") });
+    store.apply({ op: "assignClass", id: "btn0000001", classId: "cta" });
+    store.apply({ op: "renameStyleRule", id: "r-cta", name: "neu" });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    await pipeline.flush();
+    expect(requests[2]?.body).toMatchObject({ name: "neu", baseVersion: 1, pageContext: { pageId: "page1", baseDraftVersion: 2 } });
+    expect(requests[3]?.body).toMatchObject({ baseDraftVersion: 3 });
+    expect(pipeline.state().status).toBe("saved");
+    pipeline.dispose();
+  });
+
+  it("pauses a page write when the class registry changed", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, styleRegistryVersion: 3,
+      request: async (request) => {
+        requests.push(request);
+        return { status: 409, body: { error: { field: "baseStyleRegistryVersion" } } };
+      },
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    await pipeline.flush();
+    expect(requests[0]?.body).toMatchObject({ baseDraftVersion: 1, baseStyleRegistryVersion: 3 });
+    expect(pipeline.state().conflict?.scope).toBe("style");
+    expect(pipeline.state().pending).toBe(1);
+    expect(conflictDialogModel(pipeline.state())?.retryAllowed).toBe(false);
+    await pipeline.retry(2);
+    expect(requests).toHaveLength(1);
+    pipeline.dispose();
+  });
+
+  it("pauses a page write when the theme changed and accepts a refreshed version", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    let stale = true;
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4,
+      request: async (request) => {
+        requests.push(request);
+        return stale ? { status: 409, body: { error: { field: "baseThemeVersion" } } } : { status: 200, body: { newDraftVersion: 2 } };
+      },
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    await pipeline.flush();
+    expect(requests[0]?.body).toMatchObject({ baseThemeVersion: 4 });
+    expect(pipeline.state().conflict?.scope).toBe("theme");
+    expect(conflictDialogModel(pipeline.state())?.retryAllowed).toBe(false);
+    await pipeline.retry(2);
+    expect(requests).toHaveLength(1);
+    pipeline.discardPending();
+    pipeline.acceptThemeVersion(5);
+    stale = false;
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 32 });
+    await pipeline.flush();
+    expect(requests[1]?.body).toMatchObject({ baseThemeVersion: 5 });
+    expect(pipeline.state().status).toBe("saved");
+    pipeline.dispose();
+  });
+
+  it("does not rebase pending page edits when a newer theme is loaded", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4,
+      request: async (request) => { requests.push(request); return { status: 409, body: { error: { field: "baseThemeVersion" } } }; },
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    pipeline.acceptThemeVersion(5);
+    await pipeline.flush();
+    expect(requests[0]?.body).toMatchObject({ baseThemeVersion: 4 });
+    expect(pipeline.state().conflict?.scope).toBe("theme");
+    pipeline.dispose();
+  });
+
+  it("adopts external versions only while the original editor state is clean", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4,
+      request: async (request) => { requests.push(request); return { status: 200, body: { newDraftVersion: 3 } }; },
+    });
+    expect(pipeline.acceptExternalVersions(1, 4, 2, 5)).toBe(true);
+    expect(pipeline.acceptExternalVersions(1, 4, 3, 6)).toBe(false);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    expect(pipeline.acceptExternalVersions(2, 5, 3, 6)).toBe(false);
+    await pipeline.flush();
+    expect(requests[0]?.body).toMatchObject({ baseDraftVersion: 2, baseThemeVersion: 5 });
+    pipeline.dispose();
+  });
+
+  it("clears a save error when failed changes are explicitly discarded", async () => {
+    const store = baseStore();
+    let fail = true;
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4,
+      request: async () => fail ? { status: 500, body: { error: { message: "Nicht gespeichert" } } } : { status: 200, body: { newDraftVersion: 3 } },
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    await pipeline.flush();
+    expect(pipeline.state().status).toBe("error");
+    expect(pipeline.state().pending).toBeGreaterThan(0);
+    pipeline.discardPending();
+    store.replaceDocument(baseStore().document);
+    expect(pipeline.state().status).toBe("idle");
+    expect(pipeline.state().pending).toBe(0);
+    expect(pipeline.acceptExternalVersions(1, 4, 2, 5)).toBe(true);
+    fail = false;
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 32 });
+    await pipeline.flush();
+    expect(pipeline.state().status).toBe("saved");
+    pipeline.dispose();
+  });
+
+  it("does not adopt external versions over unsupported local changes", () => {
+    const store = baseStore();
+    const listener = vi.spyOn(store, "setActionListener");
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4,
+      request: async () => ({ status: 200, body: {} }),
+    });
+    const action = listener.mock.calls[0]?.[0];
+    expect(action).toBeDefined();
+    action?.({ type: "apply", mutation: { op: "futureOperation" }, entry: {} } as unknown as Parameters<NonNullable<typeof action>>[0]);
+    expect(pipeline.state().unsupported).toEqual(["futureOperation"]);
+    pipeline.acceptThemeVersion(5);
+    expect(pipeline.acceptExternalVersions(1, 4, 2, 5)).toBe(false);
+    pipeline.discardPending();
+    expect(pipeline.state().unsupported).toEqual([]);
+    expect(pipeline.acceptExternalVersions(1, 4, 2, 5)).toBe(true);
+    pipeline.dispose();
+  });
+
+  it("persists directly requested breakpoint visibility changes", async () => {
+    const { store, pipeline, requests } = harness();
+    store.apply({ op: "setNodeHiddenDevices", id: "head000001", devices: ["mobile"] });
+    await pipeline.flush();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.body).toMatchObject({ mutations: [{ op: "setNodeHiddenDevices", id: "head000001", devices: ["mobile"] }] });
+    expect(pipeline.state().unsupported).toEqual([]);
+    pipeline.dispose();
+  });
+
+  it("treats a class write with a stale theme as a theme conflict", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4,
+      request: async (request) => { requests.push(request); return { status: 409, body: { error: { field: "baseThemeVersion" } } }; },
+    });
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta", { color: { $token: "color.accent" } }) });
+    await pipeline.flush();
+    expect(requests[0]?.body).toMatchObject({ baseThemeVersion: 4 });
+    expect(pipeline.state().conflict?.scope).toBe("theme");
+    expect(conflictDialogModel(pipeline.state())?.retryAllowed).toBe(false);
+    pipeline.dispose();
+  });
+
+  it("does not rebase later edits while an older page request is in flight", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    let release: (() => void) | undefined;
+    const first = new Promise<void>((resolve) => { release = resolve; });
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, themeVersion: 4, debounceMs: 5,
+      request: async (request) => {
+        requests.push(request);
+        if (requests.length === 1) { await first; return { status: 200, body: { newDraftVersion: 2 } }; }
+        return { status: 409, body: { error: { field: "baseThemeVersion" } } };
+      },
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    const saving = pipeline.flush();
+    pipeline.acceptThemeVersion(5);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 32 });
+    release?.();
+    await saving;
+    await vi.waitFor(() => expect(pipeline.state().status).toBe("conflict"));
+    expect(requests[1]?.body).toMatchObject({ baseThemeVersion: 4 });
+    pipeline.dispose();
+  });
+
+  it("keeps class conflicts paused until the current registry is loaded", async () => {
+    let conflict = true;
+    const { store, pipeline, requests } = harness(() => conflict ? { status: 409, body: {} } : { status: 200, body: {} });
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta", { color: "#123456" }) });
+    await pipeline.flush();
+    expect(pipeline.state().conflict?.scope).toBe("style");
+    expect(conflictDialogModel(pipeline.state())?.retryAllowed).toBe(false);
+    await pipeline.retry(10);
+    expect(requests).toHaveLength(1);
+    pipeline.discardPending();
+    pipeline.acceptStyleRegistry(7, ["r-cta"]);
+    conflict = false;
+    store.apply({ op: "upsertStyleRule", rule: rule("r-cta", "cta", { color: "#abcdef" }) });
+    await pipeline.flush();
+    expect(requests[1]?.method).toBe("PATCH");
+    expect(requests[1]?.body).toMatchObject({ baseVersion: 7 });
+    pipeline.dispose();
+  });
+
+  it("creates a class before saving its assignment and keeps unsent changes on failure", async () => {
+    let failCreate = true;
+    const { store, pipeline, requests } = harness((request) => {
+      if (request.path.endsWith("/style-rules") && failCreate) return { status: 500, body: {} };
+      return { status: 200, body: { newDraftVersion: 2, version: 1 } };
+    });
+    store.applyBatch([
+      { op: "upsertStyleRule", rule: rule("new-class", "cta") },
+      { op: "assignClass", id: "btn0000001", classId: "cta" },
+    ]);
+    await pipeline.flush();
+    expect(requests.map((request) => request.path)).toEqual(["/api/sites/site1/style-rules"]);
+    expect(pipeline.state().pending).toBe(2);
+    failCreate = false;
+    await pipeline.flush();
+    expect(requests.map((request) => request.path)).toEqual([
+      "/api/sites/site1/style-rules", "/api/sites/site1/style-rules", "/api/pages/page1/editor-mutations",
+    ]);
+    expect(pipeline.state().status).toBe("saved");
+    pipeline.dispose();
+  });
+
+  it("saves changes made while an earlier request is still in flight", async () => {
+    const store = baseStore();
+    const requests: SaveRequest[] = [];
+    let release: (() => void) | undefined;
+    const first = new Promise<void>((resolve) => { release = resolve; });
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR, debounceMs: 5,
+      request: async (request) => {
+        requests.push(request);
+        if (requests.length === 1) await first;
+        return { status: 200, body: { newDraftVersion: requests.length + 1 } };
+      },
+    });
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 30 });
+    const initialSave = pipeline.flush();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "fontSize", value: 32 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release?.();
+    await initialSave;
+    await vi.waitFor(() => expect(pipeline.state().status).toBe("saved"));
+    expect(requests).toHaveLength(2);
+    expect(pipeline.state().pending).toBe(0);
+    pipeline.dispose();
+  });
+
   it("bundles a burst into one page request and tracks the version", async () => {
     const { store, pipeline, requests } = harness((request) =>
       request.path.includes("/editor-mutations")
@@ -99,13 +449,75 @@ describe("save pipeline", () => {
       "POST /api/sites/site1/style-rules",
       "PATCH /api/sites/site1/style-rules/r-cta",
       "POST /api/sites/site1/style-rules/r-cta/reorder",
-      "DELETE /api/sites/site1/style-rules/r-cta",
+      "POST /api/sites/site1/style-rules/r-cta/delete-globally",
     ]);
     // The create body drops the document's own ordering; the route owns it.
     const createBody = requests[0]?.body as Record<string, unknown>;
     expect(createBody["id"]).toBe("r-cta");
     expect(createBody["order"]).toBeUndefined();
     expect(createBody["styles"]).toEqual({ color: "#fff" });
+  });
+
+  it("übernimmt nach einem Reorder die vom Server normalisierte Reihenfolge in die lokale Teilmenge", async () => {
+    const store = new EditorStore({
+      document: {
+        version: 2,
+        rootNodeId: "root",
+        nodes: { root: { id: "root", primitive: "root", props: {} } },
+        styleRules: [
+          { ...rule("r-cta", "cta", { color: "#fff" }), order: 4 },
+          { ...rule("r-second", "second", { color: "#f00" }), order: 5 },
+        ],
+      },
+    });
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR,
+      knownRuleIds: ["r-cta", "r-second"], styleRegistryVersion: 1,
+      request: async (request) => request.path.endsWith("/reorder")
+        ? { status: 200, body: { rules: [
+          { ...rule("r-hidden", "hidden"), order: 0 },
+          { ...rule("r-second", "second", { color: "#f00" }), order: 1 },
+          { ...rule("r-cta", "cta", { color: "#fff" }), order: 2 },
+        ], version: 2 } }
+        : { status: 200, body: {} },
+    });
+    store.apply({ op: "reorderStyleRule", id: "r-cta", index: 1 });
+    await pipeline.flush();
+    // The registry is site-wide: the hidden scoped rule occupies order 0, so
+    // this page's subset must keep 1 and 2, not a compacted 0 and 1.
+    expect(store.document.styleRules.map((entry) => [entry.id, entry.order])).toEqual(
+      [["r-second", 1], ["r-cta", 2]],
+    );
+    expect(store.document.styleRules.map((entry) => entry.styles)).toEqual([
+      { color: "#f00" },
+      { color: "#fff" },
+    ]);
+  });
+
+  it("verschiebt nach dem Löschen einer Regel die Order der nachfolgenden Regeln", async () => {
+    const store = new EditorStore({
+      document: {
+        version: 2,
+        rootNodeId: "root",
+        nodes: { root: { id: "root", primitive: "root", props: {} } },
+        styleRules: [
+          { ...rule("r-a", "a"), order: 0 },
+          { ...rule("r-b", "b"), order: 1 },
+          { ...rule("r-c", "c"), order: 2 },
+        ],
+      },
+    });
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR,
+      knownRuleIds: ["r-a", "r-b", "r-c"], styleRegistryVersion: 1,
+      request: async (request) => ({ status: 200, body: { version: 2, pageDraftVersion: 2, receiptId: (request.body as { receiptId: string }).receiptId } }),
+    });
+    store.apply({ op: "deleteStyleRule", id: "r-b" });
+    await pipeline.flush();
+    expect(store.document.styleRules.map((entry) => [entry.id, entry.order])).toEqual([
+      ["r-a", 0],
+      ["r-c", 1],
+    ]);
   });
 
   it("creates a scoped rule with its node and patches it without a scope (ticket 02 point 5)", async () => {
@@ -155,6 +567,12 @@ describe("save pipeline", () => {
     expect(patchBody["nodeId"]).toBeUndefined();
     expect(patchBody["scope"]).toBeUndefined();
     expect(patchBody["states"]).toEqual({ hover: { color: "#ff0000" } });
+    expect(patchBody).toMatchObject({
+      replaceStyleValues: true,
+      stylePriorities: null,
+      statePriorities: null,
+      contextStylePriorities: null,
+    });
   });
 
   it("updates a rule the server already knows instead of creating it twice", async () => {
@@ -176,6 +594,36 @@ describe("save pipeline", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]?.method).toBe("PATCH");
     expect(requests[0]?.path).toBe("/api/sites/site1/style-rules/r-cta");
+  });
+
+  it("updates rules loaded in the document without requiring a separate ID list", async () => {
+    const store = baseStore();
+    store.apply({ op: "upsertStyleRule", rule: rule("existing", "cta") });
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR,
+      request: async (request) => { requests.push(request); return { status: 200, body: {} }; },
+    });
+    store.apply({ op: "upsertStyleRule", rule: rule("existing", "cta", { color: "#123456" }) });
+    await pipeline.flush();
+    expect(requests.map((request) => [request.method, request.path])).toEqual([["PATCH", "/api/sites/site1/style-rules/existing"]]);
+    pipeline.dispose();
+  });
+
+  it("creates a scoped rule again when deletion is undone", async () => {
+    const store = baseStore();
+    store.apply({ op: "upsertStyleRule", rule: createScopedRule({ id: "existing", nodeId: "head000001" }) });
+    const requests: SaveRequest[] = [];
+    const pipeline = createSavePipeline({
+      store, pageId: "page1", siteId: "site1", author: AUTHOR,
+      request: async (request) => { requests.push(request); return { status: 200, body: {} }; },
+    });
+    store.apply({ op: "deleteStyleRule", id: "existing" });
+    await pipeline.flush();
+    store.undo();
+    await pipeline.flush();
+    expect(requests.map((request) => request.method)).toEqual(["DELETE", "POST"]);
+    pipeline.dispose();
   });
 
   it("persists a class assignment as a setNodeMeta mutation", async () => {

@@ -111,12 +111,33 @@ export function checkPropValue(
   if (isComponentPrimitive(definition.type) && STRUCTURAL_PROPS.has(base)) return undefined;
   const control = definition.controls.find((entry) => entry.key === base);
   if (control !== undefined) {
-    return matchesValueType(control.valueType, value)
-      ? undefined
-      : {
-          message: `Value for "${base}" must be a ${control.valueType}`,
-          suggestion: `Expected the value type "${control.valueType}".`,
-        };
+    if (matchesValueType(control.valueType, value)) {
+      // A token reference or spacing bag that only *looks* like a value still
+      // goes through the value grammar: an unsafe reference must not pass just
+      // because the control accepted the shape.
+      if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+        return checkSafeValue(value);
+      }
+      return undefined;
+    }
+    // A number control with several units accepts the unit as a string
+    // ("2rem"): the canvas and the inspector write the unit the user picked,
+    // and the CSS value grammar accepts it later. A unit that is not offered
+    // stays an error.
+    if (control.valueType === "number" && typeof value === "string" && (control.units?.length ?? 0) > 1) {
+      const match = /^([+-]?(?:\d+(?:\.\d+)?|\.\d+))([a-z%]+)$/i.exec(value.trim());
+      if (
+        match !== null &&
+        Number.isFinite(Number(match[1])) &&
+        control.units?.some((unit) => unit === match[2]) === true
+      ) {
+        return undefined;
+      }
+    }
+    return {
+      message: `Value for "${base}" must be a ${control.valueType}`,
+      suggestion: `Expected the value type "${control.valueType}".`,
+    };
   }
   return checkSafeValue(value);
 }

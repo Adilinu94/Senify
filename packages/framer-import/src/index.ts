@@ -159,3 +159,8 @@ export {
   summaryOf,
   type RunSummary,
 } from "./idempotency.ts";
+
+// Aus dem C-Zweig uebernommen (Merge 06.11.2026): Tween-Wiedergabe, Mirror-Vorbereitung, Sitemap-Routen.
+export { readAppearTween, type AppearTween, type AppearTweenResult, type AppearTweenState } from "./appear-tween.ts";
+export { listMirrorPages, prepareMirrorSite, type PreparedMirrorSite } from "./prepare-site.ts";
+export { fetchSitemapRoutes, importRoutes, parseSitemap, type ImportRoute, type SitemapRoute } from "./route-manifest.ts";

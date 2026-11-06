@@ -168,6 +168,124 @@ describe("undo / redo stack", () => {
     expect(history.entries().map((entry) => entry.id)).toEqual([keep.id]);
     expect(history.canRedo).toBe(false);
   });
+
+  it("does not merge a new step into an older group after an entry is removed", () => {
+    const history = new HistoryStack();
+    const base = { op: "inline-text" as const, mutations: [], undoPatch: [], batchId: null, versionBefore: 1, versionAfter: 2 };
+    const first = history.record({ ...base, label: "Erste Eingabe", coalesceKey: "text" });
+    const removed = history.record({ ...base, label: "Verworfen", coalesceKey: "anderes Feld" });
+    history.remove(removed.id);
+    const next = history.record({ ...base, label: "Neue Eingabe", coalesceKey: "text" });
+    expect(next.id).not.toBe(first.id);
+    expect(history.undo()?.id).toBe(next.id);
+    expect(history.undo()?.id).toBe(first.id);
+  });
+});
+
+describe("external async history", () => {
+  it("bestätigt nur die eigene Navigationslease, den Eintrag und die reservierte Richtung", () => {
+    const history = new HistoryStack();
+    const marker = history.beginExternal({ label: "Token", versionBefore: 1, versionAfter: 2 });
+    history.commitExternal(marker.id);
+    const pending = history.beginExternalNavigation("undo");
+    expect(history.top()?.id).toBe(marker.id);
+    for (const [pendingId, entryId, direction] of [
+      ["fremde-lease", marker.id, "undo"],
+      [pending.id, "fremder-eintrag", "undo"],
+      [pending.id, marker.id, "redo"],
+    ] as const) {
+      expect(history.canConfirmExternalNavigation(pendingId, entryId, direction)).toBe(false);
+      expect(() => history.confirmExternalNavigation(pendingId, entryId, direction)).toThrow("reservierte");
+    }
+    expect(() => history.commitExternal(pending.id)).toThrow("Navigation");
+    expect(history.pendingExternalId).toBe(pending.id);
+    expect(history.confirmExternalNavigation(pending.id, marker.id, "undo").id).toBe(marker.id);
+    expect(history.applied()).toEqual([]);
+    expect(history.future().map((entry) => entry.id)).toEqual([marker.id]);
+    const redo = history.beginExternalNavigation("redo");
+    expect(history.confirmExternalNavigation(redo.id, marker.id, "redo").id).toBe(marker.id);
+    expect(history.top()?.id).toBe(marker.id);
+  });
+
+  it("lässt nach neuen Eingaben oder entferntem Ziel keinen reservierten Cursorwechsel zu", () => {
+    const history = new HistoryStack();
+    const marker = history.beginExternal({ label: "Token", versionBefore: 1, versionAfter: 2 });
+    history.commitExternal(marker.id);
+    const pending = history.beginExternalNavigation("undo");
+    const local = history.record({ label: "Neue Eingabe", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 2, versionAfter: 3 });
+    expect(history.canConfirmExternalNavigation(pending.id, marker.id, "undo")).toBe(false);
+    expect(() => history.confirmExternalNavigation(pending.id, marker.id, "undo")).toThrow("reservierte");
+    expect(history.top()?.id).toBe(local.id);
+    history.clear({ preservePendingExternal: true });
+    expect(history.pendingExternalId).toBe(pending.id);
+    expect(history.canConfirmExternalNavigation(pending.id, marker.id, "undo")).toBe(false);
+    history.failExternal(pending.id);
+    expect(history.pendingExternalId).toBeNull();
+  });
+
+  it("sperrt Restore-Patches während eines ausstehenden externen Vorgangs", () => {
+    const history = new HistoryStack();
+    const steps = recordRealSteps(history, [
+      [{ op: "updateNodeProps", id: "hero000001", patch: { headline: "Erster Stand" } }],
+      [{ op: "updateNodeProps", id: "hero000001", patch: { headline: "Zweiter Stand" } }],
+    ]);
+    const pending = history.beginExternal({ label: "Token löschen", versionBefore: 3, versionAfter: 4 });
+    expect(() => history.restoreAsDraft(steps[0]!.entryId)).toThrow(/externer Vorgang/i);
+    expect(history.pendingExternalId).toBe(pending.id);
+    expect(history.applied()).toHaveLength(2);
+    history.failExternal(pending.id);
+    expect(applyTreePatches(steps[1]!.tree, history.restoreAsDraft(steps[0]!.entryId))).toEqual(steps[0]!.tree);
+  });
+
+  it("tracks a pending external entry and blocks navigation until resolved", () => {
+    const history = new HistoryStack();
+    history.record({ label: "A", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 1, versionAfter: 2 });
+    const pending = history.beginExternal({ label: "Variable umbenennen", versionBefore: 2, versionAfter: 3 });
+    expect(pending.status).toBe("pending");
+    expect(pending.external).toBe(true);
+    expect(history.pendingExternalId).toBe(pending.id);
+    expect(history.canUndo).toBe(false);
+    expect(history.canRedo).toBe(false);
+    expect(history.undo()).toBeNull();
+    // Local document edits may continue while the server operation is in flight;
+    // navigation stays blocked until the result is resolved.
+    expect(() => history.record({ label: "B", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 2, versionAfter: 3 })).not.toThrow();
+    history.commitExternal(pending.id, { versionAfter: 3 });
+    expect(history.pendingExternalId).toBeNull();
+    expect(history.entries().some((entry) => entry.id === pending.id && entry.status === "committed")).toBe(true);
+  });
+
+  it("removes a failed external entry without corrupting the cursor", () => {
+    const history = new HistoryStack();
+    const before = history.record({ label: "A", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 1, versionAfter: 2 });
+    const pending = history.beginExternal({ label: "Variable löschen", versionBefore: 2, versionAfter: 3 });
+    expect(history.failExternal(pending.id)?.id).toBe(pending.id);
+    expect(history.pendingExternalId).toBeNull();
+    expect(history.entries().map((entry) => entry.id)).toEqual([before.id]);
+    expect(history.top()?.id).toBe(before.id);
+    expect(history.canUndo).toBe(true);
+  });
+
+  it("treats committed external entries as a non-local undo/redo boundary", () => {
+    const history = new HistoryStack();
+    history.record({ label: "A", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 1, versionAfter: 2 });
+    const pending = history.beginExternal({ label: "Variable umbenennen", versionBefore: 2, versionAfter: 3 });
+    history.commitExternal(pending.id);
+    expect(history.canUndo).toBe(false);
+    expect(() => history.undo()).toThrow(/serverseitig|extern/i);
+    expect(() => history.restoreAsDraft(history.entries()[0]!.id)).toThrow(/serverseitig|extern/i);
+  });
+
+  it("refuses restore when the jumped range crosses an external entry", () => {
+    const history = new HistoryStack();
+    const a = history.record({ label: "A", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 1, versionAfter: 2 });
+    const ext = history.beginExternal({ label: "Variable löschen", versionBefore: 2, versionAfter: 3 });
+    history.commitExternal(ext.id);
+    history.record({ label: "B", op: "updateNodeProps", mutations: [], undoPatch: [], batchId: null, versionBefore: 3, versionAfter: 4 });
+    // Cursor is after B; jumping back to A would rewind across committed external B's predecessor? range includes external.
+    // Applied: [A, ext, B], cursor=3. restoreAsDraft(A) rewinds ext,B => crosses ext.
+    expect(() => history.restoreAsDraft(a.id)).toThrow(/serverseitig|extern/i);
+  });
 });
 
 describe("restore as draft", () => {
@@ -230,5 +348,120 @@ describe("restore as draft", () => {
     if (!future) throw new Error("fixture step missing");
     expect(() => history.restoreAsDraft(future.entryId)).toThrow(/Only applied/);
     expect(() => history.restoreAsDraft("nope")).toThrow(/does not exist/);
+  });
+});
+
+describe("routeTo and async restore planning", () => {
+  it("liefert eine lokale Route in Ausführungsreihenfolge und kennt den aktuellen Stand nicht als Sprung", () => {
+    const history = new HistoryStack();
+    const steps = recordRealSteps(history, [
+      [{ op: "updateNodeProps", id: "hero000001", patch: { headline: "A" } }],
+      [{ op: "deleteNode", id: "pricing00001" }],
+      [{ op: "updateNodeProps", id: "hero000001", patch: { headline: "C" } }],
+    ]);
+    const first = steps[0]!.entryId;
+    expect(history.routeTo(first)?.map((s) => [s.direction, s.entry.id])).toEqual([
+      ["undo", steps[2]!.entryId],
+      ["undo", steps[1]!.entryId],
+    ]);
+    expect(history.canRestoreTo(first)).toBe(true);
+    expect(history.canRestoreToAsync(first)).toBe(true);
+    history.undo();
+    expect(history.routeTo(steps[2]!.entryId)).toEqual([{ direction: "redo", entry: expect.objectContaining({ id: steps[2]!.entryId }) }]);
+    expect(history.routeTo(steps[1]!.entryId)).toBeNull();
+  });
+
+  it("plant eine Route über bestätigte externe Schritte, erlaubt aber keinen rein lokalen Sprung", () => {
+    const history = new HistoryStack();
+    const first = recordRealSteps(history, [[{ op: "updateNodeProps", id: "hero000001", patch: { headline: "A" } }]])[0]!.entryId;
+    const external = history.beginExternal({ label: "Variable umbenennen", versionBefore: 1, versionAfter: 2 });
+    history.commitExternal(external.id);
+    recordRealSteps(history, [[{ op: "updateNodeProps", id: "hero000001", patch: { headline: "C" } }]]);
+    const route = history.routeTo(first);
+    expect(route?.map((s) => [s.direction, s.entry.external === true])).toEqual([["undo", false], ["undo", true]]);
+    expect(history.canRestoreTo(first)).toBe(false);
+    expect(history.canRestoreToAsync(first)).toBe(true);
+    expect(history.routeTo("missing")).toBeNull();
+  });
+
+  it("gibt während eines laufenden externen Vorgangs keine Route frei", () => {
+    const history = new HistoryStack();
+    const first = recordRealSteps(history, [[{ op: "updateNodeProps", id: "hero000001", patch: { headline: "A" } }]])[0]!.entryId;
+    history.beginExternal({ label: "Läuft", versionBefore: 1, versionAfter: 2 });
+    expect(history.routeTo(first)).toBeNull();
+    expect(history.canRestoreToAsync(first)).toBe(false);
+  });
+});
+
+describe("rename token references in retained history", () => {
+  it("rewrites structured references in forward and undo patches", () => {
+    const history = new HistoryStack();
+    const entry = history.record({
+      label: "Farbe gesetzt",
+      op: "updateNodeProps",
+      mutations: [{ op: "updateNodeProps", id: "hero000001", patch: { background: { $token: "color.marker" } } }],
+      undoPatch: [{ patch: "setProps", id: "hero000001", props: { background: { $token: "color.marker" } } }],
+      batchId: "batch-token",
+      versionBefore: 1,
+      versionAfter: 2,
+    });
+    const cursorBefore = history.snapshot().cursor;
+
+    expect(history.renameReferences("color", "marker", "marke")).toBe(true);
+
+    const migrated = history.entries().find((item) => item.id === entry.id);
+    expect(migrated?.mutations).toEqual([{ op: "updateNodeProps", id: "hero000001", patch: { background: { $token: "color.marke" } } }]);
+    expect(migrated?.undoPatch).toEqual([{ patch: "setProps", id: "hero000001", props: { background: { $token: "color.marke" } } }]);
+    expect(history.snapshot().cursor).toBe(cursorBefore);
+  });
+
+  it("rewrites $ref and keeps unrelated token names", () => {
+    const history = new HistoryStack();
+    history.record({
+      label: "Abstand gesetzt",
+      op: "updateNodeProps",
+      mutations: [{ op: "updateNodeProps", id: "hero000001", patch: { gap: { $ref: "spacing.luft" }, background: { $token: "color.andere" } } }],
+      undoPatch: [],
+      batchId: null,
+      versionBefore: 1,
+      versionAfter: 2,
+    });
+
+    expect(history.renameReferences("spacing", "luft", "raum")).toBe(true);
+
+    expect(history.entries()[0]?.mutations[0]).toEqual({
+      op: "updateNodeProps",
+      id: "hero000001",
+      patch: { gap: { $ref: "spacing.raum" }, background: { $token: "color.andere" } },
+    });
+  });
+
+  it("refuses CSS-text references and leaves the history unchanged", () => {
+    const history = new HistoryStack();
+    const mutation = { op: "updateNodeProps" as const, id: "hero000001", patch: { background: "var(--color-marker)" } };
+    history.record({
+      label: "CSS gesetzt",
+      op: "updateNodeProps",
+      mutations: [mutation],
+      undoPatch: [],
+      batchId: null,
+      versionBefore: 1,
+      versionAfter: 2,
+    });
+    const before = history.snapshot();
+
+    expect(history.renameReferences("color", "marker", "marke")).toBe(false);
+
+    expect(history.snapshot()).toEqual(before);
+  });
+
+  it("keeps external markers and their ids intact", () => {
+    const history = new HistoryStack();
+    const external = history.beginExternal({ label: "Variable gelöscht", versionBefore: 1, versionAfter: 1 });
+    history.commitExternal(external.id);
+    const snapshot = history.snapshot();
+
+    expect(history.renameReferences("color", "marker", "marke")).toBe(true);
+    expect(history.snapshot()).toEqual(snapshot);
   });
 });

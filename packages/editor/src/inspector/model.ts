@@ -89,6 +89,7 @@ export type InspectorCommit =
   | { kind: "hidden"; device: "tablet" | "mobile" }
   | { kind: "locked" }
   | { kind: "state"; state: StateName }
+  | { kind: "class"; ruleId: string; state: StateName | null }
   | { kind: "override"; partId: string }
   | { kind: "variant" }
   | { kind: "variant-rename"; name: string }
@@ -188,6 +189,7 @@ export type BuildInspectorInput = {
   state?: StateName | null;
   // The site's media library; section image props pick from it.
   assets?: readonly InspectorAsset[];
+  styleRuleId?: string;
 };
 
 // Drei Tabs wie im Referenz-Editor: Allgemein, Stil, Interaktionen. Der fruehere
@@ -485,6 +487,7 @@ function styleFieldsFor(
   theme: Theme | undefined,
   controlKeys: Set<string>,
   state: StateName | null,
+  styleRuleId?: string,
 ): InspectorGroup[] {
   // A real catalog primitive narrows the style groups it offers; an unknown or
   // legacy type keeps the whole table (ADR-0005: the groups are an order, not a
@@ -496,15 +499,21 @@ function styleFieldsFor(
   // The base state reads the node props; a pseudo state reads the state bag of
   // the node's scoped rule (ticket 02 point 5) — same device grammar, same
   // control family.
-  const scoped = state === null ? undefined : scopedRuleFor(document, node.id);
-  const values: DeviceValueMap =
-    state === null ? node.props : (scoped?.states?.[state] ?? {});
-  const commit: InspectorCommit = state === null ? { kind: "prop" } : { kind: "state", state };
+  const selectedRule = styleRuleId === undefined ? undefined : document.styleRules.find(
+    (rule) => rule.id === styleRuleId && rule.kind === "class" && node.classes?.includes(rule.name),
+  );
+  const scoped = state === null || selectedRule !== undefined ? undefined : scopedRuleFor(document, node.id);
+  const values: DeviceValueMap = selectedRule !== undefined
+    ? state === null ? selectedRule.styles : (selectedRule.states?.[state] ?? {})
+    : state === null ? node.props : (scoped?.states?.[state] ?? {});
+  const commit: InspectorCommit = selectedRule !== undefined
+    ? { kind: "class", ruleId: selectedRule.id, state }
+    : state === null ? { kind: "prop" } : { kind: "state", state };
   const collected = new Map<StyleCategory, { primary: InspectorField[]; more: InspectorField[] }>();
   for (const spec of STYLE_PROPERTIES) {
     if (groups !== undefined && !groups.has(spec.group)) continue;
     // A property the primitive's own control owns stays in the Content tab.
-    if (controlKeys.has(canonical(spec.prop))) continue;
+    if (selectedRule === undefined && controlKeys.has(canonical(spec.prop))) continue;
     const value = resolveDeviceValue(values, spec.prop, breakpoint);
     const base = resolveDeviceValue(values, spec.prop, "desktop");
     const keywordOptions = KEYWORD_OPTIONS[spec.prop];
@@ -559,7 +568,7 @@ function styleFieldsFor(
   const known = new Set(STYLE_PROPERTIES.map((spec) => canonical(spec.prop)));
   for (const key of Object.keys(values)) {
     const base = canonical(baseKeyOf(key));
-    if (known.has(base) || controlKeys.has(base)) continue;
+    if (known.has(base) || (selectedRule === undefined && controlKeys.has(base))) continue;
     custom.push({
       key: base,
       label: base,
@@ -731,7 +740,7 @@ const TOKEN_GROUP_BY_PROP: Record<string, TokenGroup> = {
   maxHeight: "space",
   borderRadius: "radius",
   boxShadow: "shadow",
-  fontFamily: "type",
+  fontFamily: "font",
   fontSize: "type",
 };
 
@@ -811,7 +820,10 @@ function controlToField(
     source: "control",
     styleGroup: undefined,
   };
-  attachTokenOptions(field, theme, field.kind === "color" ? "color" : undefined);
+  const tokenGroup = field.kind === "color" ? "color"
+    : field.kind === "dimensions" || field.kind === "gaps" ? tokenGroupForStyleProp(control.key)
+      : undefined;
+  attachTokenOptions(field, theme, tokenGroup);
   return field;
 }
 
@@ -995,8 +1007,8 @@ function motionFields(
   profile: MotionProfile,
 ): InspectorMotion {
   const rules = MOTION_PROFILE_RULES[profile];
-  const presets = MOTION_PRESETS.map((preset) => preset.id);
   const spec = node.motion;
+  const presets = MOTION_PRESETS.map((preset) => preset.id).filter((id) => id !== "imported-appear" || spec?.preset === id);
   const cap = rules.intensityCap;
   const fields: InspectorField[] = [];
   const push = (field: InspectorField): void => {
@@ -1257,6 +1269,27 @@ function motionFields(
     source: "control",
     styleGroup: undefined,
   });
+  if (spec?.preset === "imported-appear" && spec.importedAppear !== undefined) {
+    const template = fields.find((field) => field.key === "durationScale");
+    if (template !== undefined) {
+      const tween = spec.importedAppear;
+      const entries: [string, string, number, number, number][] = [
+        ["appearFromOpacity", "Start Deckkraft", tween.from.opacity, 0, 1],
+        ["appearFromX", "Start X (px)", tween.from.x, -10000, 10000],
+        ["appearFromY", "Start Y (px)", tween.from.y, -10000, 10000],
+        ["appearFromScale", "Start Skalierung", tween.from.scale, 0, 10],
+        ["appearToOpacity", "Ende Deckkraft", tween.to.opacity, 0, 1],
+        ["appearToX", "Ende X (px)", tween.to.x, -10000, 10000],
+        ["appearToY", "Ende Y (px)", tween.to.y, -10000, 10000],
+        ["appearToScale", "Ende Skalierung", tween.to.scale, 0, 10],
+        ["appearDuration", "Dauer (ms)", tween.durationMs, 1, 30000],
+        ["appearDelay", "Verzögerung (ms)", tween.delayMs, 0, 30000],
+        ...tween.easing.map((value, index): [string, string, number, number, number] => [`appearEase${index}`, `Bézier ${index + 1}`, value, index % 2 === 0 ? 0 : -10, index % 2 === 0 ? 1 : 10]),
+      ];
+      fields.splice(1, 6);
+      for (const [key, label, value, min, max] of entries) push({ ...template, key, label, value, min, max, step: 0.01 });
+    }
+  }
   return {
     preset: spec?.preset ?? null,
     fields,
@@ -1274,7 +1307,8 @@ function advancedGroups(node: EditorNode): InspectorGroup[] {
     label: `Auf ${device === "tablet" ? "Tablet" : "Mobil"} ausblenden`,
     kind: "switcher",
     commit: { kind: "hidden", device },
-    value: node.hiddenDevices?.includes(device) ?? false,
+    value: node.hiddenDevices?.includes(device) === true ||
+      (node.hidden === true && node.shownDevices?.includes(device) !== true),
     base: undefined,
     overridden: false,
     overrideDevices: [],
@@ -1400,6 +1434,7 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
     input.theme,
     controlKeys,
     state,
+    input.styleRuleId,
   );
   const profile = input.profile ?? "standard";
   const motion = motionFields(node, input.theme, profile);
@@ -1474,6 +1509,19 @@ export function motionSpecFrom(
       ? (values["reducedMotion"] as MotionSpec["reducedMotion"])
       : (current?.reducedMotion ?? "static");
   const enabled = values["enabled"] !== false;
+  if (preset === "imported-appear" && current?.preset === preset && current.importedAppear !== undefined) {
+    const old = current.importedAppear;
+    const number = (key: string, fallback: number): number => numberPart(values[key]) ?? fallback;
+    return {
+      preset, trigger: "load", reducedMotion, enabled,
+      importedAppear: {
+        from: { opacity: number("appearFromOpacity", old.from.opacity), x: number("appearFromX", old.from.x), y: number("appearFromY", old.from.y), scale: number("appearFromScale", old.from.scale) },
+        to: { opacity: number("appearToOpacity", old.to.opacity), x: number("appearToX", old.to.x), y: number("appearToY", old.to.y), scale: number("appearToScale", old.to.scale) },
+        durationMs: number("appearDuration", old.durationMs), delayMs: number("appearDelay", old.delayMs),
+        easing: [0, 1, 2, 3].map((index) => number(`appearEase${index}`, old.easing[index] ?? 0)) as [number, number, number, number],
+      },
+    };
+  }
   return {
     preset,
     intensity,

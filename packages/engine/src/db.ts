@@ -72,6 +72,52 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS audit_entries_page_idx
     ON audit_entries (page_id, created_at DESC, op_index DESC)`,
+  // A global class deletion records the exact draft assignments and versions
+  // required to restore it without overwriting subsequent edits.
+  `CREATE TABLE IF NOT EXISTS style_class_deletions (
+    id text PRIMARY KEY,
+    site_id text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    rule_id text NOT NULL,
+    rule jsonb NOT NULL,
+    pages jsonb NOT NULL,
+    registry_version integer NOT NULL,
+    resource_hashes jsonb,
+    request_basis jsonb,
+    restore_result jsonb,
+    created_at timestamptz NOT NULL,
+    restored_at timestamptz
+  )`,
+  // A variable deletion retains its original value and the versions needed
+  // for a conflict-safe restoration, including after a backup/restore.
+  `CREATE TABLE IF NOT EXISTS theme_variable_deletions (
+    id text PRIMARY KEY,
+    site_id text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    family text NOT NULL,
+    name text NOT NULL,
+    value text NOT NULL,
+    pages jsonb NOT NULL,
+    resource_hashes jsonb,
+    request_basis jsonb,
+    restore_result jsonb,
+    registry_version integer NOT NULL,
+    theme_version integer NOT NULL,
+    created_at timestamptz NOT NULL,
+    restored_at timestamptz
+  )`,
+  // Rename receipts make retries safe after a lost response.
+  `CREATE TABLE IF NOT EXISTS theme_variable_renames (
+    id text PRIMARY KEY,
+    site_id text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    family text NOT NULL,
+    old_name text NOT NULL,
+    new_name text NOT NULL,
+    undo_of text,
+    pages jsonb NOT NULL,
+    resource_hashes jsonb,
+    registry_version integer NOT NULL,
+    theme_version integer NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
   // API tokens: the secret is shown once and stored as a SHA-256 hash only.
   `CREATE TABLE IF NOT EXISTS api_tokens (
     id text PRIMARY KEY,
@@ -686,6 +732,14 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // such as `hero-button` applies to every page — so they live next to the
   // site, not in a page draft. Additive and nullable: an installation from an
   // earlier ticket reads `NULL` and simply has no rules yet.
+  `ALTER TABLE theme_variable_renames ADD COLUMN IF NOT EXISTS undo_of text`,
+  `ALTER TABLE theme_variable_renames ADD COLUMN IF NOT EXISTS resource_hashes jsonb`,
+  `ALTER TABLE theme_variable_deletions ADD COLUMN IF NOT EXISTS resource_hashes jsonb`,
+  `ALTER TABLE theme_variable_deletions ADD COLUMN IF NOT EXISTS request_basis jsonb`,
+  `ALTER TABLE theme_variable_deletions ADD COLUMN IF NOT EXISTS restore_result jsonb`,
+  `ALTER TABLE style_class_deletions ADD COLUMN IF NOT EXISTS resource_hashes jsonb`,
+  `ALTER TABLE style_class_deletions ADD COLUMN IF NOT EXISTS request_basis jsonb`,
+  `ALTER TABLE style_class_deletions ADD COLUMN IF NOT EXISTS restore_result jsonb`,
   `ALTER TABLE sites ADD COLUMN IF NOT EXISTS style_rules_json jsonb`,
   `ALTER TABLE sites ADD COLUMN IF NOT EXISTS style_rules_version integer NOT NULL DEFAULT 0`,
   // Design contract per site (E26, R9): the project's design DNA (constants/

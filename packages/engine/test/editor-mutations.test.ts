@@ -73,6 +73,20 @@ describe("editor mutation bridge", () => {
     ]);
   });
 
+  it("preserves an explicitly visible responsive variant when editing visibility", () => {
+    expect(editorMutationsToSection([
+      { op: "setNodeHiddenDevices", id: "n1", devices: ["mobile"], shownDevices: ["tablet"] },
+    ])).toEqual([
+      { op: "setBreakpointOverride", id: "n1", breakpoint: "tablet", override: { hidden: false } },
+      { op: "setBreakpointOverride", id: "n1", breakpoint: "mobile", override: { hidden: true } },
+    ]);
+    expect(editorMutationsToSection([
+      { op: "insertNode", parent: { nodeId: "root" }, node: { primitive: "frame", hidden: true, hiddenDevices: ["mobile"], shownDevices: ["tablet"] } },
+    ])).toEqual([
+      { op: "insertNode", parent: { nodeId: "root" }, node: { type: "frame", hidden: true, overrides: { tablet: { hidden: false }, mobile: { hidden: true } } } },
+    ]);
+  });
+
   it("carries per-breakpoint hidden overrides with a fresh node (ticket 11)", () => {
     expect(
       editorMutationsToSection([
@@ -241,6 +255,121 @@ describe("editor mutation bridge", () => {
 });
 
 describe("POST /api/pages/:pageId/editor-mutations", () => {
+  it.skipIf(!process.env.TEST_DATABASE_URL)("serializes a page write with a concurrent theme update", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Gleichzeitige Variablenänderung");
+      const page = await createTestPage(env.api, site.id, { path: "/" });
+      const theme = await env.engine.store.getTheme(site.id);
+      let pending: Promise<{ status: number }> | undefined;
+      await env.db.withTransaction(async (tx) => {
+        await tx.query(`SELECT id FROM themes WHERE site_id = $1 FOR UPDATE`, [site.id]);
+        pending = env.api.request({ method: "POST", path: `/api/pages/${page.id}/editor-mutations`, body: {
+          baseDraftVersion: page.draftVersion, baseThemeVersion: theme.version,
+          mutations: [{ op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { primitive: "divider", props: {} } }],
+        } });
+        const deadline = Date.now() + 10000;
+        let blocked = false;
+        while (Date.now() < deadline) {
+          await tx.query(`SELECT pg_stat_clear_snapshot()`);
+          const activity = await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE 'SELECT version FROM themes WHERE site_id = % FOR UPDATE%'`);
+          if (Number(activity.rows[0]?.count) > 0) { blocked = true; break; }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBe(true);
+        await tx.query(`UPDATE themes SET version = version + 1 WHERE site_id = $1`, [site.id]);
+      });
+      expect((await pending)?.status).toBe(409);
+      const unchanged = await env.api.request<PageResponse>({ method: "GET", path: `/api/pages/${page.id}` });
+      expect(unchanged.body.draftVersion).toBe(page.draftVersion);
+      expect(unchanged.body.draft).toEqual(page.draft);
+    } finally { await env.close(); }
+  }, 30000);
+
+  it("rejects an editor page write with a stale theme version", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Variablenstand");
+      const page = await createTestPage(env.api, site.id, { path: "/" });
+      const theme = await env.engine.store.getTheme(site.id);
+      await env.engine.store.updateTheme(site.id, { scales: { brand: "#123456" } }, TEST_AUTHOR, theme.version);
+      const body = { baseDraftVersion: page.draftVersion, baseThemeVersion: theme.version, mutations: [
+        { op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { primitive: "divider", props: {} } },
+      ] };
+      const stale = await env.api.request<{ error: { field: string } }>({ method: "POST", path: `/api/pages/${page.id}/editor-mutations`, body });
+      expect(stale.status).toBe(409);
+      expect(stale.body.error.field).toBe("baseThemeVersion");
+      const unchanged = await env.api.request<PageResponse>({ method: "GET", path: `/api/pages/${page.id}` });
+      expect(unchanged.body.draft).toEqual(page.draft);
+      const fresh = await env.api.request({ method: "POST", path: `/api/pages/${page.id}/editor-mutations`, body: { ...body, baseThemeVersion: theme.version + 1 } });
+      expect(fresh.status).toBe(200);
+    } finally { await env.close(); }
+  });
+
+  it.skipIf(!process.env.TEST_DATABASE_URL)("serializes a page write with a concurrent class-registry update", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Gleichzeitige Klassenänderung");
+      const page = await createTestPage(env.api, site.id, { path: "/" });
+      let pending: Promise<{ status: number }> | undefined;
+      await env.db.withTransaction(async (tx) => {
+        await tx.query(`SELECT id FROM sites WHERE id = $1 FOR UPDATE`, [site.id]);
+        pending = env.api.request({
+          method: "POST",
+          path: `/api/pages/${page.id}/editor-mutations`,
+          body: {
+            baseDraftVersion: page.draftVersion,
+            baseStyleRegistryVersion: 0,
+            mutations: [{ op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { primitive: "divider", props: {} } }],
+          },
+        });
+        const deadline = Date.now() + 10000;
+        let blocked = false;
+        while (Date.now() < deadline) {
+          await tx.query(`SELECT pg_stat_clear_snapshot()`);
+          const activity = await tx.query<{ count: string }>(
+            `SELECT count(*)::text AS count FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE 'SELECT style_rules_json, style_rules_version FROM sites WHERE id = % FOR UPDATE%'`,
+          );
+          if (Number(activity.rows[0]?.count) > 0) { blocked = true; break; }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBe(true);
+        await tx.query(`UPDATE sites SET style_rules_version = style_rules_version + 1 WHERE id = $1`, [site.id]);
+      });
+      expect((await pending)?.status).toBe(409);
+      const unchanged = await env.api.request<PageResponse>({ method: "GET", path: `/api/pages/${page.id}` });
+      expect(unchanged.body.draftVersion).toBe(page.draftVersion);
+      expect(unchanged.body.draft).toEqual(page.draft);
+    } finally {
+      await env.close();
+    }
+  }, 30000);
+
+  it("rejects page writes based on a stale class registry without changing the draft", async () => {
+    const env = await bootEngine();
+    try {
+      const site = await createTestSite(env.api, "Klassenstand");
+      const page = await createTestPage(env.api, site.id, { path: "/" });
+      const created = await env.api.request({ method: "POST", path: `/api/sites/${site.id}/style-rules`, body: { name: "cta" } });
+      expect(created.status).toBe(201);
+      const body = {
+        baseDraftVersion: page.draftVersion,
+        baseStyleRegistryVersion: 0,
+        mutations: [{ op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { primitive: "divider", props: {}, classes: ["cta"] } }],
+      };
+      const stale = await env.api.request<{ error: { field: string } }>({ method: "POST", path: `/api/pages/${page.id}/editor-mutations`, body });
+      expect(stale.status).toBe(409);
+      expect(stale.body.error.field).toBe("baseStyleRegistryVersion");
+      const unchanged = await env.api.request<PageResponse>({ method: "GET", path: `/api/pages/${page.id}` });
+      expect(unchanged.body.draftVersion).toBe(page.draftVersion);
+      expect(unchanged.body.draft).toEqual(page.draft);
+      const fresh = await env.api.request({ method: "POST", path: `/api/pages/${page.id}/editor-mutations`, body: { ...body, baseStyleRegistryVersion: 1 } });
+      expect(fresh.status).toBe(200);
+    } finally {
+      await env.close();
+    }
+  });
+
   it("writes canvas ops through the section store", async () => {
     const env = await bootEngine();
     try {

@@ -82,6 +82,28 @@ async function apply(
 }
 
 describe("canonical mutations", () => {
+  it("persists nested catalog primitives and validates responsive changes and nesting", async () => {
+    const inserted = await apply([
+      { op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { id: "frame00001", type: "frame", props: { padding: { $token: "spacing.4" } } } },
+      { op: "insertNode", parent: { nodeId: "frame00001" }, node: { id: "heading001", type: "heading", props: { text: "Hallo" } } },
+      { op: "insertNode", parent: { nodeId: "frame00001" }, node: { id: "icon000001", type: "icon", props: { size: "2rem" } } },
+      { op: "setBreakpointOverride", id: "heading001", breakpoint: "mobile", override: { props: { color: "#123456" } } },
+    ]);
+    expect(inserted.status).toBe(200);
+    expect(propsOf(page, "frame00001").padding).toEqual({ $token: "spacing.4" });
+    expect(childIds(page, "frame00001")).toEqual(["heading001", "icon000001"]);
+    expect(propsOf(page, "icon000001").size).toBe("2rem");
+    expect(nodeOf(page, "heading001").overrides).toEqual({ mobile: { props: { color: "#123456" } } });
+    const unsafeToken = await apply([{ op: "updateNodeProps", id: "frame00001", patch: { padding: { $token: "bad);color:red" } } }]);
+    expect(unsafeToken.status).toBe(400);
+    const unsafeUnit = await apply([{ op: "updateNodeProps", id: "icon000001", patch: { size: "2bogus" } }]);
+    expect(unsafeUnit.status).toBe(400);
+    const rejected = await apply([
+      { op: "insertNode", parent: { nodeId: "heading001" }, node: { type: "frame" } },
+    ]);
+    expect(rejected.status).toBe(400);
+  });
+
   it("applies a golden batch with version bump and undo patches", async () => {
     const placement = goldenTreeToMutations(containerSection.golden.tree, {
       nodeId: page.draft.rootNodeId,

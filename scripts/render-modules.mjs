@@ -151,7 +151,7 @@ const BLEIBT = {
     return `vier fachübergreifende Transaktionen (\`applyRedesignPlan\`, \`duplicateSiteWithPlan\`, \`duplicateAssetRecords\`, \`commitFramerImportPlan\`), \`replaceTables\` und die Fassade; ${delegaten} von ${methoden} Methoden sind reine Delegaten (gemessen), der Rest steht in 38 \`store-*\`-Modulen`;
   })(),
   "packages/editor/src/inspector/inspector.ts":
-    "eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält. **Gemessen am 26.10.2026:** 22 Renderer, und nur EINER kommt ohne Fremdnamen aus (`renderSwitcher`, 24 Zeilen); alle anderen brauchen `commitProp`, ein Geschwister oder den Zustand. `renderFieldRow` allein nennt elf Fremdnamen (`breakpoint`, `tokenPanelKey`, `apply`, `commitProp`, `toggleVariant`, `removeVariant`, `clearProp`, `clearField`, `commitMotion`, `motionModel`) und zehn Geschwister-Renderer. Eine Fabrik, die elf Rückrufe durchreicht, ist keine Naht, sondern eine Verschiebung mit mehr Parametern: dieselbe Prüfung, mit der die Betriebsgruppe der Routen verworfen wurde",
+    "eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält. **Gemessen am 06.11.2026:** 24 Renderer, und nur ZWEI kommen ohne Fremdnamen aus (`renderSpacingUnit` und `renderSwitcher`, 24 Zeilen); alle anderen brauchen `commitProp`, ein Geschwister oder den Zustand. `renderFieldRow` allein nennt elf Fremdnamen (`breakpoint`, `tokenPanelKey`, `apply`, `commitProp`, `toggleVariant`, `removeVariant`, `clearProp`, `clearField`, `commitMotion`, `motionModel`) und zehn Geschwister-Renderer. Eine Fabrik, die elf Rückrufe durchreicht, ist keine Naht, sondern eine Verschiebung mit mehr Parametern: dieselbe Prüfung, mit der die Betriebsgruppe der Routen verworfen wurde",
   "packages/engine/src/content.ts": "Sammlungen, Einträge und ihre Suche in einem Fachgebiet",
   "packages/engine/src/references-lifecycle.ts":
     "die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf",
@@ -165,6 +165,8 @@ const BLEIBT = {
     "der HTML-Capture des Imports - **gemessen am 26.10.2026, und der Schnitt wurde versucht und verworfen.** Der CSS-Block am Dateiende (21 Funktionen) sieht wie ein eigenes Fachgebiet aus, ist aber keine Senke: `applyClassRules` ist die einzige öffentliche Funktion und liest den BAUM (`SPACED_TEXT`, `KEEPS_SPACES`, `FRAMER_TEXT_PROPS`, `IrInteraction`, `IrVisual`, `elementStyleToParts`) und neun interne Helfer (`parseCssRules`, `buildIndex`, `devicesOf`, `tokenDefinitionsOf`, `matchingRules`, `cascade`, `resolveVars`, `tokensOf`, `Vars`). Ein Modul mit 15 Importen aus der Quelldatei waere keine Naht, sondern eine Verschiebung. Die anderen 50 Funktionen lesen denselben Rohtext (HTML-Scan, Appear-Ableitung, IR-Bau)",
   "packages/framer-import/src/mapper.ts":
     "die Abbildung Framer nach NodeTree. **Gemessen am 01.11.2026:** 58 Funktionen, und `mapNode` allein sind 336 Zeilen. Sie liest dieselben Tabellen wie `mapDocument` und die Zustaende des Mappers - ein Schnitt muesste diese als Parameter durchreichen. Die Datei ist am 26.10.2026 um 190 Zeilen gewachsen (Browser-Abgriff der Animationen, `appearStyleRulesOf` und `ruleFamilyWeights`): der Abgriff liefert die Daten, die Abbildung auf den NodeTree bleibt hier",
+  "packages/framer-import/src/unframer-ir.ts":
+    "der Leser des Unframer-Projekt-XML (ADR-0028): ein toleranter XML-Baum, die Stapel-/Box-/Text-Metadaten und die Ableitung ins Import-IR greifen auf dieselben Tabellen und denselben Elementbaum zu. Ein Schnitt wuerde den Baum und die Zustands-Tabellen als Parameter durchreichen; die Datei ist eine Uebersetzung mit einem Eingang und einem Ausgang",
   "packages/editor/src/canvas/canvas.ts": "die Bühne des Editors",
   "packages/editor/src/inspector/model.ts": "das Modell des Inspektors",
   "packages/editor/src/state/operations.ts":
@@ -176,7 +178,7 @@ const BLEIBT = {
   "packages/renderer/src/bake.ts":
     "der Bake: `bakeSite` haelt Warnungen, Manifest-Seiten, Motion-/Lenis-/Formular-Flags, Island-Arten und benutzte Payload-Ids ueber alle Seiten - genau dieser geteilte Zustand ist der Grund, warum der Bake in einem Durchgang laeuft. Die Helfer (`stageTemplate`, `runAstroBuild`, `writeAeoFiles`, `assertBakeable`) sind bereits eigenstaendig",
   "packages/manifest/src/tools.ts":
-    "ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 109 Werkzeugen mit je vier Angaben",
+    "ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 114 Werkzeugen mit je vier Angaben",
   "packages/mcp/src/tools-referenzen.ts":
     "die 32 Werkzeuge der Referenz- und Design-Arbeit: 24 Referenz, 4 Redesign, 4 Design. Am 26.10.2026 bei 993 Zeilen angelegt, am 01.11.2026 mit `set_design_contract` zu seinem Lese-Paar gewachsen (1 026). Der Block definiert keine lokalen Helfer (gemessen: 0 auf oberster Ebene) - die Groesse ist die Zahl der Werkzeug-Literale; ein Schnitt muesste die drei verwandten Fachgebiete trennen, die dieselben Schemas und Dokument-Arten lesen",
 };

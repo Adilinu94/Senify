@@ -117,6 +117,7 @@ describe("registry-generated property panels", () => {
     expect(tokenOptionsFor("radius", defaultTheme()).map((option) => option.ref)).toContain(
       "radius.full",
     );
+    expect(tokenOptionsFor("type", defaultTheme()).map((option) => option.ref)).toContain("type.h1.size");
   });
 
   it("warns on a literal where the theme expects a token", () => {

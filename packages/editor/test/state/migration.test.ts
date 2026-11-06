@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createScopedRule } from "@senify/widget-engine";
 import {
   detectDocumentVersion,
   loadDocument,
@@ -10,7 +11,7 @@ import {
   validateDocument,
   type EditorDocument,
 } from "@senify/editor/state";
-import { baseStore, emptyV2Document, v1Tree } from "./fixtures.ts";
+import { baseStore, classRule, emptyV2Document, v1Tree } from "./fixtures.ts";
 
 describe("format version detection", () => {
   it("tells v1 and v2 apart", () => {
@@ -22,6 +23,26 @@ describe("format version detection", () => {
 });
 
 describe("v1 -> v2 migration", () => {
+  it("retains page class assignments while validating against the site registry", () => {
+    const tree = v1Tree();
+    const node = tree.nodes["head000001"];
+    if (node === undefined) throw new Error("Heading fehlt");
+    node.classes = ["cta"];
+    const result = loadDocument(tree, { styleRules: [classRule("class001", "cta")] });
+    expect(result.document.nodes["head000001"]?.classes).toEqual(["cta"]);
+    expect(result.document.styleRules[0]?.name).toBe("cta");
+    expect(() => loadDocument(tree)).toThrow(/undefined style class/);
+  });
+  it("keeps this page's scoped rules while ignoring other pages' rules", () => {
+    const tree = v1Tree();
+    const rules = [
+      createScopedRule({ id: "own", nodeId: "head000001", styles: { color: "#123456" } }),
+      createScopedRule({ id: "other", nodeId: "other-page-node", styles: { color: "#abcdef" } }),
+    ];
+    const result = loadDocument(tree, { styleRules: rules });
+    expect(result.document.styleRules.map((rule) => rule.id)).toEqual(["own"]);
+    expect(rules).toHaveLength(2);
+  });
   it("renames the root, keeps values and folds overrides into device keys", () => {
     const document = migrateV1ToV2(v1Tree());
     expect(document.version).toBe(2);
@@ -81,6 +102,20 @@ describe("v1 -> v2 migration", () => {
     const reloaded = loadDocument(parseDocument(serializeDocument(document)));
     expect(reloaded.status).toBe("loaded");
     expect(reloaded.document.nodes["frame000001"]?.hiddenDevices).toEqual(["mobile"]);
+  });
+
+  it("retains explicit visible overrides for a desktop-hidden responsive variant", () => {
+    const tree = v1Tree();
+    const frame = tree.nodes["frame000001"];
+    if (frame === undefined) throw new Error("missing frame");
+    frame.hidden = true;
+    frame.overrides = { tablet: { hidden: false }, mobile: { hidden: true } };
+    const document = migrateV1ToV2(tree);
+    const migrated = document.nodes["frame000001"];
+    expect(migrated?.hidden).toBe(true);
+    expect(migrated?.shownDevices).toEqual(["tablet"]);
+    expect(migrated?.hiddenDevices).toEqual(["mobile"]);
+    expect(loadDocument(parseDocument(serializeDocument(document))).document.nodes["frame000001"]?.shownDevices).toEqual(["tablet"]);
   });
 });
 

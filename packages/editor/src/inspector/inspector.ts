@@ -13,6 +13,7 @@
 // folding), a switch or select is one step by itself.
 
 import {
+  createClassRule,
   createScopedRule,
   deviceKey,
   DEVICES,
@@ -90,11 +91,13 @@ export type InspectorOptions = {
   assets?: () => readonly InspectorAsset[];
   // Ordner der Vorschaubilder der Sektions-Varianten, Schraegstrich am Ende.
   thumbnailBase?: string;
+  onClassUsage?: (ruleId: string) => Promise<Array<{ pageId: string; title: string; path: string; nodeIds: string[] }>>;
 };
 
 export type InspectorInstance = {
   element: DomElement;
   refresh(): void;
+  setTheme(theme: Theme): void;
   breakpoint(): Device;
   setBreakpoint(device: Device): void;
   tab(): InspectorTabId;
@@ -171,6 +174,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   const thumbnailBase = options.thumbnailBase ?? DEFAULT_SECTION_THUMBNAIL_BASE;
   ensureInspectorStyles(doc);
   const root = h(doc, "section", { className: "senify-inspector" });
+  let usageResult: { ruleId: string; pages: Array<{ pageId: string; title: string; path: string; nodeIds: string[] }> } | null = null;
+  let usageMessage: string | null = null;
+  let usageMessageRuleId: string | null = null;
+  let usageRequest = 0;
   root.setAttribute(EDITOR_ROOT_ATTRIBUTE, "true");
   root.setAttribute("aria-label", "Inspektor");
   // Esc im Inspektor (E5): in einem Eingabefeld gibt es das Feld frei, sonst geht
@@ -205,6 +212,9 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   // Ein Wert gilt als gesetzt, wenn das Element ihn selbst traegt (Stil-Felder).
   const isSet = (field: InspectorField): boolean =>
     field.source === "style" && field.value !== undefined && field.value !== null && field.value !== "";
+  let selectedClassId: string | null = null;
+  let classOrderOpen = false;
+  let classDeleteConfirmId: string | null = null;
   // One panel at a time, addressed by the field that owns it (a shared boolean
   // would open the panel under every token/colour field at once).
   let paletteKey: string | null = null;
@@ -272,6 +282,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     device: Device = breakpoint,
     coalesce = true,
   ): boolean {
+    if (commit.kind === "class") {
+      commitClass(commit.ruleId, commit.state, key, value);
+      return true;
+    }
     if (commit.kind === "state") {
       commitState(
         nodeId,
@@ -388,6 +402,10 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     commit: InspectorCommit,
     device: Device = breakpoint,
   ): void {
+    if (commit.kind === "class") {
+      commitClass(commit.ruleId, commit.state, key, null);
+      return;
+    }
     if (commit.kind === "state") {
       commitState(nodeId, commit.state, key, null);
       return;
@@ -412,6 +430,24 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       { op: "clearNodeProp", id: nodeId, key, device },
       `Override zurücksetzen · ${key}`,
     );
+  }
+
+  function commitClass(ruleId: string, stateName: StateName | null, key: string, value: PropValue | null): void {
+    const existing = options.store.document.styleRules.find((rule) => rule.id === ruleId && rule.kind === "class");
+    if (existing === undefined) { report("Klasse nicht gefunden"); return; }
+    const rule = structuredClone(existing);
+    const values = { ...(stateName === null ? rule.styles : rule.states?.[stateName] ?? {}) };
+    const property = deviceKey(key, breakpoint);
+    if (value === null) delete values[property];
+    else values[property] = value;
+    if (stateName === null) rule.styles = values;
+    else {
+      const states = { ...(rule.states ?? {}) };
+      if (Object.keys(values).length === 0) delete states[stateName];
+      else states[stateName] = values;
+      rule.states = states;
+    }
+    apply({ op: "upsertStyleRule", rule }, `Klasse ${rule.name} · ${key}`, `class:${ruleId}:${stateName ?? "base"}:${property}`);
   }
 
   // The scoped rule of the node is the carrier of the pseudo-state values; it
@@ -660,6 +696,9 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     }
     wrap.appendChild(range);
     wrap.appendChild(number);
+    if (field.units !== undefined && field.units.length > 1) {
+      wrap.appendChild(renderUnitSelect(nodeId, field));
+    }
     control.appendChild(wrap);
   }
 
@@ -891,7 +930,15 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         attributes: { type: "button" },
       });
       back.addEventListener("click", () => {
-        commitProp(nodeId, field, literal ?? "");
+        const value = literal ?? "0";
+        const match = /^([+-]?(?:\d+(?:\.\d+)?|\.\d+))([a-z%]+)$/i.exec(value.trim());
+        const unit = field.units?.find((candidate) => candidate === match?.[2]) ?? field.units?.[0] ?? "px";
+        const amount = match?.[2] === unit ? (match[1] ?? value) : value;
+        if (field.kind === "dimensions") {
+          commitProp(nodeId, field, { top: amount, right: amount, bottom: amount, left: amount, isLinked: true, unit });
+        } else if (field.kind === "gaps") {
+          commitProp(nodeId, field, { row: amount, column: amount, isLinked: true, unit });
+        } else commitProp(nodeId, field, value);
         tokenPanelKey = null;
         render();
       });
@@ -1070,7 +1117,33 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     return { parts: ["", "", "", ""], linked: true, unit: "rem" };
   }
 
+  function unitlessPart(value: string, unit: Unit): string {
+    const match = /^([+-]?(?:\d+(?:\.\d+)?|\.\d+))([a-z%]+)$/i.exec(value.trim());
+    return match?.[2] === unit ? (match[1] ?? value) : value;
+  }
+
+  function renderSpacingUnit(field: InspectorField, current: Unit, change: (unit: Unit) => void): DomElement | null {
+    if (field.units === undefined || field.units.length < 2) return null;
+    const wrap = h(doc, "div", { className: "ed-field ed-field--value" });
+    const select = h(doc, "select", { data: { control: "spacing-unit" }, attributes: { "aria-label": `Einheit für ${field.label}` } });
+    for (const unit of field.units) {
+      const option = h(doc, "option", { text: unit, value: unit });
+      if (unit === current) option.setAttribute("selected", "selected");
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      const next = field.units?.find((unit) => unit === select.value);
+      if (next !== undefined) change(next);
+    });
+    wrap.appendChild(select);
+    return wrap;
+  }
+
   function renderDimensions(nodeId: string, field: InspectorField, control: DomElement): void {
+    if (field.tokenRef !== null) {
+      control.appendChild(h(doc, "span", { text: `Token: ${field.tokenRef}` }));
+      return;
+    }
     const { parts, linked, unit } = spacingParts(field.value);
     const edges = ["top", "right", "bottom", "left"] as const;
     const icons = ["edge-t", "edge-r", "edge-b", "edge-l"] as const;
@@ -1126,9 +1199,18 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     });
     control.appendChild(wrap);
     control.appendChild(link);
+    const unitSelect = renderSpacingUnit(field, unit, (next) => {
+      const values = inputs.map((input) => unitlessPart(input.value ?? "", unit));
+      commitProp(nodeId, field, { top: values[0] ?? "0", right: values[1] ?? "0", bottom: values[2] ?? "0", left: values[3] ?? "0", isLinked: linked, unit: next });
+    });
+    if (unitSelect !== null) control.appendChild(unitSelect);
   }
 
   function renderGaps(nodeId: string, field: InspectorField, control: DomElement): void {
+    if (field.tokenRef !== null) {
+      control.appendChild(h(doc, "span", { text: `Token: ${field.tokenRef}` }));
+      return;
+    }
     const value = field.value !== undefined && isGapsValue(field.value) ? field.value : undefined;
     const parts = [value?.row ?? "", value?.column ?? ""];
     const unit = value?.unit ?? "rem";
@@ -1175,6 +1257,11 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     });
     control.appendChild(wrap);
     control.appendChild(link);
+    const unitSelect = renderSpacingUnit(field, unit, (next) => {
+      const values = inputs.map((input) => unitlessPart(input.value ?? "", unit));
+      commitProp(nodeId, field, { row: values[0] ?? "0", column: values[1] ?? "0", isLinked: linked, unit: next });
+    });
+    if (unitSelect !== null) control.appendChild(unitSelect);
   }
 
   /* --------------------------------------------------------------- motion */
@@ -1414,10 +1501,16 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
           if (field.commit.kind === "hidden") {
             const node = options.store.document.nodes[nodeId];
             const devices = new Set(node?.hiddenDevices ?? []);
-            if (devices.has(field.commit.device)) devices.delete(field.commit.device);
-            else devices.add(field.commit.device);
+            const shownDevices = new Set(node?.shownDevices ?? []);
+            if (field.value === true) {
+              devices.delete(field.commit.device);
+              if (node?.hidden === true) shownDevices.add(field.commit.device);
+            } else {
+              devices.add(field.commit.device);
+              shownDevices.delete(field.commit.device);
+            }
             apply(
-              { op: "setNodeHiddenDevices", id: nodeId, devices: [...devices] },
+              { op: "setNodeHiddenDevices", id: nodeId, devices: [...devices], shownDevices: [...shownDevices] },
               "Sichtbarkeit ändern",
             );
             return;
@@ -1546,7 +1639,9 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       }
       side.appendChild(dots);
     }
-    if (field.overridden && (field.responsive || field.commit.kind === "override")) {
+    const resetBaseRuleValue = breakpoint === "desktop" && field.base !== undefined &&
+      (field.commit.kind === "class" || field.commit.kind === "state");
+    if (resetBaseRuleValue || (field.overridden && (field.responsive || field.commit.kind === "override"))) {
       const reset = h(doc, "button", {
         className: "senify-inspector__reset",
         text: "Reset",
@@ -1706,8 +1801,9 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       const key = (name.value ?? "").trim();
       const raw = (value.value ?? "").trim();
       if (key === "" || raw === "") return;
-      const commit: InspectorCommit =
-        model.state === null ? { kind: "prop" } : { kind: "state", state: model.state };
+      const commit: InspectorCommit = selectedClassId !== null
+        ? { kind: "class", ruleId: selectedClassId, state: model.state }
+        : model.state === null ? { kind: "prop" } : { kind: "state", state: model.state };
       // Die Kategorie der neuen Property aufklappen, sonst bliebe die Zeile unsichtbar.
       stateOf(openByNode, model.nodeId).set(styleGroupIdOf(key), true);
       commitField(model.nodeId, key, commit, raw);
@@ -1718,6 +1814,237 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     row.appendChild(value);
     row.appendChild(add);
     return row;
+  }
+
+  function renderClassControls(nodeId: string): DomElement {
+    const node = options.store.document.nodes[nodeId];
+    const assigned = node?.classes ?? [];
+    const rules = options.store.document.styleRules.filter((rule) => rule.kind === "class" && rule.scope === undefined);
+    const section = h(doc, "section", { className: "senify-inspector__classes", data: { role: "classes" } });
+    section.appendChild(h(doc, "div", { className: "senify-inspector__classes-title", text: "CSS-Klassen" }));
+    const targets = h(doc, "div", { className: "senify-inspector__class-targets", attributes: { "aria-label": "Stilziel" } });
+    const local = h(doc, "button", {
+      className: "senify-inspector__class-target", text: "Lokal",
+      data: { active: String(selectedClassId === null), kind: "local" },
+      attributes: { type: "button", "aria-pressed": String(selectedClassId === null) },
+    });
+    local.addEventListener("click", () => { selectedClassId = null; classDeleteConfirmId = null; render(); });
+    targets.appendChild(local);
+    for (const name of assigned) {
+      const rule = rules.find((entry) => entry.name === name);
+      if (rule === undefined) continue;
+      const group = h(doc, "span", { className: "senify-inspector__class-chip", data: { active: String(selectedClassId === rule.id) } });
+      const select = h(doc, "button", {
+        className: "senify-inspector__class-target", text: name,
+        data: { active: String(selectedClassId === rule.id), kind: "global" },
+        attributes: { type: "button", "aria-pressed": String(selectedClassId === rule.id), title: `Klasse ${name} bearbeiten` },
+      });
+      select.addEventListener("click", () => { selectedClassId = rule.id; classDeleteConfirmId = null; render(); });
+      const remove = h(doc, "button", {
+        className: "senify-inspector__class-remove", text: "×",
+        attributes: { type: "button", "aria-label": `Klasse ${name} entfernen` },
+      });
+      remove.addEventListener("click", () => {
+        if (selectedClassId === rule.id) selectedClassId = null;
+        apply({ op: "removeClass", id: nodeId, classId: name }, `Klasse ${name} entfernen`);
+      });
+      group.appendChild(select);
+      group.appendChild(remove);
+      targets.appendChild(group);
+    }
+    section.appendChild(targets);
+    if (rules.length > 1) {
+      const order = h(doc, "div", { className: "senify-inspector__class-order" });
+      const toggle = h(doc, "button", {
+        text: "Klassenreihenfolge",
+        attributes: { type: "button", "aria-expanded": String(classOrderOpen) },
+      });
+      toggle.addEventListener("click", () => { classOrderOpen = !classOrderOpen; render(); });
+      order.appendChild(toggle);
+      if (classOrderOpen) {
+        order.appendChild(h(doc, "p", { text: "Oben stehende Klassen haben Vorrang." }));
+        const priority = [...rules].reverse();
+        priority.forEach((rule, index) => {
+          const row = h(doc, "div", { className: "senify-inspector__class-order-row", data: { className: rule.name } });
+          row.appendChild(h(doc, "span", { text: rule.name }));
+          for (const [direction, label, target] of [["up", "höher", index - 1], ["down", "niedriger", index + 1]] as const) {
+            const other = priority[target];
+            const move = h(doc, "button", {
+              text: direction === "up" ? "↑" : "↓",
+              attributes: { type: "button", "aria-label": `Klasse ${rule.name} ${label} priorisieren`, ...(other === undefined ? { disabled: "" } : {}) },
+            });
+            move.addEventListener("click", () => {
+              if (other === undefined) return;
+              const to = options.store.document.styleRules.findIndex((entry) => entry.id === other.id);
+              if (to >= 0) apply({ op: "reorderStyleRule", id: rule.id, index: to }, `Klasse ${rule.name} verschieben`);
+            });
+            row.appendChild(move);
+          }
+          order.appendChild(row);
+        });
+      }
+      section.appendChild(order);
+    }
+    const selectedRule = rules.find((rule) => rule.id === selectedClassId && assigned.includes(rule.name));
+    if (selectedRule !== undefined) {
+      const rename = h(doc, "div", { className: "senify-inspector__class-create" });
+      const name = h(doc, "input", { value: selectedRule.name, attributes: { type: "text", "aria-label": "Klassenname ändern" } });
+      const renameButton = h(doc, "button", { text: "Umbenennen", attributes: { type: "button" } });
+      const renameClass = (): void => {
+        const value = (name.value ?? "").trim();
+        if (value === "" || value === selectedRule.name) return;
+        apply({ op: "renameStyleRule", id: selectedRule.id, name: value }, `Klasse ${selectedRule.name} umbenennen`);
+      };
+      renameButton.addEventListener("click", renameClass);
+      name.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault?.(); renameClass(); } });
+      rename.appendChild(name);
+      rename.appendChild(renameButton);
+      section.appendChild(rename);
+      const duplicate = h(doc, "div", { className: "senify-inspector__class-usage" });
+      const button = h(doc, "button", { text: "Klasse duplizieren", attributes: { type: "button" } });
+      button.addEventListener("click", () => {
+        let name = `${selectedRule.name}-kopie`;
+        let suffix = 2;
+        while (rules.some((rule) => rule.name === name)) name = `${selectedRule.name}-kopie-${suffix++}`;
+        const previous = selectedClassId;
+        try {
+          const fresh = createClassRule({ id: newNodeId(), name, order: options.store.document.styleRules.length });
+          const copy = structuredClone(selectedRule);
+          Object.assign(copy, { id: fresh.id, name: fresh.name, selector: fresh.selector, order: fresh.order, authoredBy: "user" });
+          delete copy.origin;
+          delete copy.createdAt;
+          delete copy.updatedAt;
+          selectedClassId = copy.id;
+          options.store.applyBatch([
+            { op: "upsertStyleRule", rule: copy },
+            { op: "assignClass", id: nodeId, classId: copy.name },
+          ], { label: `Klasse ${selectedRule.name} duplizieren` });
+          report(null);
+        } catch (error) {
+          selectedClassId = previous;
+          reportCommitError(error);
+        }
+      });
+      duplicate.appendChild(button);
+      section.appendChild(duplicate);
+      const deletion = h(doc, "div", { className: "senify-inspector__class-usage" });
+      if (classDeleteConfirmId !== selectedRule.id) {
+        const open = h(doc, "button", { text: "Global löschen …", attributes: { type: "button" } });
+        open.addEventListener("click", () => {
+          classDeleteConfirmId = selectedRule.id;
+          const request = ++usageRequest;
+          usageResult = null;
+          usageMessage = options.onClassUsage === undefined ? null : "Verwendung wird geladen …";
+          usageMessageRuleId = selectedRule.id;
+          render();
+          void options.onClassUsage?.(selectedRule.id).then((pages) => {
+            if (request !== usageRequest) return;
+            usageResult = { ruleId: selectedRule.id, pages };
+            usageMessage = null;
+            if (classDeleteConfirmId === selectedRule.id) render();
+          }).catch(() => {
+            if (request !== usageRequest) return;
+            usageMessage = "Verwendung konnte nicht geladen werden.";
+            if (classDeleteConfirmId === selectedRule.id) render();
+          });
+        });
+        deletion.appendChild(open);
+      } else {
+        deletion.appendChild(h(doc, "p", { text: "Die Klasse und ihre Zuweisungen werden aus allen Seitenentwürfen entfernt. Rückgängig ist möglich, solange diese Entwürfe und Klassen unverändert bleiben.", attributes: { role: "alert" } }));
+        if (usageResult?.ruleId === selectedRule.id) {
+          const count = usageResult.pages.reduce((sum, page) => sum + page.nodeIds.length, 0);
+          deletion.appendChild(h(doc, "p", { text: `Gespeicherter Stand: ${count} Elemente auf ${usageResult.pages.length} Seiten. Zwischenzeitliche Änderungen sind möglich.` }));
+        }
+        const confirm = h(doc, "button", { text: "Auf allen Seiten löschen", attributes: { type: "button" } });
+        confirm.addEventListener("click", () => {
+          classDeleteConfirmId = null;
+          apply({ op: "deleteStyleRule", id: selectedRule.id }, `Klasse ${selectedRule.name} global löschen`);
+        });
+        const cancel = h(doc, "button", { text: "Abbrechen", attributes: { type: "button" } });
+        cancel.addEventListener("click", () => { classDeleteConfirmId = null; render(); });
+        deletion.appendChild(confirm);
+        deletion.appendChild(cancel);
+      }
+      section.appendChild(deletion);
+    }
+    if (selectedRule !== undefined && options.onClassUsage !== undefined) {
+      const usage = h(doc, "div", { className: "senify-inspector__class-usage" });
+      const showUsage = h(doc, "button", { text: "Verwendung anzeigen", attributes: { type: "button" } });
+      showUsage.addEventListener("click", () => {
+        const request = ++usageRequest;
+        usageMessage = "Verwendung wird geladen …";
+        usageMessageRuleId = selectedRule.id;
+        usageResult = null;
+        render();
+        void options.onClassUsage?.(selectedRule.id).then((pages) => {
+          if (request !== usageRequest) return;
+          usageResult = { ruleId: selectedRule.id, pages };
+          usageMessage = null;
+          if (selectedClassId === selectedRule.id) render();
+        }).catch(() => {
+          if (request !== usageRequest) return;
+          usageMessage = "Verwendung konnte nicht geladen werden.";
+          if (selectedClassId === selectedRule.id) render();
+        });
+      });
+      usage.appendChild(showUsage);
+      if (usageMessage !== null && usageMessageRuleId === selectedRule.id) usage.appendChild(h(doc, "p", { text: usageMessage, attributes: { role: "status" } }));
+      if (usageResult?.ruleId === selectedRule.id) {
+        usage.appendChild(h(doc, "p", { text: "Seitenentwürfe, Stand der letzten Abfrage" }));
+        if (usageResult.pages.length === 0) usage.appendChild(h(doc, "p", { text: "Auf keiner Seite verwendet." }));
+        for (const page of usageResult.pages) usage.appendChild(h(doc, "p", { text: `${page.title} (${page.path}) · ${page.nodeIds.length} Elemente` }));
+      }
+      section.appendChild(usage);
+    }
+    const available = rules.filter((rule) => !assigned.includes(rule.name));
+    if (available.length > 0) {
+      const search = h(doc, "input", { className: "senify-inspector__class-search", attributes: { type: "search", placeholder: "Klasse suchen", "aria-label": "Klassen suchen" } });
+      const picker = h(doc, "select", { className: "senify-inspector__class-picker", attributes: { "aria-label": "Vorhandene Klasse hinzufügen" } });
+      const filter = (): void => {
+        const query = (search.value ?? "").trim().toLocaleLowerCase("de");
+        const matches = available.filter((rule) => rule.name.toLocaleLowerCase("de").includes(query));
+        for (const option of picker.querySelectorAll("option")) option.remove();
+        picker.appendChild(h(doc, "option", { text: matches.length === 0 ? "Keine Klasse gefunden" : "Klasse hinzufügen …", attributes: { value: "" } }));
+        for (const rule of matches) picker.appendChild(h(doc, "option", { text: rule.name, attributes: { value: rule.id } }));
+      };
+      search.addEventListener("input", filter);
+      filter();
+      picker.addEventListener("change", () => {
+        const rule = available.find((entry) => entry.id === picker.value);
+        if (rule === undefined) return;
+        const previous = selectedClassId;
+        selectedClassId = rule.id;
+        if (!apply({ op: "assignClass", id: nodeId, classId: rule.name }, `Klasse ${rule.name} zuweisen`)) selectedClassId = previous;
+      });
+      targets.appendChild(search);
+      section.appendChild(picker);
+    }
+    const create = h(doc, "div", { className: "senify-inspector__class-create" });
+    const input = h(doc, "input", { attributes: { type: "text", placeholder: "Neue Klasse", "aria-label": "Name der neuen Klasse" } });
+    const button = h(doc, "button", { text: "Anlegen", attributes: { type: "button" } });
+    const createClass = (): void => {
+      const name = (input.value ?? "").trim();
+      if (name === "") return;
+      const previous = selectedClassId;
+      try {
+        const rule = createClassRule({ id: newNodeId(), name, order: rules.length });
+        selectedClassId = rule.id;
+        options.store.applyBatch([
+          { op: "upsertStyleRule", rule },
+          { op: "assignClass", id: nodeId, classId: rule.name },
+        ], { label: `Klasse ${name} anlegen` });
+        report(null);
+      } catch (error) {
+        selectedClassId = previous;
+        reportCommitError(error);
+      }
+    };
+    button.addEventListener("click", createClass);
+    input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault?.(); createClass(); } });
+    create.appendChild(input);
+    create.appendChild(button);
+    section.appendChild(create);
+    return section;
   }
 
   function renderTabBody(model: InspectorModel, tabId: InspectorTabId): DomElement {
@@ -1733,6 +2060,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       return body;
     }
     if (tabId === "style") {
+      body.appendChild(renderClassControls(model.nodeId));
       body.appendChild(renderStateRow(model));
     }
     // Beim ersten Oeffnen ist im Stil-Tab nur die erste Kategorie offen, in den
@@ -1787,10 +2115,16 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     // previous node's fields.
     if (nodeId !== lastNodeId) {
       lastNodeId = nodeId;
+      selectedClassId = null;
+      classDeleteConfirmId = null;
       paletteKey = null;
       tokenPanelKey = null;
       // Jedes Element merkt sich seinen Tab; ein neues Element beginnt in "Allgemein".
       if (nodeId !== null) activeTab = tabByNode.get(nodeId) ?? "content";
+    }
+    if (nodeId !== null && selectedClassId !== null) {
+      const selectedRule = options.store.document.styleRules.find((rule) => rule.id === selectedClassId);
+      if (selectedRule === undefined || !options.store.document.nodes[nodeId]?.classes?.includes(selectedRule.name)) selectedClassId = null;
     }
     const model =
       nodeId === null
@@ -1803,6 +2137,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
             profile,
             state,
             ...(options.assets === undefined ? {} : { assets: options.assets() }),
+            ...(selectedClassId === null ? {} : { styleRuleId: selectedClassId }),
           });
     currentModel = model;
     // Ein frueher gespeicherter Tab "advanced" gibt es nicht mehr.
@@ -1854,6 +2189,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   return {
     element: root,
     refresh: render,
+    setTheme: (theme: Theme) => { options.theme = theme; render(); },
     breakpoint: () => breakpoint,
     setBreakpoint: (device: Device) => {
       breakpoint = device;

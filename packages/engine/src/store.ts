@@ -11,11 +11,14 @@ import type { DesignRecord } from "./design-report.ts";
 import type { SiteFileRef } from "./storage.ts";
 import type { ReleaseAssetSnapshot } from "./types.ts";
 import {
+  buildGeneratedPrimitives,
   mergeThemePatch,
   ThemeSchema,
   validateTheme,
   type Theme,
 } from "@senify/tokens";
+import { stylePropertyFor } from "@senify/registry";
+import { referencePaths, renameVariableReferences, variableReference } from "./variable-usage.ts";
 import {
   normalizeRuleOrder,
   parseStyleRuleRegistry,
@@ -24,15 +27,35 @@ import {
 import type { Db, DbClient, Row } from "./db.ts";
 import type { ImportReport } from "./imports-contract.ts";
 import { jsonColumns, tableNames } from "./db.ts";
-import type { RedesignProposal } from "./redesign-proposal-contract.ts";
+import { canonicalHash, type RedesignProposal } from "./redesign-proposal-contract.ts";
 import { buildAuditInsert, type NewAuditEntry } from "./store-audit.ts";
 import {
   StyleRuleStore,
+  assertClassNameFree,
   assertWritableRule,
   type CreateStyleRuleInput,
   type StyleRuleRow,
   type StyleRuleUpdatePatch,
 } from "./store-style-rules.ts";
+import {
+  RENAME_REGISTRY_HASH_CONTRACT,
+  assertStyleRegistryVersion,
+  assertThemeVersionUnderLock,
+  selectorMentionsClass,
+  variablePageHash,
+  variableRegistryContentHash,
+  type ClassDeletionPage,
+  type ClassDeletionRow,
+  type ClassRequestBasis,
+  type ClassRestoreResult,
+  type VariableDeletionPage,
+  type VariableDeletionRow,
+  type VariablePageRow,
+  type VariableRenamePage,
+  type VariableRenameRow,
+  type VariableRequestBasis,
+  type VariableRestoreResult,
+} from "./store-class-guards.ts";
 import { newEntityId, newNodeId } from "./ids.ts";
 import {
   assetStorageRef,
@@ -110,7 +133,11 @@ import {
 } from "./store-record-mappers.ts";
 import { PagesRepository, type CreatePageInput } from "./store-pages.ts";
 import { TokensRepository, type CreateTokenInput } from "./store-tokens.ts";
-import { ThemesRepository, type SiteThemeRow } from "./store-themes.ts";
+import {
+  ThemesRepository,
+  type SiteThemeRow,
+  type SiteThemeRow as ThemeRow,
+} from "./store-themes.ts";
 import {
   SitesRepository,
   type CreateSiteInput,
@@ -121,6 +148,7 @@ import {
   mapPage,
 } from "./store-page-mappers.ts";
 import {
+  assertDraftShape,
   isUniqueViolation,
   slugify,
   toFiniteNumber,
@@ -1183,10 +1211,279 @@ export class Store {
     siteId: string,
     patch: Record<string, unknown>,
     author: Author,
+    baseVersion?: number,
   ): Promise<SiteTheme> {
-    return this.#themes.updateTheme(siteId, patch, author);
+    return this.#themes.updateTheme(siteId, patch, author, baseVersion);
   }
 
+  async deleteUnusedVariable(
+    siteId: string,
+    family: string,
+    name: string,
+    input: { receiptId: string; baseThemeVersion: number; pageContext: { pageId: string; baseDraftVersion: number } },
+    author: Author,
+  ): Promise<{ receiptId: string; version: number; pageDraftVersion: number }> {
+    const { group, ref, cssVariable } = variableReference(family, name);
+    return this.#db.withTransaction(async (tx) => {
+      const sites = await tx.query<StyleRuleRow>(`SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`, [siteId]);
+      const site = sites.rows[0];
+      if (!site) throw new SenifyError("not_found", "Das Projekt existiert nicht", { field: "siteId" });
+      const themes = await tx.query<ThemeRow>(`SELECT id, site_id, name, definition, version, created_at, updated_at FROM themes WHERE site_id = $1 FOR UPDATE`, [siteId]);
+      const themeRow = themes.rows[0];
+      if (!themeRow) throw new SenifyError("not_found", "Das Theme existiert nicht", { field: "siteId" });
+      const existing = await tx.query<VariableDeletionRow>(`SELECT site_id, family, name, value, pages, registry_version, theme_version, restored_at, resource_hashes, request_basis, restore_result FROM theme_variable_deletions WHERE id = $1 FOR UPDATE`, [input.receiptId]);
+      const previous = existing.rows[0];
+      if (previous) {
+        const snapshots = toJson<VariableDeletionPage[]>(previous.pages);
+        const origin = Array.isArray(snapshots) ? snapshots.find((entry) => entry.pageId === input.pageContext.pageId) : undefined;
+        const basis = previous.request_basis == null ? undefined : toJson<VariableRequestBasis>(previous.request_basis);
+        if (previous.site_id !== siteId || previous.family !== group || previous.name !== name || previous.restored_at != null ||
+          (basis !== undefined && (basis.pageId !== input.pageContext.pageId || basis.baseThemeVersion !== input.baseThemeVersion || basis.baseDraftVersion !== input.pageContext.baseDraftVersion)) ||
+          toFiniteNumber(previous.theme_version, "theme_version") !== input.baseThemeVersion + 1 || origin?.version !== input.pageContext.baseDraftVersion + 1) {
+          throw new SenifyError("conflict", "Der Wiederherstellungsbeleg gehört zu einer anderen Änderung", { field: "receiptId" });
+        }
+        return { receiptId: input.receiptId, version: input.baseThemeVersion + 1, pageDraftVersion: origin.version };
+      }
+      const version = toFiniteNumber(themeRow.version, "version");
+      if (version !== input.baseThemeVersion) throw new SenifyError("conflict", "Die Variablen wurden zwischenzeitlich geändert", { field: "baseThemeVersion" });
+      const theme = structuredClone(toJson<Theme>(themeRow.definition));
+      const bag = theme.tokens.primitive?.[group];
+      if (!bag || typeof bag !== "object" || Array.isArray(bag) || !Object.hasOwn(bag, name) || typeof (bag as Record<string, unknown>)[name] !== "string") {
+        throw new SenifyError("not_found", "Die Variable existiert nicht", { field: "name" });
+      }
+      if (Object.hasOwn(buildGeneratedPrimitives(theme)[group], name)) {
+        throw new SenifyError("conflict", "Ein generierter Basiswert kann nicht gelöscht werden", { field: "name" });
+      }
+      const installations = await tx.query(`SELECT id FROM site_library_installs WHERE site_id = $1 LIMIT 1`, [siteId]);
+      if (installations.rows.length > 0) throw new SenifyError("conflict", "Installierte Bibliothekskomponenten müssen vor dem Löschen geprüft werden", { field: "name" });
+      const rules = site.style_rules_json == null ? [] : parseStyleRuleRegistry(toJson<unknown>(site.style_rules_json));
+      const classReceipts = await tx.query<{ rule: unknown }>(`SELECT rule FROM style_class_deletions WHERE site_id = $1 AND restored_at IS NULL`, [siteId]);
+      const variableReceipts = await tx.query<{ value: string }>(`SELECT value FROM theme_variable_deletions WHERE site_id = $1 AND restored_at IS NULL`, [siteId]);
+      const pages = await tx.query<VariablePageRow>(`SELECT id, site_id, path, title, meta, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`, [siteId]);
+      const origin = pages.rows.find((page) => page.id === input.pageContext.pageId);
+      if (!origin) throw new SenifyError("not_found", "Die Editor-Seite gehört nicht zum Projekt", { field: "pageContext.pageId" });
+      const pageVersion = toFiniteNumber(origin.draft_version, "draft_version");
+      if (pageVersion !== input.pageContext.baseDraftVersion) throw draftConflictError(input.pageContext.baseDraftVersion, pageVersion);
+      if (referencePaths(theme, ref, cssVariable).length || referencePaths(rules, ref, cssVariable).length ||
+          classReceipts.rows.some((entry) => referencePaths(toJson<unknown>(entry.rule), ref, cssVariable).length > 0) ||
+          variableReceipts.rows.some((entry) => referencePaths(entry.value, ref, cssVariable).length > 0) ||
+          pages.rows.some((page) => referencePaths(toJson<unknown>(page.draft), ref, cssVariable).length > 0)) {
+        throw new SenifyError("conflict", "Die Variable wird noch verwendet oder für eine Klassenwiederherstellung beziehungsweise Variablenwiederherstellung benötigt", { field: "name" });
+      }
+      const value = (bag as Record<string, string>)[name]!;
+      delete (bag as Record<string, unknown>)[name];
+      validateShape(ThemeSchema, theme, "theme");
+      if (validateTheme(theme).length > 0) throw new SenifyError("validation", "Das Theme wäre nach dem Löschen ungültig", { field: "name" });
+      const now = new Date().toISOString();
+      const snapshots = pages.rows.map((page) => ({ pageId: page.id, version: toFiniteNumber(page.draft_version, "draft_version") + 1, fingerprint: variablePageHash(page) }));
+      for (const page of pages.rows) await tx.query(`UPDATE pages SET draft_version = draft_version + 1, updated_at = $2 WHERE id = $1`, [page.id, now]);
+      await tx.query(`UPDATE themes SET definition = $2, version = version + 1, updated_at = $3 WHERE id = $1`, [themeRow.id, toJsonParam(theme), now]);
+      const registryVersion = toFiniteNumber(site.style_rules_version ?? 0, "style_rules_version");
+      const basis: VariableRequestBasis = { pageId: input.pageContext.pageId, baseThemeVersion: input.baseThemeVersion, baseDraftVersion: input.pageContext.baseDraftVersion };
+      await tx.query(`INSERT INTO theme_variable_deletions (id, site_id, family, name, value, pages, registry_version, theme_version, resource_hashes, request_basis, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [input.receiptId, siteId, group, name, value, toJsonParam(snapshots), registryVersion, version + 1, toJsonParam({ theme: canonicalHash(theme), registry: variableRegistryContentHash(site.style_rules_json == null ? [] : toJson<unknown>(site.style_rules_json)) }), toJsonParam(basis), now]);
+      const audit = buildAuditInsert([{ siteId, pageId: null, batchId: input.receiptId, opIndex: 0, mutation: "delete_unused_variable", params: { family: group, name }, author, undoPatch: [], draftVersionAfter: version + 1 }]);
+      await tx.query(audit.text, audit.params);
+      return { receiptId: input.receiptId, version: version + 1, pageDraftVersion: pageVersion + 1 };
+    });
+  }
+
+  async renameVariable(
+    siteId: string,
+    family: string,
+    name: string,
+    input: { receiptId: string; newName: string; undoOf?: string; baseThemeVersion: number; pageContext: { pageId: string; baseDraftVersion: number } },
+    author: Author,
+  ): Promise<{ receiptId: string; version: number; pageDraftVersion: number; registryVersion: number }> {
+    const { group, ref, cssVariable } = variableReference(family, name);
+    const target = variableReference(family, input.newName);
+    if (["constructor", "prototype"].includes(name)) {
+      throw new SenifyError("validation", "Der bisherige Variablenname ist ungültig oder reserviert", { field: "name" });
+    }
+    if (name === input.newName || ["constructor", "prototype"].includes(input.newName)) {
+      throw new SenifyError("validation", "Der neue Variablenname ist ungültig", { field: "newName" });
+    }
+    return this.#db.withTransaction(async (tx) => {
+      const sites = await tx.query<StyleRuleRow>(`SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`, [siteId]);
+      const site = sites.rows[0];
+      if (!site) throw new SenifyError("not_found", "Das Projekt existiert nicht", { field: "siteId" });
+      const themes = await tx.query<ThemeRow>(`SELECT id, site_id, name, definition, version, created_at, updated_at FROM themes WHERE site_id = $1 FOR UPDATE`, [siteId]);
+      const themeRow = themes.rows[0];
+      if (!themeRow) throw new SenifyError("not_found", "Das Theme existiert nicht", { field: "siteId" });
+      const existing = await tx.query<VariableRenameRow>(`SELECT site_id, family, old_name, new_name, undo_of, pages, registry_version, theme_version, resource_hashes FROM theme_variable_renames WHERE id = $1 FOR UPDATE`, [input.receiptId]);
+      const previous = existing.rows[0];
+      if (previous) {
+        const snapshots = toJson<VariableDeletionPage[]>(previous.pages);
+        const origin = Array.isArray(snapshots) ? snapshots.find((entry) => entry.pageId === input.pageContext.pageId) : undefined;
+        if (previous.site_id !== siteId || previous.family !== group || previous.old_name !== name || previous.new_name !== input.newName || (previous.undo_of ?? undefined) !== input.undoOf ||
+            toFiniteNumber(previous.theme_version, "theme_version") !== input.baseThemeVersion + 1 || origin?.version !== input.pageContext.baseDraftVersion + 1) {
+          throw new SenifyError("conflict", "Der Beleg gehört zu einer anderen Änderung", { field: "receiptId" });
+        }
+        return { receiptId: input.receiptId, version: input.baseThemeVersion + 1, pageDraftVersion: origin.version, registryVersion: toFiniteNumber(previous.registry_version, "registry_version") };
+      }
+      const version = toFiniteNumber(themeRow.version, "version");
+      if (version !== input.baseThemeVersion) throw new SenifyError("conflict", "Die Variablen wurden zwischenzeitlich geändert", { field: "baseThemeVersion" });
+      const theme = toJson<Theme>(themeRow.definition);
+      const bag = theme.tokens.primitive?.[group];
+      if (!bag || typeof bag !== "object" || Array.isArray(bag) || !Object.hasOwn(bag, name) || typeof (bag as Record<string, unknown>)[name] !== "string") {
+        throw new SenifyError("not_found", "Die Variable existiert nicht", { field: "name" });
+      }
+      const generated = buildGeneratedPrimitives(theme)[group];
+      if (Object.hasOwn(generated, name)) throw new SenifyError("conflict", "Ein generierter Basiswert kann nicht umbenannt werden", { field: "name" });
+      if (Object.hasOwn(bag, input.newName) || Object.hasOwn(generated, input.newName)) throw new SenifyError("conflict", "Der neue Variablenname existiert bereits", { field: "newName" });
+      const installations = await tx.query(`SELECT id FROM site_library_installs WHERE site_id = $1 LIMIT 1`, [siteId]);
+      if (installations.rows.length > 0) throw new SenifyError("conflict", "Installierte Bibliothekskomponenten müssen vor dem Umbenennen geprüft werden", { field: "name" });
+      const rules = site.style_rules_json == null ? [] : toJson<unknown>(site.style_rules_json);
+      const classReceipts = await tx.query<{ rule: unknown }>(`SELECT rule FROM style_class_deletions WHERE site_id = $1 AND restored_at IS NULL`, [siteId]);
+      const variableReceipts = await tx.query<{ value: string }>(`SELECT value FROM theme_variable_deletions WHERE site_id = $1 AND restored_at IS NULL`, [siteId]);
+      const pages = await tx.query<VariablePageRow>(`SELECT id, site_id, path, title, meta, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`, [siteId]);
+      const origin = pages.rows.find((page) => page.id === input.pageContext.pageId);
+      if (!origin) throw new SenifyError("not_found", "Die Editor-Seite gehört nicht zum Projekt", { field: "pageContext.pageId" });
+      const pageVersion = toFiniteNumber(origin.draft_version, "draft_version");
+      if (pageVersion !== input.pageContext.baseDraftVersion) throw draftConflictError(input.pageContext.baseDraftVersion, pageVersion);
+      if (input.undoOf !== undefined) {
+        const previousRenames = await tx.query<VariableRenameRow>(`SELECT site_id, family, old_name, new_name, undo_of, pages, registry_version, theme_version, resource_hashes FROM theme_variable_renames WHERE id = $1 FOR UPDATE`, [input.undoOf]);
+        const previousRename = previousRenames.rows[0];
+        const snapshots = previousRename ? toJson<VariableRenamePage[]>(previousRename.pages) : undefined;
+        const hashes = previousRename?.resource_hashes == null ? undefined : toJson<{ theme?: unknown; registry?: unknown; registryContract?: unknown }>(previousRename.resource_hashes);
+        const samePages = Array.isArray(snapshots) && snapshots.length === pages.rows.length && pages.rows.every((page) => snapshots.some((entry) => entry.pageId === page.id));
+        const sameVersions = previousRename && samePages &&
+          toFiniteNumber(previousRename.theme_version, "theme_version") === version &&
+          toFiniteNumber(previousRename.registry_version, "registry_version") === toFiniteNumber(site.style_rules_version ?? 0, "style_rules_version") &&
+          pages.rows.every((page) => snapshots.find((entry) => entry.pageId === page.id)?.version === toFiniteNumber(page.draft_version, "draft_version"));
+        const isHash = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+        const registryMatches = hashes != null && isHash(hashes.registry) && (
+          hashes.registryContract === RENAME_REGISTRY_HASH_CONTRACT
+            ? hashes.registry === variableRegistryContentHash(rules)
+            : hashes.registryContract === undefined && hashes.registry === canonicalHash(rules)
+        );
+        const sameContent = samePages && hashes != null && isHash(hashes.theme) && registryMatches &&
+          hashes.theme === canonicalHash(theme) &&
+          pages.rows.every((page) => {
+            const fingerprint = snapshots.find((entry) => entry.pageId === page.id)?.fingerprint;
+            return isHash(fingerprint) && fingerprint === variablePageHash(page);
+          });
+        if (!previousRename || previousRename.site_id !== siteId || previousRename.family !== group || previousRename.old_name !== input.newName || previousRename.new_name !== name || !(sameVersions || sameContent)) {
+          throw new SenifyError("conflict", "Die Umbenennung kann nach zwischenzeitlichen Änderungen nicht rückgängig gemacht werden", { field: "undoOf" });
+        }
+      }
+      const hasOld = (value: unknown) => referencePaths(value, ref, cssVariable).length > 0;
+      const hasTarget = (value: unknown) => referencePaths(value, target.ref, target.cssVariable).length > 0;
+      if (classReceipts.rows.some((entry) => hasOld(toJson<unknown>(entry.rule)) || hasTarget(toJson<unknown>(entry.rule))) ||
+          variableReceipts.rows.some((entry) => hasOld(entry.value) || hasTarget(entry.value))) {
+        throw new SenifyError("conflict", "Ein Wiederherstellungsbeleg verweist auf den bisherigen oder neuen Namen", { field: "name" });
+      }
+      if (hasTarget(theme) || hasTarget(rules) || pages.rows.some((page) => hasTarget(toJson<unknown>(page.draft)))) {
+        throw new SenifyError("conflict", "Der neue Variablenname wird bereits referenziert", { field: "newName" });
+      }
+      // A raw string can also be visible text, code or a CSS string literal.
+      // Rewrite only known style-value locations; refuse ambiguous occurrences.
+      const plainCss = (value: string) => !/["'\\]/.test(value) && !value.includes("/*");
+      const styleKey = (key: string | undefined) => key !== undefined && stylePropertyFor(key.replace(/_(?:tablet|mobile)$/, "")) !== undefined;
+      const renamedTheme = renameVariableReferences(theme, group, name, input.newName, {
+        allowCss: (path, value) => path[0] === "tokens" && plainCss(value),
+      });
+      const renamedBag = renamedTheme.tokens.primitive![group] as Record<string, unknown>;
+      renamedBag[input.newName] = renamedBag[name];
+      delete renamedBag[name];
+      validateShape(ThemeSchema, renamedTheme, "theme");
+      if (validateTheme(renamedTheme).length > 0) throw new SenifyError("validation", "Das Theme wäre nach dem Umbenennen ungültig", { field: "name" });
+      const renamedRules = renameVariableReferences(rules, group, name, input.newName, {
+        allowCss: (path, value) => plainCss(value) && (
+          (path[1] === "styles" && styleKey(path[2])) ||
+          ((path[1] === "states" || path[1] === "contextStyles") && styleKey(path[3]))
+        ),
+      });
+      const pageWrites = pages.rows.map((page) => {
+        const draft = renameVariableReferences(toJson<unknown>(page.draft), group, name, input.newName, {
+          allowCss: (path, value) => plainCss(value) && path[0] === "nodes" && (
+            (path[2] === "props" && styleKey(path[3])) ||
+            (path[2] === "overrides" && path[4] === "props" && styleKey(path[5]))
+          ),
+        });
+        assertDraftShape(draft);
+        return { id: page.id, draft, version: toFiniteNumber(page.draft_version, "draft_version") + 1, fingerprint: variablePageHash(page, draft) };
+      });
+      const now = new Date().toISOString();
+      const snapshots: VariableRenamePage[] = pageWrites.map((page) => ({ pageId: page.id, version: page.version, fingerprint: page.fingerprint }));
+      for (const page of pageWrites) {
+        await tx.query(`UPDATE pages SET draft = $2, draft_version = draft_version + 1, updated_at = $3 WHERE id = $1`, [page.id, toJsonParam(page.draft), now]);
+      }
+      const registryVersion = toFiniteNumber(site.style_rules_version ?? 0, "style_rules_version") + 1;
+      await tx.query(`UPDATE sites SET style_rules_json = $2, style_rules_version = $3, updated_at = $4 WHERE id = $1`, [siteId, toJsonParam(renamedRules), registryVersion, now]);
+      await tx.query(`UPDATE themes SET definition = $2, version = version + 1, updated_at = $3 WHERE id = $1`, [themeRow.id, toJsonParam(renamedTheme), now]);
+      await tx.query(`INSERT INTO theme_variable_renames (id, site_id, family, old_name, new_name, undo_of, pages, registry_version, theme_version, resource_hashes, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [input.receiptId, siteId, group, name, input.newName, input.undoOf ?? null, toJsonParam(snapshots), registryVersion, version + 1, toJsonParam({ theme: canonicalHash(renamedTheme), registry: variableRegistryContentHash(renamedRules), registryContract: RENAME_REGISTRY_HASH_CONTRACT }), now]);
+      const audit = buildAuditInsert([{ siteId, pageId: null, batchId: input.receiptId, opIndex: 0, mutation: "rename_variable", params: { family: group, from: name, to: input.newName, ...(input.undoOf === undefined ? {} : { undoOf: input.undoOf }) }, author, undoPatch: [], draftVersionAfter: version + 1 }]);
+      await tx.query(audit.text, audit.params);
+      return { receiptId: input.receiptId, version: version + 1, pageDraftVersion: pageVersion + 1, registryVersion };
+    });
+  }
+
+  async restoreVariable(
+    siteId: string,
+    family: string,
+    name: string,
+    input: { receiptId: string; baseThemeVersion: number; pageContext: { pageId: string; baseDraftVersion: number } },
+    author: Author,
+  ): Promise<{ version: number; pageDraftVersion: number }> {
+    const { group } = variableReference(family, name);
+    return this.#db.withTransaction(async (tx) => {
+      const sites = await tx.query<StyleRuleRow>(`SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`, [siteId]);
+      const site = sites.rows[0];
+      if (!site) throw new SenifyError("not_found", "Das Projekt existiert nicht", { field: "siteId" });
+      const themes = await tx.query<ThemeRow>(`SELECT id, site_id, name, definition, version, created_at, updated_at FROM themes WHERE site_id = $1 FOR UPDATE`, [siteId]);
+      const themeRow = themes.rows[0];
+      if (!themeRow) throw new SenifyError("not_found", "Das Theme existiert nicht", { field: "siteId" });
+      const receipts = await tx.query<VariableDeletionRow>(`SELECT site_id, family, name, value, pages, registry_version, theme_version, restored_at, resource_hashes, request_basis, restore_result FROM theme_variable_deletions WHERE id = $1 AND site_id = $2 AND family = $3 AND name = $4 FOR UPDATE`, [input.receiptId, siteId, group, name]);
+      const receipt = receipts.rows[0];
+      if (!receipt) throw new SenifyError("conflict", "Die Variable kann nicht wiederhergestellt werden", { field: "receiptId" });
+      const snapshots = toJson<VariableRenamePage[]>(receipt.pages);
+      const originSnapshot = Array.isArray(snapshots) ? snapshots.find((entry) => entry.pageId === input.pageContext.pageId) : undefined;
+      const deletedVersion = toFiniteNumber(receipt.theme_version, "theme_version");
+      if (receipt.restored_at != null) {
+        const result = receipt.restore_result == null ? undefined : toJson<VariableRestoreResult>(receipt.restore_result);
+        if (result !== undefined) {
+          if (result.pageId === input.pageContext.pageId && result.baseThemeVersion === input.baseThemeVersion && result.baseDraftVersion === input.pageContext.baseDraftVersion &&
+              result.version === input.baseThemeVersion + 1 && result.pageDraftVersion === input.pageContext.baseDraftVersion + 1) {
+            return { version: result.version, pageDraftVersion: result.pageDraftVersion };
+          }
+        } else if (input.baseThemeVersion === deletedVersion && originSnapshot?.version === input.pageContext.baseDraftVersion) return { version: deletedVersion + 1, pageDraftVersion: input.pageContext.baseDraftVersion + 1 };
+        throw new SenifyError("conflict", "Die Variable wurde bereits wiederhergestellt", { field: "receiptId" });
+      }
+      const version = toFiniteNumber(themeRow.version, "version");
+      if (version !== input.baseThemeVersion) throw new SenifyError("conflict", "Die Variablen wurden seit dem Löschen geändert", { field: "baseThemeVersion" });
+      const pages = await tx.query<VariablePageRow>(`SELECT id, site_id, path, title, meta, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`, [siteId]);
+      const origin = pages.rows.find((page) => page.id === input.pageContext.pageId);
+      if (!origin || toFiniteNumber(origin.draft_version, "draft_version") !== input.pageContext.baseDraftVersion) throw new SenifyError("conflict", "Ein Seitenentwurf wurde seit dem Löschen geändert", { field: "pageContext.baseDraftVersion" });
+      const theme = structuredClone(toJson<Theme>(themeRow.definition));
+      const rules = site.style_rules_json == null ? [] : toJson<unknown>(site.style_rules_json);
+      const samePages = Array.isArray(snapshots) && pages.rows.length === snapshots.length && pages.rows.every((page) => snapshots.some((entry) => entry.pageId === page.id));
+      const sameVersions = samePages && version === deletedVersion &&
+        toFiniteNumber(site.style_rules_version ?? 0, "style_rules_version") === toFiniteNumber(receipt.registry_version, "registry_version") &&
+        pages.rows.every((page) => snapshots.find((entry) => entry.pageId === page.id)?.version === toFiniteNumber(page.draft_version, "draft_version"));
+      const hashes = receipt.resource_hashes == null ? undefined : toJson<{ theme?: unknown; registry?: unknown }>(receipt.resource_hashes);
+      const isHash = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+      const sameContent = samePages && hashes != null && isHash(hashes.theme) && isHash(hashes.registry) &&
+        hashes.theme === canonicalHash(theme) && hashes.registry === variableRegistryContentHash(rules) &&
+        pages.rows.every((page) => {
+          const fingerprint = snapshots.find((entry) => entry.pageId === page.id)?.fingerprint;
+          return isHash(fingerprint) && fingerprint === variablePageHash(page);
+        });
+      if (!(sameVersions || sameContent)) throw new SenifyError("conflict", "Theme, Klassen oder ein Seitenentwurf wurden seit dem Löschen geändert", { field: "receiptId" });
+      const bag = theme.tokens.primitive?.[group];
+      if (!bag || typeof bag !== "object" || Array.isArray(bag) || Object.hasOwn(bag, name)) throw new SenifyError("conflict", "Die Variable existiert bereits oder kann nicht wiederhergestellt werden", { field: "name" });
+      (bag as Record<string, unknown>)[name] = receipt.value;
+      validateShape(ThemeSchema, theme, "theme");
+      if (validateTheme(theme).length > 0) throw new SenifyError("validation", "Das Theme wäre nach der Wiederherstellung ungültig", { field: "name" });
+      const now = new Date().toISOString();
+      for (const page of pages.rows) await tx.query(`UPDATE pages SET draft_version = draft_version + 1, updated_at = $2 WHERE id = $1`, [page.id, now]);
+      await tx.query(`UPDATE themes SET definition = $2, version = version + 1, updated_at = $3 WHERE id = $1`, [themeRow.id, toJsonParam(theme), now]);
+      const result: VariableRestoreResult = { pageId: input.pageContext.pageId, baseThemeVersion: input.baseThemeVersion, baseDraftVersion: input.pageContext.baseDraftVersion, version: version + 1, pageDraftVersion: input.pageContext.baseDraftVersion + 1 };
+      await tx.query(`UPDATE theme_variable_deletions SET restored_at = $2, restore_result = $3 WHERE id = $1`, [input.receiptId, now, toJsonParam(result)]);
+      const audit = buildAuditInsert([{ siteId, pageId: null, batchId: newEntityId(), opIndex: 0, mutation: "restore_variable", params: { family: group, name, receiptId: input.receiptId }, author, undoPatch: [], draftVersionAfter: result.version }]);
+      await tx.query(audit.text, audit.params);
+      return { version: result.version, pageDraftVersion: result.pageDraftVersion };
+    });
+  }
 
   // ------------------------------------------------- style rules (Phase 2)
   //
@@ -1238,8 +1535,9 @@ export class Store {
     ruleId: string,
     patch: StyleRuleUpdatePatch,
     author: Author,
-  ): Promise<StyleRule> {
-    return this.#styleRules.updateStyleRule(siteId, ruleId, patch, author);
+    pageContext?: { pageId: string; baseDraftVersion: number },
+  ): Promise<{ rule: StyleRule; version: number; pageDraftVersion?: number }> {
+    return this.#styleRules.updateStyleRule(siteId, ruleId, patch, author, pageContext);
   }
 
   async deleteStyleRule(
@@ -1247,18 +1545,171 @@ export class Store {
     ruleId: string,
     author: Author,
     baseVersion?: number,
-  ): Promise<void> {
-    return this.#styleRules.deleteStyleRule(siteId, ruleId, author, baseVersion);
+    pageContext?: { pageId: string; baseDraftVersion: number },
+  ): Promise<{ version: number; pageDraftVersion?: number }> {
+    return this.#styleRules.deleteStyleRule(siteId, ruleId, author, baseVersion, pageContext);
+  }
+
+  async deleteGlobalClass(
+    siteId: string,
+    ruleId: string,
+    input: { receiptId?: string; baseVersion: number; pageContext: { pageId: string; baseDraftVersion: number } },
+    author: Author,
+  ): Promise<{ receiptId: string; version: number; pageDraftVersion: number }> {
+    return this.#db.withTransaction(async (tx) => {
+      const site = await tx.query<StyleRuleRow>(`SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`, [siteId]);
+      const row = site.rows[0];
+      if (row === undefined) throw new SenifyError("not_found", "Das Projekt existiert nicht", { field: "siteId" });
+      const version = toFiniteNumber(row.style_rules_version ?? 0, "style_rules_version");
+      const receiptId = input.receiptId ?? newEntityId();
+      const existing = await tx.query<ClassDeletionRow>(`SELECT site_id, rule_id, rule, pages, registry_version, restored_at, resource_hashes, request_basis, restore_result FROM style_class_deletions WHERE id = $1 FOR UPDATE`, [receiptId]);
+      const previous = existing.rows[0];
+      if (previous !== undefined) {
+        const snapshots = toJson<ClassDeletionPage[]>(previous.pages);
+        const origin = Array.isArray(snapshots) ? snapshots.find((page) => page.pageId === input.pageContext.pageId) : undefined;
+        const basis = previous.request_basis == null ? undefined : toJson<ClassRequestBasis>(previous.request_basis);
+        if (previous.site_id !== siteId || previous.rule_id !== ruleId || previous.restored_at != null ||
+            (basis !== undefined && (basis.pageId !== input.pageContext.pageId || basis.baseVersion !== input.baseVersion || basis.baseDraftVersion !== input.pageContext.baseDraftVersion)) ||
+            toFiniteNumber(previous.registry_version, "registry_version") !== input.baseVersion + 1 ||
+            origin?.version !== input.pageContext.baseDraftVersion + 1) {
+          throw new SenifyError("conflict", "Der Wiederherstellungsbeleg gehört zu einer anderen Änderung", { field: "receiptId" });
+        }
+        return { receiptId, version: input.baseVersion + 1, pageDraftVersion: origin.version };
+      }
+      assertStyleRegistryVersion(input.baseVersion, version);
+      const rules = row.style_rules_json == null ? [] : parseStyleRuleRegistry(toJson<unknown>(row.style_rules_json));
+      const rule = rules.find((entry) => entry.id === ruleId);
+      if (rule === undefined) throw new SenifyError("not_found", "Die Klasse existiert nicht", { field: "ruleId" });
+      if (rule.kind !== "class" || rule.scope !== undefined) throw new SenifyError("validation", "Nur globale Klassen können global gelöscht werden", { field: "ruleId" });
+      if (rule.origin?.source === "framer-import" || RULE_ID_PATTERN.test(rule.id)) throw new SenifyError("conflict", "Importierte Framer-Klassen können noch nicht sicher gelöscht werden.", { field: "ruleId" });
+      if (rules.some((entry) => entry.kind === "ambient" && selectorMentionsClass(entry.selector, rule.name))) {
+        throw new SenifyError("conflict", "Ein freier CSS-Selektor verweist auf diese Klasse.", { field: "ruleId" });
+      }
+      const pages = await tx.query<VariablePageRow>(
+        `SELECT id, site_id, path, title, meta, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`, [siteId],
+      );
+      const origin = pages.rows.find((page) => page.id === input.pageContext.pageId);
+      if (origin === undefined) throw new SenifyError("not_found", "Die Editor-Seite gehört nicht zum Projekt", { field: "pageContext.pageId" });
+      const currentVersion = toFiniteNumber(origin.draft_version, "draft_version");
+      if (currentVersion !== input.pageContext.baseDraftVersion) throw draftConflictError(input.pageContext.baseDraftVersion, currentVersion);
+      const now = new Date().toISOString();
+      const snapshots: ClassDeletionPage[] = [];
+      for (const page of pages.rows) {
+        const draft = structuredClone(toJson<unknown>(page.draft));
+        assertDraftShape(draft);
+        const classes: Record<string, string[]> = Object.create(null) as Record<string, string[]>;
+        for (const node of Object.values(draft.nodes)) {
+          if (!node.classes?.includes(rule.name)) continue;
+          classes[node.id] = [...node.classes];
+          const remaining = node.classes.filter((name) => name !== rule.name);
+          if (remaining.length === 0) delete node.classes;
+          else node.classes = remaining;
+        }
+        const pageVersion = toFiniteNumber(page.draft_version, "draft_version") + 1;
+        snapshots.push({ pageId: page.id, version: pageVersion, classes, fingerprint: variablePageHash(page, draft) });
+        await tx.query(`UPDATE pages SET draft = $2, draft_version = $3, updated_at = $4 WHERE id = $1`, [page.id, toJsonParam(draft), pageVersion, now]);
+      }
+      const nextVersion = version + 1;
+      const nextRules = normalizeRuleOrder(rules.filter((entry) => entry.id !== ruleId));
+      await tx.query(`UPDATE sites SET style_rules_json = $2, style_rules_version = $3, updated_at = $4 WHERE id = $1`, [siteId, toJsonParam(nextRules), nextVersion, now]);
+      const basis: ClassRequestBasis = { pageId: input.pageContext.pageId, baseVersion: input.baseVersion, baseDraftVersion: input.pageContext.baseDraftVersion };
+      await tx.query(`INSERT INTO style_class_deletions (id, site_id, rule_id, rule, pages, registry_version, resource_hashes, request_basis, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, [receiptId, siteId, ruleId, toJsonParam(rule), toJsonParam(snapshots), nextVersion, toJsonParam({ registry: variableRegistryContentHash(nextRules) }), toJsonParam(basis), now]);
+      const audit = buildAuditInsert([{ siteId, pageId: null, batchId: receiptId, opIndex: 0, mutation: "delete_global_class", params: { ruleId, name: rule.name, pages: snapshots.filter((page) => Object.keys(page.classes).length > 0).map((page) => page.pageId) }, author, undoPatch: [], draftVersionAfter: nextVersion }]);
+      await tx.query(audit.text, audit.params);
+      return { receiptId, version: nextVersion, pageDraftVersion: currentVersion + 1 };
+    });
+  }
+
+  async restoreGlobalClass(
+    siteId: string,
+    ruleId: string,
+    input: { receiptId: string; baseVersion: number; baseThemeVersion?: number; pageContext: { pageId: string; baseDraftVersion: number } },
+    author: Author,
+  ): Promise<{ version: number; pageDraftVersion: number }> {
+    return this.#db.withTransaction(async (tx) => {
+      const site = await tx.query<StyleRuleRow>(`SELECT style_rules_json, style_rules_version FROM sites WHERE id = $1 FOR UPDATE`, [siteId]);
+      const row = site.rows[0];
+      if (row === undefined) throw new SenifyError("not_found", "Das Projekt existiert nicht", { field: "siteId" });
+      const version = toFiniteNumber(row.style_rules_version ?? 0, "style_rules_version");
+      const receipts = await tx.query<ClassDeletionRow>(`SELECT site_id, rule_id, rule, pages, registry_version, restored_at, resource_hashes, request_basis, restore_result FROM style_class_deletions WHERE id = $1 AND site_id = $2 AND rule_id = $3 FOR UPDATE`, [input.receiptId, siteId, ruleId]);
+      const receipt = receipts.rows[0];
+      if (receipt === undefined) throw new SenifyError("conflict", "Die Löschung kann nicht wiederhergestellt werden", { field: "receiptId" });
+      const snapshots = toJson<ClassDeletionPage[]>(receipt.pages);
+      if (receipt.restored_at != null) {
+        const result = receipt.restore_result == null ? undefined : toJson<ClassRestoreResult>(receipt.restore_result);
+        const previousOrigin = Array.isArray(snapshots) ? snapshots.find((page) => page.pageId === input.pageContext.pageId) : undefined;
+        if (result !== undefined) {
+          if (result.pageId === input.pageContext.pageId && result.baseVersion === input.baseVersion && result.baseDraftVersion === input.pageContext.baseDraftVersion &&
+              result.baseThemeVersion === input.baseThemeVersion && result.version === input.baseVersion + 1 && result.pageDraftVersion === input.pageContext.baseDraftVersion + 1) {
+            return { version: result.version, pageDraftVersion: result.pageDraftVersion };
+          }
+        } else if (input.baseVersion === toFiniteNumber(receipt.registry_version, "registry_version") && previousOrigin?.version === input.pageContext.baseDraftVersion) {
+          return { version: input.baseVersion + 1, pageDraftVersion: input.pageContext.baseDraftVersion + 1 };
+        }
+        throw new SenifyError("conflict", "Die Löschung kann nicht erneut wiederhergestellt werden", { field: "receiptId" });
+      }
+      await assertThemeVersionUnderLock(tx, siteId, input.baseThemeVersion);
+      assertStyleRegistryVersion(input.baseVersion, version);
+      const rule = parseStyleRuleRegistry([toJson<unknown>(receipt.rule)])[0];
+      if (rule === undefined || rule.id !== ruleId || !Array.isArray(snapshots)) throw new SenifyError("validation", "Der Wiederherstellungsstand ist ungültig", { field: "receiptId" });
+      const rules = row.style_rules_json == null ? [] : parseStyleRuleRegistry(toJson<unknown>(row.style_rules_json));
+      if (rules.some((entry) => entry.id === rule.id)) throw new SenifyError("conflict", "Die Klasse existiert bereits", { field: "ruleId" });
+      assertClassNameFree(rules, rule.name, rule.id, "name");
+      const pages = await tx.query<VariablePageRow>(`SELECT id, site_id, path, title, meta, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`, [siteId]);
+      if (pages.rows.length !== snapshots.length) throw new SenifyError("conflict", "Die Seitenliste wurde seit dem Löschen geändert", { field: "receiptId" });
+      const origin = pages.rows.find((page) => page.id === input.pageContext.pageId);
+      if (origin === undefined) throw new SenifyError("not_found", "Die Editor-Seite gehört nicht zum Projekt", { field: "pageContext.pageId" });
+      const currentVersion = toFiniteNumber(origin.draft_version, "draft_version");
+      if (currentVersion !== input.pageContext.baseDraftVersion) throw draftConflictError(input.pageContext.baseDraftVersion, currentVersion);
+      const samePages = pages.rows.every((page) => snapshots.some((entry) => entry.pageId === page.id));
+      const sameVersions = samePages && toFiniteNumber(receipt.registry_version, "registry_version") === version &&
+        pages.rows.every((page) => snapshots.find((entry) => entry.pageId === page.id)?.version === toFiniteNumber(page.draft_version, "draft_version"));
+      const hashes = receipt.resource_hashes == null ? undefined : toJson<{ registry?: unknown }>(receipt.resource_hashes);
+      const isHash = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+      const sameContent = samePages && hashes != null && isHash(hashes.registry) &&
+        hashes.registry === variableRegistryContentHash(row.style_rules_json == null ? [] : toJson<unknown>(row.style_rules_json)) &&
+        pages.rows.every((page) => {
+          const fingerprint = snapshots.find((entry) => entry.pageId === page.id)?.fingerprint;
+          return isHash(fingerprint) && fingerprint === variablePageHash(page);
+        });
+      if (!(sameVersions || sameContent)) throw new SenifyError("conflict", "Klassen oder ein Seitenentwurf wurden seit dem Löschen geändert", { field: "receiptId" });
+      const now = new Date().toISOString();
+      const restored: Array<{ id: string; draft: NodeTree; version: number }> = [];
+      for (const page of pages.rows) {
+        const snapshot = snapshots.find((entry) => entry.pageId === page.id);
+        const pageVersion = toFiniteNumber(page.draft_version, "draft_version");
+        if (snapshot === undefined || snapshot.classes === null || typeof snapshot.classes !== "object" || Array.isArray(snapshot.classes)) throw new SenifyError("conflict", "Ein Seitenentwurf wurde seit dem Löschen geändert", { field: "receiptId" });
+        const draft = structuredClone(toJson<unknown>(page.draft));
+        assertDraftShape(draft);
+        for (const [nodeId, classes] of Object.entries(snapshot.classes)) {
+          const node = draft.nodes[nodeId];
+          if (node === undefined || !Array.isArray(classes) || !classes.every((name) => typeof name === "string")) throw new SenifyError("conflict", "Eine Klassenverwendung kann nicht wiederhergestellt werden", { field: "receiptId" });
+          node.classes = [...classes];
+        }
+        restored.push({ id: page.id, draft, version: pageVersion + 1 });
+      }
+      for (const page of restored) await tx.query(`UPDATE pages SET draft = $2, draft_version = $3, updated_at = $4 WHERE id = $1`, [page.id, toJsonParam(page.draft), page.version, now]);
+      const nextRules = [...rules];
+      nextRules.splice(Math.min(rule.order, nextRules.length), 0, rule);
+      const nextVersion = version + 1;
+      await tx.query(`UPDATE sites SET style_rules_json = $2, style_rules_version = $3, updated_at = $4 WHERE id = $1`, [siteId, toJsonParam(normalizeRuleOrder(nextRules)), nextVersion, now]);
+      const result: ClassRestoreResult = { pageId: input.pageContext.pageId, baseVersion: input.baseVersion, baseDraftVersion: input.pageContext.baseDraftVersion,
+        ...(input.baseThemeVersion === undefined ? {} : { baseThemeVersion: input.baseThemeVersion }), version: nextVersion, pageDraftVersion: currentVersion + 1 };
+      await tx.query(`UPDATE style_class_deletions SET restored_at = $2, restore_result = $3 WHERE id = $1`, [input.receiptId, now, toJsonParam(result)]);
+      const audit = buildAuditInsert([{ siteId, pageId: null, batchId: newEntityId(), opIndex: 0, mutation: "restore_global_class", params: { ruleId, receiptId: input.receiptId }, author, undoPatch: [], draftVersionAfter: nextVersion }]);
+      await tx.query(audit.text, audit.params);
+      return { version: nextVersion, pageDraftVersion: currentVersion + 1 };
+    });
   }
 
   async reorderStyleRule(
     siteId: string,
     ruleId: string,
-    toIndex: number,
+    target: number | { classIndex: number },
     author: Author,
     baseVersion?: number,
   ): Promise<StyleRule[]> {
-    return this.#styleRules.reorderStyleRule(siteId, ruleId, toIndex, author, baseVersion);
+    return this.#styleRules.reorderStyleRule(siteId, ruleId, target, author, baseVersion);
   }
 
   // Die Bibliothek liegt in `store-library.ts` (P3-2): geteilte Bausteine und
@@ -1362,6 +1813,9 @@ export class Store {
   async persistBatch(input: {
     pageId: string;
     expectedVersion: number;
+    siteId?: string;
+    expectedStyleRegistryVersion?: number;
+    expectedThemeVersion?: number;
     draft: NodeTree;
     title: string;
     path: string;

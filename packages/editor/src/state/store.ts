@@ -20,7 +20,7 @@ import {
   type MutationOp,
   type PatchOp,
 } from "@senify/engine/browser";
-import { HistoryStack, type HistoryEntry } from "../history.ts";
+import { HistoryStack, type ExternalRecordInput, type HistoryDirection, type HistoryEntry } from "../history.ts";
 import { newNodeId } from "./ids.ts";
 import {
   createDocument,
@@ -28,6 +28,7 @@ import {
   type NodeId,
 } from "./document.ts";
 import { validateDocument } from "./consistency.ts";
+import { checkedEditorHistory } from "./history-checkpoint.ts";
 import { applyEditorMutation, type OperationResult } from "./operations.ts";
 import {
   applyDocumentPatches,
@@ -66,7 +67,10 @@ export type EditorStoreOptions = {
 export type EditorStoreAction =
   | { type: "apply"; mutation: EditorMutation; entry: HistoryEntry }
   | { type: "undo"; entry: HistoryEntry }
-  | { type: "redo"; entry: HistoryEntry };
+  | { type: "redo"; entry: HistoryEntry }
+  | { type: "external-begin"; entry: HistoryEntry }
+  | { type: "external-commit"; entry: HistoryEntry }
+  | { type: "external-fail"; entry: HistoryEntry };
 
 export type ApplyOptions = {
   coalesceKey?: string;
@@ -161,12 +165,26 @@ export class EditorStore {
     return this.#history.applied().length + 1;
   }
 
+  get pendingExternalId(): string | null {
+    return this.#history.pendingExternalId;
+  }
+
   get canUndo(): boolean {
     return this.#history.canUndo;
   }
 
   get canRedo(): boolean {
     return this.#history.canRedo;
+  }
+
+  // Recovery may resolve its own lease, but validation precedes every write
+  // and observers only see the completely imported history.
+  restoreHistory(input: unknown, pendingId?: string): void {
+    if (this.#history.size > 0 || this.pendingExternalId !== (pendingId ?? null)) throw new SenifyError("conflict", "Die aktuelle History darf nicht ersetzt werden", { field: "history" });
+    const snapshot = checkedEditorHistory(input, this.#document);
+    if (pendingId !== undefined) this.#history.failExternal(pendingId);
+    this.#history.restore(snapshot);
+    this.#emit();
   }
 
   // The single write gate. Returns the patches of the change, or `changed: false`
@@ -207,8 +225,9 @@ export class EditorStore {
     });
     this.#document = next;
     entry.versionAfter = this.version;
-    this.#emit();
+    // Queue persistence before projections can export the changed document.
     this.#onAction?.({ type: "apply", mutation, entry });
+    this.#emit();
     return { changed: true, patches: result.forward, warnings: result.warnings };
   }
 
@@ -241,6 +260,15 @@ export class EditorStore {
     const mutations = inputs.map((input) => parseEditorMutation(input));
     const first = mutations[0];
     if (first === undefined) return { changed: false, patches: [], warnings: [] };
+    if (mutations.length > 1) {
+      const globalClasses = new Set(this.#document.styleRules.filter((rule) => rule.kind === "class" && rule.scope === undefined).map((rule) => rule.id));
+      for (const mutation of mutations) {
+        if (mutation.op === "upsertStyleRule" && mutation.rule.kind === "class" && mutation.rule.scope === undefined) globalClasses.add(mutation.rule.id);
+        if (mutation.op === "deleteStyleRule" && globalClasses.has(mutation.id)) {
+          throw new SenifyError("validation", "Eine globale Klasse muss in einem eigenen Schritt gelöscht werden", { field: "mutations" });
+        }
+      }
+    }
     let document = this.#document;
     const forward: DocumentPatch[] = [];
     const inverse: DocumentPatch[] = [];
@@ -287,8 +315,8 @@ export class EditorStore {
     });
     this.#document = document;
     entry.versionAfter = this.version;
-    this.#emit();
     this.#onAction?.({ type: "apply", mutation: first, entry });
+    this.#emit();
     return { changed: true, patches: forward, warnings };
   }
 
@@ -300,8 +328,8 @@ export class EditorStore {
       entry.undoPatch as unknown as DocumentPatch[],
     );
     this.#pruneSelection();
-    this.#emit();
     this.#onAction?.({ type: "undo", entry });
+    this.#emit();
     return true;
   }
 
@@ -313,17 +341,52 @@ export class EditorStore {
       entry.mutations as unknown as DocumentPatch[],
     );
     this.#pruneSelection();
-    this.#emit();
     this.#onAction?.({ type: "redo", entry });
+    this.#emit();
     return true;
+  }
+
+  beginExternalNavigation(direction: HistoryDirection): HistoryEntry {
+    const entry = this.#history.beginExternalNavigation(direction);
+    this.#emit();
+    this.#onAction?.({ type: "external-begin", entry });
+    return entry;
+  }
+
+  confirmExternalNavigation(pendingId: string, entryId: string, direction: HistoryDirection, document = this.#document): HistoryEntry {
+    const issue = validateDocument(document)[0];
+    if (issue !== undefined) throw new SenifyError("validation", issue.message, { field: "document" });
+    const entry = this.#history.confirmExternalNavigation(pendingId, entryId, direction);
+    this.#document = document;
+    if (this.#selection.selected.some((id) => document.nodes[id] === undefined)) this.#selection = EMPTY_SELECTION;
+    this.#emit();
+    // The external runner already persisted this step; never enqueue patches.
+    this.#onAction?.({ type: "external-commit", entry });
+    return entry;
   }
 
   // The history dialog (ticket 03 point 5): jump to the state right after
   // `entryId`. Runs through the ordinary undo/redo gate, so document, cursor
   // and save pipeline stay in step — no second restore path.
+  canRestoreToAsync(entryId: string): boolean {
+    return this.#history.canRestoreToAsync(entryId);
+  }
+
+  // Async jumps over external steps must run through a session with registered
+  // runners; the synchronous store path stays local-only.
+  async restoreToAsync(entryId: string): Promise<boolean> {
+    if (!this.#history.canRestoreToAsync(entryId)) return false;
+    if (this.#history.canRestoreTo(entryId)) return this.restoreTo(entryId);
+    throw new SenifyError("conflict", "Ein Verlaufssprung mit serverseitigen Schritten benötigt eine Editor-Session", { field: "history" });
+  }
+
   restoreTo(entryId: string): boolean {
     const index = this.#history.entries().findIndex((entry) => entry.id === entryId);
-    if (index < 0) return false;
+    if (index < 0 || this.pendingExternalId !== null) return false;
+    // Check the whole route before the first write or persistence event.
+    if (!this.#history.canRestoreTo(entryId)) {
+      throw new SenifyError("conflict", "Der Verlauf enthält serverseitig ausgeführte Schritte und kann nicht lokal wiederhergestellt werden", { field: "history" });
+    }
     let changed = false;
     while (this.#history.applied().length > index + 1) {
       if (!this.undo()) break;
@@ -336,12 +399,96 @@ export class EditorStore {
     return changed;
   }
 
-  // Replaces the document (after a load/migration) and clears the history.
+  // The server normalizes `order` to the position in the full site registry,
+  // while this page's document holds only its own subset. Server responses
+  // carry the authoritative numbers, so local copies mirror them; the content
+  // stays local so a still-pending batch is never overwritten.
+  reconcileStyleRuleOrder(rules: readonly unknown[]): void {
+    const orders = new Map<string, number>();
+    for (const rule of rules) {
+      if (rule === null || typeof rule !== "object") continue;
+      const id = (rule as { id?: unknown }).id;
+      const order = (rule as { order?: unknown }).order;
+      if (typeof id === "string" && Number.isSafeInteger(order) && (order as number) >= 0) orders.set(id, order as number);
+    }
+    this.#commitStyleRuleOrder(this.#document.styleRules.map((rule) => {
+      const order = orders.get(rule.id);
+      return order === undefined || order === rule.order ? rule : { ...rule, order };
+    }));
+  }
+
+  // A delete removes one position from the full registry, a restore inserts one
+  // back; every rule behind it shifts by one. Hidden scoped rules of other pages
+  // do not change that relative shift, so the known position is enough.
+  reconcileStyleRuleOrderShift(order: number | undefined, delta: 1 | -1, targetId?: string): void {
+    if (order === undefined || !Number.isSafeInteger(order) || order < 0) return;
+    this.#commitStyleRuleOrder(this.#document.styleRules.map((rule) => {
+      if (targetId !== undefined && rule.id === targetId) return { ...rule, order };
+      const affected = delta === 1 ? rule.order >= order : rule.order > order;
+      return affected ? { ...rule, order: rule.order + delta } : rule;
+    }));
+  }
+
+  #commitStyleRuleOrder(styleRules: EditorDocument["styleRules"]): void {
+    const sorted = [...styleRules].sort((left, right) => left.order - right.order);
+    const current = this.#document.styleRules;
+    if (current.length === sorted.length && current.every((rule, index) => rule === sorted[index])) return;
+    this.#document = { ...this.#document, styleRules: sorted };
+    this.#emit();
+  }
+
+  // Replaces the document and clears its local history. A server operation
+  // remains unresolved across loads until its owner explicitly resolves it.
   replaceDocument(document: EditorDocument): void {
     this.#document = document;
     this.#selection = EMPTY_SELECTION;
+    this.#history.clear({ preservePendingExternal: true });
+    this.#emit();
+  }
+
+  // After a server-confirmed rename the document is authoritative, but retained
+  // local patches must stay usable: callers migrate their token references
+  // first and only then replace the document without discarding the history.
+  replaceDocumentPreservingHistory(document: EditorDocument): void {
+    this.#document = document;
+    this.#selection = EMPTY_SELECTION;
+    this.#emit();
+  }
+
+  // Returns false when a retained patch carries a CSS-text reference that
+  // cannot be proven safe; callers then discard the history instead of guessing.
+  migrateHistoryReferences(family: string, oldName: string, newName: string): boolean {
+    return this.#history.renameReferences(family, oldName, newName);
+  }
+
+  // A document-changing external confirmation (for example a rename). The new
+  // document and the committed entry become visible in one store emit, so no
+  // observer sees the new base while the lease is still pending.
+  replaceDocumentAndCommitExternal(id: string, document: EditorDocument, versionAfter: number): void {
+    this.#document = document;
+    this.#selection = EMPTY_SELECTION;
+    this.commitExternalAction(id, { versionAfter });
+  }
+
+  // Explicit recovery resolves only its own lease. No observer can write
+  // between clearing the old history and installing the replacement.
+  resetExternalHistory(id: string, document: EditorDocument): void {
+    if (this.pendingExternalId !== id) throw new SenifyError("conflict", "Der Verlaufsvorgang hat sich geändert", { field: "history" });
+    const issue = validateDocument(document)[0];
+    if (issue !== undefined) throw new SenifyError("validation", issue.message, { field: "document" });
+    this.#document = document;
+    if (this.#selection.selected.some((nodeId) => document.nodes[nodeId] === undefined)) this.#selection = EMPTY_SELECTION;
     this.#history.clear();
     this.#emit();
+  }
+
+  // Reload recovery for a document-changing external entry: the fetched
+  // document and the migrated checkpoint history become visible together.
+  replaceDocumentAndRestoreHistory(id: string, document: EditorDocument, snapshot: unknown): void {
+    if (this.pendingExternalId !== id) throw new SenifyError("conflict", "Der Verlaufsvorgang hat sich geändert", { field: "history" });
+    this.#document = document;
+    if (this.#selection.selected.some((nodeId) => document.nodes[nodeId] === undefined)) this.#selection = EMPTY_SELECTION;
+    this.restoreHistory(snapshot, id);
   }
 
   setSelection(selection: SelectionState): void {
@@ -392,5 +539,27 @@ export class EditorStore {
   clearSelection(): void {
     this.#selection = clearSelectionState(this.#selection);
     this.#emit();
+  }
+
+  beginExternalAction(input: ExternalRecordInput): HistoryEntry {
+    const entry = this.#history.beginExternal(input);
+    this.#emit();
+    this.#onAction?.({ type: "external-begin", entry });
+    return entry;
+  }
+
+  commitExternalAction(id: string, input: Partial<ExternalRecordInput> = {}): HistoryEntry {
+    const entry = this.#history.commitExternal(id, input);
+    this.#emit();
+    this.#onAction?.({ type: "external-commit", entry });
+    return entry;
+  }
+
+  failExternalAction(id: string): HistoryEntry | null {
+    const entry = this.#history.failExternal(id);
+    if (entry === null) return null;
+    this.#emit();
+    this.#onAction?.({ type: "external-fail", entry });
+    return entry;
   }
 }

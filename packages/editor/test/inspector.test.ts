@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRegistry } from "@senify/registry";
 import { defaultTheme } from "@senify/tokens";
-import { createScopedRule } from "@senify/widget-engine";
+import { createClassRule, createScopedRule } from "@senify/widget-engine";
 import { buildInspector, motionSpecFrom, numberPart, tokenRefOf, unitOfValue } from "@senify/editor";
 import {
   createComponent,
@@ -17,6 +17,32 @@ import { baseStore } from "./state/fixtures.ts";
 // overrides and the token/literal rule — no DOM needed.
 
 describe("buildInspector", () => {
+  it("reads class styles and responsive states from the selected class", () => {
+    const store = baseStore();
+    const rule = createClassRule({ id: "class001", name: "titel", styles: { color: "#123456", color_mobile: "#abcdef" } });
+    rule.states = { hover: { color: "#ff0000" } };
+    store.applyBatch([
+      { op: "upsertStyleRule", rule },
+      { op: "assignClass", id: "head000001", classId: "titel" },
+    ]);
+    const field = (state: "hover" | null, breakpoint: "desktop" | "mobile") =>
+      buildInspector({ document: store.document, nodeId: "head000001", styleRuleId: "class001", state, breakpoint })
+        ?.tabs.find((tab) => tab.id === "style")?.groups.flatMap((group) => group.fields).find((entry) => entry.key === "color");
+    expect(field(null, "mobile")?.value).toBe("#abcdef");
+    expect(field(null, "mobile")?.commit).toEqual({ kind: "class", ruleId: "class001", state: null });
+    expect(field("hover", "desktop")?.value).toBe("#ff0000");
+  });
+  it("shows class properties even when the element owns a control with the same key", () => {
+    const store = baseStore();
+    store.apply({ op: "insertNode", parent: { nodeId: store.document.rootNodeId }, node: { primitive: "frame", id: "frame00001" } });
+    store.applyBatch([
+      { op: "upsertStyleRule", rule: createClassRule({ id: "class001", name: "layout", styles: { display: "flex" } }) },
+      { op: "assignClass", id: "frame00001", classId: "layout" },
+    ]);
+    const model = buildInspector({ document: store.document, nodeId: "frame00001", styleRuleId: "class001", breakpoint: "desktop" });
+    const fields = model?.tabs.find((tab) => tab.id === "style")?.groups.flatMap((group) => group.fields) ?? [];
+    expect(fields.find((field) => field.key === "display")?.value).toBe("flex");
+  });
   it("builds the three tabs Allgemein, Stil, Interaktionen with the generated field family", () => {
     const store = baseStore();
     const model = buildInspector({
@@ -403,6 +429,9 @@ describe("buildInspector", () => {
     expect(shadow?.tokenOptions?.length ?? 0).toBeGreaterThan(0);
     const fontSize = fields?.find((entry) => entry.key === "fontSize");
     expect(fontSize?.tokenOptions?.length ?? 0).toBeGreaterThan(0);
+    expect(fontSize?.tokenOptions?.map((option) => option.ref)).toContain("type.h1.size");
+    const fontFamily = fields?.find((entry) => entry.key === "fontFamily");
+    expect(fontFamily?.tokenOptions?.map((option) => option.ref)).toContain("font.display");
     // The heading owns no border group: no radius tokens offered.
     expect(fields?.some((entry) => entry.key === "borderRadius")).toBe(false);
   });
@@ -750,5 +779,14 @@ describe("inspector value helpers", () => {
     expect(spec.tokens?.ease).toBe("out");
     expect(spec.tokens?.durationScale).toBe(1.2);
     expect(spec.reducedMotion).toBe("fade");
+  });
+
+  it("edits imported tween values without dropping the original curve", () => {
+    const current = { preset: "imported-appear", trigger: "load" as const, importedAppear: { from: { opacity: 0, x: 0, y: 28, scale: 1 }, to: { opacity: 1, x: 0, y: 0, scale: 1 }, durationMs: 1000, delayMs: 200, easing: [0.22, 1, 0.36, 1] as [number, number, number, number] } };
+    const updated = motionSpecFrom("imported-appear", { appearFromY: 40, appearDelay: 400 }, current);
+    expect(updated.importedAppear?.from.y).toBe(40);
+    expect(updated.importedAppear?.delayMs).toBe(400);
+    expect(updated.importedAppear?.easing).toEqual([0.22, 1, 0.36, 1]);
+    expect(updated.trigger).toBe("load");
   });
 });

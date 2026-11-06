@@ -1910,11 +1910,24 @@ function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
   const samples: IrMotionSample[] = [];
   for (const [appearId, byDevice] of Object.entries(entries as Record<string, unknown>)) {
     const node = byAppearId.get(appearId);
+    if (node === undefined) continue;
     const entry = (byDevice as Record<string, unknown> | null)?.["default"] as
       | { initial?: AppearState; animate?: AppearState & { transition?: AppearTransition } }
       | null
       | undefined;
-    if (node === undefined || entry === null || entry === undefined) continue;
+    if (entry === null || entry === undefined) {
+      const variants = byDevice !== null && typeof byDevice === "object" ? Object.entries(byDevice) : [];
+      if (variants.some(([key, value]) => key !== "default" && value !== null && typeof value === "object")) {
+        samples.push({
+          nodeKey: node.key,
+          library: "framer",
+          trigger: "appear",
+          params: { variantOnly: true },
+          raw: JSON.stringify({ appearId, variants: byDevice }),
+        });
+      }
+      continue;
+    }
     const from = entry.initial ?? {};
     const to = entry.animate ?? {};
     const transition = to.transition ?? {};
@@ -1939,7 +1952,7 @@ function readAppearMotion(html: string, root: IrNode): IrMotionSample[] {
       library: "framer",
       trigger: "appear",
       params,
-      raw: JSON.stringify({ appearId, from, to }),
+      raw: JSON.stringify({ appearId, from, to, variants: byDevice }),
     });
   }
   return samples;

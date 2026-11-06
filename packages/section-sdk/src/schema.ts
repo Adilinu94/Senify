@@ -135,6 +135,25 @@ export const MotionReducedPolicySchema = Type.Union([
 ]);
 export type MotionReducedPolicy = Static<typeof MotionReducedPolicySchema>;
 
+const ImportedAppearStateSchema = Type.Object({
+  opacity: Type.Number({ minimum: 0, maximum: 1 }),
+  x: Type.Number({ minimum: -10000, maximum: 10000 }),
+  y: Type.Number({ minimum: -10000, maximum: 10000 }),
+  scale: Type.Number({ minimum: 0, maximum: 10 }),
+}, { additionalProperties: false });
+
+export const ImportedAppearTweenSchema = Type.Object({
+  from: ImportedAppearStateSchema,
+  to: ImportedAppearStateSchema,
+  durationMs: Type.Number({ minimum: 1, maximum: 30000 }),
+  delayMs: Type.Number({ minimum: 0, maximum: 30000 }),
+  easing: Type.Tuple([
+    Type.Number({ minimum: 0, maximum: 1 }), Type.Number({ minimum: -10, maximum: 10 }),
+    Type.Number({ minimum: 0, maximum: 1 }), Type.Number({ minimum: -10, maximum: 10 }),
+  ]),
+}, { additionalProperties: false });
+export type ImportedAppearTween = Static<typeof ImportedAppearTweenSchema>;
+
 export const MotionSpecSchema = Type.Object({
   preset: Type.String({ minLength: 1 }),
   intensity: Type.Optional(Type.Number({ minimum: 1, maximum: 10 })),
@@ -143,6 +162,7 @@ export const MotionSpecSchema = Type.Object({
   delay: Type.Optional(Type.Number({ minimum: 0 })),
   reducedMotion: Type.Optional(MotionReducedPolicySchema),
   enabled: Type.Optional(Type.Boolean()),
+  importedAppear: Type.Optional(ImportedAppearTweenSchema),
 });
 export type MotionSpec = Static<typeof MotionSpecSchema>;
 

@@ -1,5 +1,6 @@
 import type { MotionSpec } from "@senify/section-sdk";
 import type { FramerIrDocument, IrMotionSample } from "./ir.ts";
+import { readAppearTween } from "./appear-tween.ts";
 
 export type MotionMapping = {
   sampleIndex: number;
@@ -132,6 +133,24 @@ export function mapFramerMotion(
   const mappings: MotionMapping[] = [];
   const findings: MotionMappingResult["findings"] = [];
   document.motion.forEach((sample, sampleIndex) => {
+    const tween = readAppearTween(sample);
+    if (tween.ok && [tween.tween.from, tween.tween.to].every((state) => state.rotate === 0 && state.rotateX === 0 && state.rotateY === 0 && state.skewX === 0 && state.skewY === 0)) {
+      const { from, to, durationMs, delayMs, easing } = tween.tween;
+      const limitedState = (state: typeof from) => ({ opacity: state.opacity, x: state.x, y: state.y, scale: state.scale });
+      mappings.push({
+        sampleIndex,
+        nodeKey: sample.nodeKey,
+        preset: "imported-appear",
+        spec: {
+          preset: "imported-appear",
+          trigger: "load",
+          reducedMotion: "static",
+          importedAppear: { from: limitedState(from), to: limitedState(to), durationMs, delayMs, easing },
+        },
+        reason: "Framer-Tween mit originalen Werten übernommen; zeitliche Parität muss geprüft werden.",
+      });
+      return;
+    }
     const preset = presetFor(sample);
     if (preset === null) {
       findings.push({

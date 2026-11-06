@@ -14,11 +14,18 @@ import {
   styleRuleErrors,
   type StyleRule,
 } from "@senify/widget-engine";
-import type { Author } from "@senify/section-sdk";
+import type { Author, NodeTree } from "@senify/section-sdk";
+import { RULE_ID_PATTERN } from "@senify/framer-import";
 import { agentStyleViolations, rawCssViolations, styleRuleBags, type StyleBag } from "./style-fence.ts";
 import { newEntityId } from "./ids.ts";
+import { draftConflictError } from "./paths.ts";
 import { buildAuditInsert } from "./store-audit.ts";
-import { toFiniteNumber, toJson, toJsonParam } from "./store-row-utils.ts";
+import {
+  assertStyleRegistryVersion,
+  assertThemeVersionUnderLock,
+  selectorMentionsClass,
+} from "./store-class-guards.ts";
+import { assertDraftShape, toFiniteNumber, toJson, toJsonParam } from "./store-row-utils.ts";
 import type { Db, DbClient } from "./db.ts";
 import type { SiteTheme } from "./types.ts";
 
@@ -58,6 +65,8 @@ export type CreateStyleRuleInput = {
   // The optimistic lock travels with the write, not with the rule body: the
   // builders ignore it, `createStyleRule` reads it for the version check.
   baseVersion?: number;
+  // Guards the theme (variables) the rule may reference; checked under lock.
+  baseThemeVersion?: number;
 };
 
 // The write event the audit records: what changed, not the whole array.
@@ -66,6 +75,20 @@ type StyleRuleWriteEvent = {
   params: Record<string, unknown>;
   author: Author;
   baseVersion?: number;
+  baseThemeVersion?: number;
+  // A class rename rewrites the class tokens of every page draft in the same
+  // transaction as the registry (editor branch, merged from C).
+  rename?: {
+    from: string;
+    to: string;
+    pageContext?: { pageId: string; baseDraftVersion: number };
+    pageDraftVersion?: number;
+  };
+  unusedClass?: {
+    name: string;
+    pageContext?: { pageId: string; baseDraftVersion: number };
+    pageDraftVersion?: number;
+  };
 };
 
 // The schema reports a dotted field; the write path surfaces the first one.
@@ -83,7 +106,7 @@ function isWritableSelector(selector: string): boolean {
 
 // A class-kind or scoped rule owns its class token; a second rule with the
 // same name would emit a duplicate selector that no assignment can separate.
-function assertClassNameFree(
+export function assertClassNameFree(
   rules: readonly StyleRule[],
   name: string,
   exceptId: string,
@@ -301,13 +324,15 @@ export type StyleRuleUpdatePatch = {
   selector?: string;
   description?: string | null;
   styles?: Record<string, unknown>;
-  stylePriorities?: Record<string, "important">;
-  states?: Record<string, Record<string, unknown>>;
-  statePriorities?: Record<string, Record<string, "important">>;
+  stylePriorities?: Record<string, "important"> | null;
+  states?: Record<string, Record<string, unknown>> | null;
+  statePriorities?: Record<string, Record<string, "important">> | null;
   contextStyles?: Record<string, Record<string, unknown>>;
-  contextStylePriorities?: Record<string, Record<string, "important">>;
+  contextStylePriorities?: Record<string, Record<string, "important">> | null;
+  replaceStyleValues?: boolean;
   rawCss?: string | null;
   baseVersion?: number;
+  baseThemeVersion?: number;
 };
 
 export class StyleRuleStore {
@@ -397,7 +422,9 @@ export class StyleRuleStore {
     author: Author,
     baseVersion?: number,
   ): Promise<StyleRule[]> {
-    const existing = await this.readRules(siteId);
+    const registry = await this.getRegistry(siteId);
+    assertStyleRegistryVersion(baseVersion, registry.version);
+    const existing = registry.rules;
     const appended = rules.map((rule, index) => {
       const ordered: StyleRule = { ...rule, order: existing.length + index };
       assertWritableRule(ordered, `rules[${index}]`);
@@ -407,7 +434,7 @@ export class StyleRuleStore {
       mutation: "importFramerStyleRules",
       params: { count: appended.length },
       author,
-      ...(baseVersion === undefined ? {} : { baseVersion }),
+      baseVersion: registry.version,
     });
   }
 
@@ -416,7 +443,9 @@ export class StyleRuleStore {
     input: CreateStyleRuleInput,
     author: Author,
   ): Promise<StyleRule> {
-    const rules = await this.readRules(siteId);
+    const registry = await this.getRegistry(siteId);
+    assertStyleRegistryVersion(input.baseVersion, registry.version);
+    const rules = registry.rules;
     const kind = input.kind ?? "class";
 
     let rule: StyleRule;
@@ -455,7 +484,8 @@ export class StyleRuleStore {
       mutation: "create_style_rule",
       params: { ruleId: rule.id, name: rule.name, kind: rule.kind },
       author,
-      ...(input.baseVersion === undefined ? {} : { baseVersion: input.baseVersion }),
+      baseVersion: registry.version,
+      ...(input.baseThemeVersion === undefined ? {} : { baseThemeVersion: input.baseThemeVersion }),
     });
     return written.find((entry) => entry.id === rule.id) ?? rule;
   }
@@ -465,8 +495,11 @@ export class StyleRuleStore {
     ruleId: string,
     patch: StyleRuleUpdatePatch,
     author: Author,
-  ): Promise<StyleRule> {
-    const rules = await this.readRules(siteId);
+    pageContext?: { pageId: string; baseDraftVersion: number },
+  ): Promise<{ rule: StyleRule; version: number; pageDraftVersion?: number }> {
+    const registry = await this.getRegistry(siteId);
+    assertStyleRegistryVersion(patch.baseVersion, registry.version);
+    const rules = registry.rules;
     const index = rules.findIndex((rule) => rule.id === ruleId);
     if (index < 0) {
       throw new SenifyError("not_found", `Style rule "${ruleId}" does not exist`, {
@@ -474,6 +507,11 @@ export class StyleRuleStore {
       });
     }
     const current = rules[index]!;
+    if (patch.replaceStyleValues && author.kind === "agent") {
+      throw new SenifyError("validation", "Replacing all style values is restricted to human editors", {
+        field: "replaceStyleValues",
+      });
+    }
     const next: StyleRule = { ...current, styles: { ...current.styles }, contextStyles: { ...current.contextStyles } };
 
     if (patch.name !== undefined) {
@@ -532,28 +570,33 @@ export class StyleRuleStore {
       else next.description = patch.description;
     }
     if (patch.styles !== undefined) {
-      next.styles = { ...next.styles, ...(patch.styles as StyleRule["styles"]) };
+      next.styles = { ...(patch.replaceStyleValues ? {} : next.styles), ...(patch.styles as StyleRule["styles"]) };
     }
     if (patch.contextStyles !== undefined) {
       next.contextStyles = {
-        ...next.contextStyles,
+        ...(patch.replaceStyleValues ? {} : next.contextStyles),
         ...(patch.contextStyles as StyleRule["contextStyles"]),
       };
     }
-    if (patch.states !== undefined) {
-      const states: NonNullable<StyleRule["states"]> = { ...next.states };
+    // Null removes an optional bag; omission keeps it. Empty bags are distinct
+    // raw content and must not be introduced by an exact editor undo.
+    if (patch.states === null) delete next.states;
+    else if (patch.states !== undefined) {
+      const states: NonNullable<StyleRule["states"]> = patch.replaceStyleValues ? {} : { ...next.states };
       for (const state of STATE_ORDER) {
         const bag = patch.states[state];
         if (bag !== undefined) states[state] = { ...(bag as StyleRule["styles"]) };
       }
       next.states = states;
     }
-    if (patch.stylePriorities !== undefined) {
-      next.stylePriorities = { ...next.stylePriorities, ...patch.stylePriorities };
+    if (patch.stylePriorities === null) delete next.stylePriorities;
+    else if (patch.stylePriorities !== undefined) {
+      next.stylePriorities = { ...(patch.replaceStyleValues ? {} : next.stylePriorities), ...patch.stylePriorities };
     }
-    if (patch.statePriorities !== undefined) {
+    if (patch.statePriorities === null) delete next.statePriorities;
+    else if (patch.statePriorities !== undefined) {
       const statePriorities: NonNullable<StyleRule["statePriorities"]> = {
-        ...next.statePriorities,
+        ...(patch.replaceStyleValues ? {} : next.statePriorities),
       };
       for (const state of STATE_ORDER) {
         const priority = patch.statePriorities[state];
@@ -561,9 +604,10 @@ export class StyleRuleStore {
       }
       next.statePriorities = statePriorities;
     }
-    if (patch.contextStylePriorities !== undefined) {
+    if (patch.contextStylePriorities === null) delete next.contextStylePriorities;
+    else if (patch.contextStylePriorities !== undefined) {
       next.contextStylePriorities = {
-        ...next.contextStylePriorities,
+        ...(patch.replaceStyleValues ? {} : next.contextStylePriorities),
         ...patch.contextStylePriorities,
       };
     }
@@ -600,7 +644,7 @@ export class StyleRuleStore {
       if (patch.styles !== undefined) {
         bags.push({ field: "rule.styles", values: patch.styles });
       }
-      if (patch.states !== undefined) {
+      if (patch.states != null) {
         for (const [state, values] of Object.entries(patch.states)) {
           if (values !== undefined) {
             bags.push({ field: `rule.states.${state}`, values });
@@ -619,13 +663,33 @@ export class StyleRuleStore {
 
     const result = [...rules];
     result[index] = next;
+    const rename: { from: string; to: string; pageContext?: { pageId: string; baseDraftVersion: number }; pageDraftVersion?: number } | undefined =
+      current.kind === "class" && current.scope === undefined && current.name !== next.name
+        ? { from: current.name, to: next.name, ...(pageContext === undefined ? {} : { pageContext }) }
+        : undefined;
+    if (rename !== undefined && (current.origin?.source === "framer-import" || RULE_ID_PATTERN.test(current.id))) {
+      throw new SenifyError("conflict", "Importierte Framer-Klassen können noch nicht sicher umbenannt werden. Dupliziere die Klasse für eigene Änderungen.", { field: "name" });
+    }
+    if (rename !== undefined && rules.some((rule) => rule.kind === "ambient" && (selectorMentionsClass(rule.selector, rename.from) || selectorMentionsClass(rule.selector, rename.to)))) {
+      throw new SenifyError("conflict", "Ein freier CSS-Selektor verweist auf diesen Klassennamen. Passe den Selektor vor dem Umbenennen an.", { field: "name" });
+    }
+    if (pageContext !== undefined && rename === undefined) {
+      throw new SenifyError("validation", "Der Seitenkontext gilt nur beim Umbenennen einer globalen Klasse", { field: "pageContext" });
+    }
+    const baseVersion = registry.version;
     const written = await this.#write(siteId, result, {
       mutation: "update_style_rule",
       params: { ruleId, patch: Object.keys(patch) },
       author,
-      ...(patch.baseVersion === undefined ? {} : { baseVersion: patch.baseVersion }),
+      baseVersion,
+      ...(patch.baseThemeVersion === undefined ? {} : { baseThemeVersion: patch.baseThemeVersion }),
+      ...(rename === undefined ? {} : { rename }),
     });
-    return written[index] ?? next;
+    return {
+      rule: written[index] ?? next,
+      version: baseVersion + 1,
+      ...(rename?.pageDraftVersion === undefined ? {} : { pageDraftVersion: rename.pageDraftVersion }),
+    };
   }
 
   async deleteStyleRule(
@@ -633,21 +697,37 @@ export class StyleRuleStore {
     ruleId: string,
     author: Author,
     baseVersion?: number,
-  ): Promise<void> {
-    const rules = await this.readRules(siteId);
+    pageContext?: { pageId: string; baseDraftVersion: number },
+  ): Promise<{ version: number; pageDraftVersion?: number }> {
+    const registry = await this.getRegistry(siteId);
+    assertStyleRegistryVersion(baseVersion, registry.version);
+    const rules = registry.rules;
     const index = rules.findIndex((rule) => rule.id === ruleId);
     if (index < 0) {
       throw new SenifyError("not_found", `Style rule "${ruleId}" does not exist`, {
         field: "ruleId",
       });
     }
+    const target = rules[index]!;
+    // A global class may only go while no page draft uses it; the write checks
+    // that under lock (`unusedClass`).
+    const unusedClass: { name: string; pageContext?: { pageId: string; baseDraftVersion: number }; pageDraftVersion?: number } | undefined =
+      target.kind === "class" && target.scope === undefined
+        ? { name: target.name, ...(pageContext === undefined ? {} : { pageContext }) }
+        : undefined;
     const next = rules.filter((rule) => rule.id !== ruleId);
     await this.#write(siteId, next, {
       mutation: "delete_style_rule",
       params: { ruleId, name: rules[index]!.name, kind: rules[index]!.kind },
       author,
-      ...(baseVersion === undefined ? {} : { baseVersion }),
+      baseVersion: registry.version,
+      ...(unusedClass === undefined ? {} : { unusedClass }),
     });
+    const pageDraftVersion = unusedClass?.pageDraftVersion ?? pageContext?.baseDraftVersion;
+    return {
+      version: registry.version + 1,
+      ...(pageDraftVersion === undefined ? {} : { pageDraftVersion }),
+    };
   }
 
   // Reorder is a permutation of the array; `order` is normalized to the array
@@ -655,16 +735,28 @@ export class StyleRuleStore {
   async reorderStyleRule(
     siteId: string,
     ruleId: string,
-    toIndex: number,
+    target: number | { classIndex: number },
     author: Author,
     baseVersion?: number,
   ): Promise<StyleRule[]> {
-    const rules = await this.readRules(siteId);
+    const registry = await this.getRegistry(siteId);
+    assertStyleRegistryVersion(baseVersion, registry.version);
+    const rules = registry.rules;
     const from = rules.findIndex((rule) => rule.id === ruleId);
     if (from < 0) {
       throw new SenifyError("not_found", `Style rule "${ruleId}" does not exist`, {
         field: "ruleId",
       });
+    }
+    let toIndex: number;
+    if (typeof target === "number") toIndex = target;
+    else {
+      const classes = rules.filter((rule) => rule.kind === "class" && rule.scope === undefined);
+      if (rules[from]!.kind !== "class" || rules[from]!.scope !== undefined ||
+          !Number.isInteger(target.classIndex) || target.classIndex < 0 || target.classIndex >= classes.length) {
+        throw new SenifyError("validation", "Ungültige Position für die globale Klasse", { field: "classIndex" });
+      }
+      toIndex = rules.findIndex((rule) => rule.id === classes[target.classIndex]!.id);
     }
     if (!Number.isInteger(toIndex) || toIndex < 0 || toIndex >= rules.length) {
       throw new SenifyError(
@@ -676,8 +768,6 @@ export class StyleRuleStore {
         },
       );
     }
-    if (from === toIndex) return rules;
-
     const moved = rules[from]!;
     // Reordering a rule another author wrote is allowed, but the audit marks
     // it (ticket 18, point 2): the rule keeps its provenance, the entry names
@@ -696,7 +786,7 @@ export class StyleRuleStore {
         ...(authoredBy === expected ? {} : { foreignAuthoredBy: authoredBy }),
       },
       author,
-      ...(baseVersion === undefined ? {} : { baseVersion }),
+      baseVersion: registry.version,
     });
   }
 
@@ -729,8 +819,71 @@ export class StyleRuleStore {
           currentVersion: version,
         });
       }
+      await assertThemeVersionUnderLock(tx, siteId, event.baseThemeVersion);
       const nextVersion = version + 1;
       const now = new Date().toISOString();
+      if (event.unusedClass !== undefined) {
+        const guarded = event.unusedClass;
+        const pages = await tx.query<{ id: string; draft: unknown; draft_version: unknown }>(
+          `SELECT id, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`,
+          [siteId],
+        );
+        if (guarded.pageContext !== undefined) {
+          const origin = pages.rows.find((page) => page.id === guarded.pageContext?.pageId);
+          if (origin === undefined) throw new SenifyError("not_found", "Die Editor-Seite gehört nicht zum Projekt", { field: "pageContext.pageId" });
+          const currentVersion = toFiniteNumber(origin.draft_version, "draft_version");
+          if (currentVersion !== guarded.pageContext.baseDraftVersion) throw draftConflictError(guarded.pageContext.baseDraftVersion, currentVersion);
+          guarded.pageDraftVersion = currentVersion + 1;
+        }
+        for (const page of pages.rows) {
+          const draft = toJson<unknown>(page.draft);
+          assertDraftShape(draft);
+          if (Object.values(draft.nodes).some((node) => node.classes?.includes(guarded.name))) {
+            throw new SenifyError("conflict", `Die Klasse "${guarded.name}" wird noch in einem Seitenentwurf verwendet.`, { field: "ruleId", suggestion: "Entferne zuerst alle Zuweisungen." });
+          }
+        }
+        // Reject stale page writes which could otherwise reintroduce the name.
+        for (const page of pages.rows) {
+          await tx.query(`UPDATE pages SET draft_version = draft_version + 1, updated_at = $2 WHERE id = $1`, [page.id, now]);
+        }
+      }
+      if (event.rename !== undefined) {
+        const rename = event.rename;
+        const pages = await tx.query<{ id: string; draft: unknown; draft_version: unknown }>(
+          `SELECT id, draft, draft_version FROM pages WHERE site_id = $1 ORDER BY id FOR UPDATE`,
+          [siteId],
+        );
+        const origin = rename.pageContext === undefined ? undefined : pages.rows.find((page) => page.id === rename.pageContext?.pageId);
+        if (rename.pageContext !== undefined) {
+          if (origin === undefined) throw new SenifyError("not_found", "Die Editor-Seite gehört nicht zum Projekt", { field: "pageContext.pageId" });
+          const currentVersion = toFiniteNumber(origin.draft_version, "draft_version");
+          if (currentVersion !== rename.pageContext.baseDraftVersion) throw draftConflictError(rename.pageContext.baseDraftVersion, currentVersion);
+          rename.pageDraftVersion = currentVersion;
+        }
+        const pagesToWrite: Array<{ id: string; draft: NodeTree; version: number; changed: boolean }> = [];
+        for (const page of pages.rows) {
+          const draft = structuredClone(toJson<unknown>(page.draft));
+          assertDraftShape(draft);
+          let changed = false;
+          for (const node of Object.values(draft.nodes)) {
+            if (node.classes?.includes(rename.to)) {
+              throw new SenifyError("conflict", `Der Klassenname "${rename.to}" wird bereits in einem Seitenentwurf verwendet`, { field: "name" });
+            }
+            if (node.classes === undefined || !node.classes.includes(rename.from)) continue;
+            node.classes = [...new Set(node.classes.map((name) => name === rename.from ? rename.to : name))];
+            changed = true;
+          }
+          // Even an untouched draft may be open in an older client that has
+          // queued an assignment of the old name. Bumping every page version
+          // makes those writes conflict instead of restoring that name.
+          pagesToWrite.push({ id: page.id, draft, changed, version: toFiniteNumber(page.draft_version, "draft_version") + 1 });
+        }
+        for (const page of pagesToWrite) {
+          await tx.query(`UPDATE pages SET draft = $2, draft_version = draft_version + 1, updated_at = $3 WHERE id = $1`, [page.id, toJsonParam(page.draft), now]);
+          if (page.id === rename.pageContext?.pageId) rename.pageDraftVersion = page.version;
+        }
+        event.params.renamedPages = pagesToWrite.filter((page) => page.changed).map((page) => page.id);
+      }
       const result = await tx.query<{ style_rules_version: unknown }>(
         `UPDATE sites
          SET style_rules_json = $2, style_rules_version = $3, updated_at = $4

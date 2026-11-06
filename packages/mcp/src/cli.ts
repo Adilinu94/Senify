@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,6 +13,7 @@ import {
   startupStatus,
 } from "@senify/app";
 import { SenifyError } from "@senify/core";
+import { prepareMirrorSite } from "@senify/framer-import";
 import { skillReferenceFiles } from "@senify/docs-portal";
 import { skillFiles } from "@senify/skills";
 import { EngineClient } from "./client.ts";
@@ -25,6 +26,8 @@ import {
 import { DEFAULT_API_URL, resolveDatabaseUrl } from "./config.ts";
 import { doctorExitCode, formatDoctor, runDoctor } from "./doctor.ts";
 import { serveStdio } from "./server.ts";
+import { exportFramerSite } from "./framer-export.ts";
+import { importFramerSite } from "./framer-site-import.ts";
 
 const SCOPES = ["read", "write", "publish"] as const;
 
@@ -99,6 +102,22 @@ function formatToken(token: TokenEntry): string {
 // publish scope, so the token-less operator surface is not enough.
 function programTokenSecret(): string | undefined {
   return readProgramToken(programTokenPath())?.secret;
+}
+
+export function framerImportSource(source: string): { url: string } | { rootDir: string } | { html: string } {
+  if (/^https?:\/\//i.test(source)) return { url: source };
+  let isDirectory: boolean;
+  try {
+    isDirectory = statSync(source).isDirectory();
+  } catch {
+    throw new SenifyError("validation", "Importquelle nicht gefunden", { field: "quelle" });
+  }
+  if (isDirectory) return { rootDir: source };
+  const html = readFileSync(source, "utf8");
+  if (!html.trimStart().startsWith("<")) {
+    throw new SenifyError("validation", "Importdatei enthält kein HTML", { field: "quelle" });
+  }
+  return { html };
 }
 
 function formatBytes(bytes: number): string {
@@ -324,6 +343,33 @@ export function createProgram(): Command {
       }
     });
 
+  program
+    .command("export")
+    .description("Websites lokal exportieren")
+    .command("framer")
+    .description("FramerExport ausführen und den Mirror lokal speichern")
+    .argument("<url>", "Veröffentlichte Framer-URL")
+    .argument("<ordner>", "Neuer Zielordner")
+    .option("--no-subpages", "Nur die angegebene Seite exportieren")
+    .action(async (url: string, ordner: string, options: { subpages: boolean }) => {
+      const outputDir = await exportFramerSite({ url, outputDir: ordner, subpages: options.subpages }, undefined, (chunk) => process.stderr.write(chunk));
+      console.log(`Export gespeichert: ${outputDir}`);
+      console.log("Der Mirror kann Framer-Laufzeit enthalten; für den Senify-Import den Ordner als Quelle angeben.");
+    });
+
+  program
+    .command("prepare")
+    .description("Lokale Quelldaten vorbereiten")
+    .command("framer")
+    .description("Mehrseitigen Framer-Export mit Medien als Importgrundlage sichern")
+    .argument("<quelle>", "Ordner des strukturierten HTML-Exports")
+    .argument("<ziel>", "Neuer Ausgabeordner")
+    .option("--unframer-snapshot <datei>", "Passenden Unframer-Snapshot hinzufügen")
+    .action(async (quelle: string, ziel: string, options: { unframerSnapshot?: string }) => {
+      const result = await prepareMirrorSite({ rootDir: quelle, outputDir: ziel, ...(options.unframerSnapshot === undefined ? {} : { unframerSnapshot: options.unframerSnapshot }) });
+      console.log(JSON.stringify({ outputDir: result.outputDir, pages: result.pages, blockedPages: result.blockedPages, ignoredFlattenedPages: result.ignoredFlattenedPages, snapshot: result.snapshot, downloadedAssets: result.assets.downloads.length, fonts: result.assets.fonts.length, failedAssets: result.assets.failed, runtimeFreeVerified: false }, null, 2));
+    });
+
   const importCommand = program
     .command("import")
     .description("Import-Werkzeuge (Framer)");
@@ -336,6 +382,7 @@ export function createProgram(): Command {
     .argument("<quelle>", "URL, Mirror-Ordner oder HTML-Datei")
     .requiredOption("--site <siteId>", "Projekt-Id")
     .option("--page-path <path>", "Zielpfad der Seite", "/")
+    .option("--source-page-path <path>", "Quellseite im Mirror, z. B. /blog/artikel")
     .option("--write", "Ergebnis als eine Revision schreiben (Default: Dry-Run)")
     .option("--page-id <pageId>", "In diese bestehende Seite schreiben statt neue anzulegen")
     .option("--base-draft-version <version>", "Aktuelle Draft-Version der Zielseite")
@@ -344,6 +391,7 @@ export function createProgram(): Command {
       "--capture <art>",
       "Wie eine URL-Quelle gelesen wird: ohne Angabe browser mit Rueckfall auf static (ein fehlender Browser meldet sich als Fund), static (nur Server-HTML) oder browser (strikt, Fehler statt Rueckfall)",
     )
+    .option("--mode <modus>", "fidelity für Originaltreue oder dna für Design-DNA")
     .option("--report", "Vollen Bericht als JSON ausgeben")
     .option("--api <url>")
     .action(async (quelle, options) => {
@@ -358,11 +406,11 @@ export function createProgram(): Command {
         apiUrl: resolveApiUrl(options),
         token: secret,
       });
-      const source = /^https?:\/\//i.test(quelle)
-        ? { url: quelle }
-        : readFileSync(quelle, "utf8").startsWith("<")
-          ? { html: readFileSync(quelle, "utf8") }
-          : { rootDir: quelle };
+      const sourceInput = framerImportSource(quelle);
+      if (options.sourcePagePath !== undefined && !("rootDir" in sourceInput)) {
+        throw new SenifyError("validation", "Ein Quellseitenpfad benötigt einen Mirror-Ordner", { field: "sourcePagePath" });
+      }
+      const source = { ...sourceInput, ...(options.sourcePagePath === undefined ? {} : { page: String(options.sourcePagePath) }) };
       const write = options.write === true;
       const body: Record<string, unknown> = {
         source,
@@ -374,6 +422,7 @@ export function createProgram(): Command {
           : { baseDraftVersion: Number.parseInt(String(options.baseDraftVersion), 10) }),
         ...(options.applyTheme === true ? { applyTheme: true } : {}),
         ...(options.capture === undefined ? {} : { capture: String(options.capture) }),
+        ...(options.mode === undefined ? {} : { mode: String(options.mode) }),
       };
       const answer = await client.request<{
         job: { id: string; status: string; dryRun: boolean };
@@ -573,6 +622,28 @@ export function createProgram(): Command {
       for (const finding of report.findings) {
         console.log(`  [${finding.severity}] ${finding.kind}: ${finding.message}`);
       }
+    });
+
+  importCommand
+    .command("framer-site")
+    .description("Alle Seiten eines strukturierten Exports analysieren oder neu anlegen")
+    .argument("<quelle>", "Ordner des HTML-Exports")
+    .requiredOption("--site <siteId>", "Projekt-Id")
+    .option("--write", "Seiten neu anlegen; vorhandene Seiten werden nicht überschrieben")
+    .option("--source-url <url>", "Veröffentlichte URL für Sitemap und Browser-Capture flacher Unterseiten")
+    .option("--api <url>", "API-Basis-URL")
+    .action(async (quelle: string, options: { site: string; write?: boolean; api?: string; sourceUrl?: string }) => {
+      const secret = programTokenSecret();
+      if (secret === undefined) throw new SenifyError("validation", "Kein Programm-Token gefunden");
+      const client = new EngineClient({ apiUrl: resolveApiUrl(options), token: secret });
+      const result = await importFramerSite(client, {
+        siteId: options.site,
+        rootDir: quelle,
+        write: options.write === true,
+        ...(options.sourceUrl === undefined ? {} : { sourceUrl: options.sourceUrl }),
+      });
+      console.log(JSON.stringify(result, null, 2));
+      if (result.status === "blocked" || result.status === "partial") process.exitCode = 1;
     });
 
   program

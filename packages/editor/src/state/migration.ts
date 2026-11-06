@@ -62,9 +62,11 @@ export function migrateV1ToV2(tree: NodeTree): EditorDocument {
   for (const [id, node] of Object.entries(tree.nodes)) {
     const props: DeviceValueMap = { ...(node.props ?? {}) };
     const hiddenDevices: HiddenDevice[] = [];
+    const shownDevices: HiddenDevice[] = [];
     for (const device of ["tablet", "mobile"] as const) {
       const override = node.overrides?.[device];
       if (override?.hidden === true) hiddenDevices.push(device);
+      if (override?.hidden === false) shownDevices.push(device);
       if (override?.props === undefined) continue;
       for (const [key, value] of Object.entries(override.props)) {
         props[deviceKey(key, device)] = value;
@@ -84,8 +86,10 @@ export function migrateV1ToV2(tree: NodeTree): EditorDocument {
     }
     if (node.locked !== undefined) migrated.locked = node.locked;
     if (node.hidden !== undefined) migrated.hidden = node.hidden;
+    if (node.classes !== undefined && node.classes.length > 0) migrated.classes = [...node.classes];
     if (node.variant !== undefined) migrated.variant = node.variant;
     if (hiddenDevices.length > 0) migrated.hiddenDevices = hiddenDevices;
+    if (shownDevices.length > 0) migrated.shownDevices = shownDevices;
     if (node.motion !== undefined) migrated.motion = structuredClone(node.motion);
     nodes[id] = migrated;
   }
@@ -181,6 +185,9 @@ export type LoadOptions = {
   // The last valid document. When the load fails it is returned with the
   // "restored" status instead of throwing.
   fallback?: EditorDocument;
+  // Site rules are stored separately from the page and must be present before
+  // checking a page's class references.
+  styleRules?: StyleRule[];
 };
 
 export function loadDocument(
@@ -204,7 +211,16 @@ export function loadDocument(
       version === 2
         ? (input as EditorDocument)
         : migrateV1ToV2(input as NodeTree);
-    const document = reindexDocument(structuredClone(raw));
+    const loaded = structuredClone(raw);
+    if (options.styleRules !== undefined) loaded.styleRules = structuredClone(options.styleRules);
+    const document = reindexDocument(loaded);
+    if (options.styleRules !== undefined) {
+      // The registry is site-wide; scoped rules for other pages are not part
+      // of this page's document, but must remain untouched on the server.
+      document.styleRules = document.styleRules.filter((rule) =>
+        rule.kind !== "scoped" || (rule.scope !== undefined && document.nodes[rule.scope.nodeId] !== undefined),
+      );
+    }
     const problems = validateDocument(document);
     const first = problems[0];
     if (first !== undefined) {

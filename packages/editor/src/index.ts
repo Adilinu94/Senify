@@ -125,9 +125,13 @@ export {
 export {
   HistoryStack,
   HISTORY_LIMIT,
+  renameHistoryReferences,
   type HistoryEntry,
+  type HistoryEntryStatus,
   type HistoryStackOptions,
+  type HistorySnapshot,
   type RecordInput,
+  type ExternalRecordInput,
 } from "./history.ts";
 export {
   InlineEditing,

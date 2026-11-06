@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -139,11 +140,15 @@ function errorPayload(error: unknown, attempt = 1): { error: McpErrorPayload } {
 
 // Audit entries are short: long strings and arrays are summarised, secrets
 // are redacted engine-side.
-function summarizeArgs(
+export function summarizeArgs(
   args: Record<string, unknown>,
 ): Record<string, unknown> {
   const summary: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {
+    if (/token|secret|password|authorization/i.test(key)) {
+      summary[key] = "[redacted]";
+      continue;
+    }
     if (typeof value === "string") {
       summary[key] = value.length > 120 ? `${value.slice(0, 119)}…` : value;
     } else if (Array.isArray(value)) {
@@ -239,7 +244,7 @@ const IDEMPOTENT_TOOLS = new Set([
   "diff_reference",
 ]);
 
-const OPEN_WORLD_TOOLS = new Set(["analyze_reference", "import_framer_page"]);
+const OPEN_WORLD_TOOLS = new Set(["analyze_reference", "import_framer_page", "import_framer_site", "prepare_framer_export"]);
 
 const REFERENCE_REDESIGN_WORKFLOW = [
   "Vault first: search_references/list_references → get_reference and read the profile, documents, rules and brief.",
@@ -781,7 +786,7 @@ export function createMcpServer(options: McpServerOptions): Server {
         // with these arguments", or a client would give up on a fresh call
         // because an old one looped. The counter only ever grows, and only for
         // calls that actually failed.
-        const signature = `${tool.name}:${JSON.stringify(effective)}`;
+        const signature = createHash("sha256").update(tool.name).update("\0").update(JSON.stringify(effective)).digest("hex");
         const attempt = (attempts.get(signature) ?? 0) + 1;
         // Insert-then-trim: Map preserves insertion order, so the first key is
         // the oldest. A client that fails on a thousand different arguments
