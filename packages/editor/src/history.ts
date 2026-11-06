@@ -483,13 +483,54 @@ export class HistoryStack {
     return this.#entries.slice(this.#cursor);
   }
 
-  canRestoreTo(entryId: string): boolean {
-    if (this.#pendingExternal !== null) return false;
+  #routeTo(entryId: string): HistoryDirection | null {
+    if (this.#pendingExternal !== null) return null;
     const index = this.#entries.findIndex((entry) => entry.id === entryId);
-    if (index < 0) return false;
+    if (index < 0) return null;
     const target = index + 1;
-    return this.#entries.slice(Math.min(target, this.#cursor), Math.max(target, this.#cursor))
-      .every((entry) => entry.status === "committed" && !entry.external);
+    if (target === this.#cursor) return null;
+    return target < this.#cursor ? "undo" : "redo";
+  }
+
+  // The full path to `entryId`, in execution order. Each step is one
+  // undo/redo: undo walks the applied stack down to the target, redo walks the
+  // future stack up to it. A pending operation, an unknown entry or the current
+  // state returns null.
+  routeTo(entryId: string): { direction: HistoryDirection; entry: HistoryEntry }[] | null {
+    const direction = this.#routeTo(entryId);
+    if (direction === null) return null;
+    const index = this.#entries.findIndex((entry) => entry.id === entryId);
+    const target = index + 1;
+    if (direction === "undo") {
+      const route: { direction: HistoryDirection; entry: HistoryEntry }[] = [];
+      for (let i = this.#cursor - 1; i >= target; i -= 1) {
+        const entry = this.#entries[i];
+        if (!entry || entry.status !== "committed") return null;
+        route.push({ direction, entry });
+      }
+      return route;
+    }
+    const route: { direction: HistoryDirection; entry: HistoryEntry }[] = [];
+    for (let i = this.#cursor; i < target; i += 1) {
+      const entry = this.#entries[i];
+      if (!entry || entry.status !== "committed") return null;
+      route.push({ direction, entry });
+    }
+    return route;
+  }
+
+  // True when every step on the route is a committed local entry: the jump can
+  // run synchronously through the store's patch gate.
+  canRestoreTo(entryId: string): boolean {
+    const route = this.routeTo(entryId);
+    return route !== null && route.every((step) => !step.entry.external);
+  }
+
+  // True when the route exists and every step is either local or a confirmed
+  // external entry. Executing it still requires a registered runner and a clean
+  // save state for each external step.
+  canRestoreToAsync(entryId: string): boolean {
+    return this.routeTo(entryId) !== null;
   }
 
   // „Restore as Draft": the patches that roll the applied stack back to the

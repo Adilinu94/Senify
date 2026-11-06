@@ -119,3 +119,16 @@ Alle Aufnahmen liegen unter `docs/research/elementor-captures-2026-11-06/` und w
 ```
 
 Die Aufnahme verwendete Playwright/Chromium aus dem Projekt. Die Referenzdienste wurden nach der Aufnahme gestoppt; `start.ps1` startet sie erneut.
+
+## hcm.local (Tännig-Apotheke), 06.11.2026
+
+**Umgebung:** WordPress 7.1.4, Elementor 4.2.3 mit aktivem Atomic Editor; kein offizielles Elementor Pro, aber `pro-elements` und zahlreiche Addons (ElementsKit, MetForm, WooCommerce, Header Footer Elementor u. a.). Die Anmeldung erfolgte über das Anwendungspasswort als Administrator; für die Editor-UI wurden ein temporärer Administrator und die Testseite 1331 („Senify Elementor Abnahme 2026-11-06“, Entwurf) angelegt.
+
+**Live belegt:**
+- Der Editor lädt mit der klassischen Panel-Struktur (`#elementor-panel`, `#elementor-preview-iframe`) und deutschen Labels („Design-System“, „Seite Einstellungen“, „Verlauf“, „Struktur“, „Vorschau der Änderungen“).
+- Atomic Elements (Div-Block, Flexbox, Raster, Tabs, Überschrift, Bild, Absatz, SVG, Button, YouTube, Trenner, Video, Atomic Form) und klassische Widgets/Plugin-Kategorien; die „Atomic editor“-Einführung erscheint beim ersten Start.
+- **Design System** mit den Tabs Variablen und Klassen (kein Defaults-Tab in 4.2.3). Echte **6 globale Klassen**: `leistungheading`, `leistungabsart`, `leistung`, `absatz`, `headinghero`, `Subheading`. Echte **3 Variablen**: `accent` #103F92, `ueberschrift` #2a2a2a, `hell` #DEE3ED.
+- Der Klassen-Manager ist exponiert (Fähigkeiten `elementor_global_classes_apply_class`, `update_class`, `remove_class`, `elementor_atomic_widgets_edit_local_css_class`). Die Einführung erklärt Priorität, Umbenennen, Löschen und die Wirkung über alle Elemente der Klasse; „Änderungen speichern“ ist vorhanden.
+- Belege: [Editor](elementor-captures-2026-11-06/hcm-editor.png), [Editor-DOM](elementor-captures-2026-11-06/hcm-editor-dom.png), [Klassen-Einführung](elementor-captures-2026-11-06/hcm-classes-intro.png), [Klassenliste](elementor-captures-2026-11-06/hcm-classes.png), [Variablen](elementor-captures-2026-11-06/hcm-variables.png).
+
+**Offen:** Testklasse/Testvariable anlegen, priorisieren, umbenennen und löschen; die echten 6 Klassen und 3 Variablen wurden nicht verändert. Aufräumen von Testseite 1331 und temporärem Administrator. Der Editor braucht beim ersten Laden deutlich länger als die Core-Referenz; eine versteckte Loader-Vorlage täuscht einfache Ready-Checks. Die Pro-Flächen sind über `pro-elements` und Addons, nicht über offizielles Elementor Pro, exponiert; eine Pro-Paritätsaussage bleibt ausgeschlossen.
