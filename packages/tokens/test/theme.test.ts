@@ -174,6 +174,15 @@ describe("emitters", () => {
     expect(tailwind).toContain("--text-h1: var(--type-h1-size);");
   });
 
+  it("emits primitive font sizes and mirrors them into the text namespace", () => {
+    const theme = mergeThemePatch(defaultTheme(), {
+      tokens: { primitive: { fontSize: { gross: "1.5rem" } } },
+    });
+    const resolved = resolveTheme(theme);
+    expect(emitCss(resolved)).toContain("--font-size-gross: 1.5rem;");
+    expect(emitTailwindTheme(resolved)).toContain("--text-gross: var(--font-size-gross);");
+  });
+
   it("emits font faces and preloads once files exist", () => {
     const theme = defaultTheme();
     // Isolate the one file this test names: the default theme ships its own

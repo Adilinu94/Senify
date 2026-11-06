@@ -4,8 +4,8 @@ const sorted = (value) => Array.isArray(value) ? value.map(sorted) : value && ty
   ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, sorted(item)])) : value;
 const equal = (left, right) => JSON.stringify(sorted(left)) === JSON.stringify(sorted(right));
 const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-const VARIABLE_GROUPS = ["color", "spacing", "radius", "shadow"];
-const VARIABLE_CSS_PREFIX = { color: "color", spacing: "space", radius: "radius", shadow: "shadow" };
+const VARIABLE_GROUPS = ["color", "spacing", "radius", "shadow", "fontSize"];
+const VARIABLE_CSS_PREFIX = { color: "color", spacing: "space", radius: "radius", shadow: "shadow", fontSize: "font-size" };
 const validReceipt = (receipt) => record(receipt) && ["delete", "restore", "rename"].includes(receipt.kind) && VARIABLE_GROUPS.includes(receipt.group) &&
   typeof receipt.name === "string" && /^[a-z][a-z0-9-]*$/.test(receipt.name) && !["constructor", "prototype"].includes(receipt.name) &&
   (receipt.kind !== "rename" || (typeof receipt.newName === "string" && /^[a-z][a-z0-9-]*$/.test(receipt.newName) && !["constructor", "prototype"].includes(receipt.newName))) &&

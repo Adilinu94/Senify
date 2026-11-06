@@ -719,11 +719,16 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("textbox", { name: "Wert des neuen Schattens" }).fill("0 1px 2px #00000033");
       await tab.getByRole("button", { name: "Schatten hinzufügen" }).click();
       await tab.getByRole("textbox", { name: "Schatten laut", exact: true }).waitFor();
+      await tab.getByRole("textbox", { name: "Name der neuen Schriftgröße" }).fill("gross");
+      await tab.getByRole("textbox", { name: "Wert der neuen Schriftgröße" }).fill("1.5rem");
+      await tab.getByRole("button", { name: "Schriftgröße hinzufügen" }).click();
+      await tab.getByRole("textbox", { name: "Schriftgröße gross", exact: true }).waitFor();
       const extended = await (await fetch(`${running.dashboardUrl}/api/sites/${site.id}/theme`)).json() as {
-        theme: { tokens: { primitive: { radius: Record<string, string>; shadow: Record<string, string> } } };
+        theme: { tokens: { primitive: { radius: Record<string, string>; shadow: Record<string, string>; fontSize: Record<string, string> } } };
       };
       expect(extended.theme.tokens.primitive.radius.karte).toBe("8px");
       expect(extended.theme.tokens.primitive.shadow.laut).toBe("0 1px 2px #00000033");
+      expect(extended.theme.tokens.primitive.fontSize.gross).toBe("1.5rem");
       await search.fill("LUFT");
       expect(await tab.locator('input[aria-label="Farbe accent"]').isVisible()).toBe(false);
       expect(await tab.getByRole("textbox", { name: "Abstand luft", exact: true }).isVisible()).toBe(true);
@@ -765,6 +770,7 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       expect(await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).inputValue()).toBe("#abcdef");
       expect(await tab.getByRole("textbox", { name: "Radius karte", exact: true }).inputValue()).toBe("8px");
       expect(await tab.getByRole("textbox", { name: "Schatten laut", exact: true }).inputValue()).toBe("0 1px 2px #00000033");
+      expect(await tab.getByRole("textbox", { name: "Schriftgröße gross", exact: true }).inputValue()).toBe("1.5rem");
       const icon = tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="icon000001"]');
       await icon.click();
       await tab.locator('.senify-inspector__tab[data-tab="content"]').click();

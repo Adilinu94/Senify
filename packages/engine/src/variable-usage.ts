@@ -1,13 +1,14 @@
 import { SenifyError } from "@senify/core";
 import type { Store } from "./store.ts";
 
-type VariableFamily = "color" | "spacing" | "radius" | "shadow";
+type VariableFamily = "color" | "spacing" | "radius" | "shadow" | "fontSize";
 
 const VARIABLE_CSS_PREFIX: Record<VariableFamily, string> = {
   color: "color",
   spacing: "space",
   radius: "radius",
   shadow: "shadow",
+  fontSize: "font-size",
 };
 
 export function variableReference(family: string, name: string): { group: VariableFamily; ref: string; cssVariable: string } {
