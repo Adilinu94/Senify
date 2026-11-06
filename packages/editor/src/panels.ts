@@ -165,14 +165,18 @@ export function tokenOptionsFor(group: TokenGroup, theme: Theme): TokenOption[] 
       // the generated scale and the custom variables distinguishable.
       return [...roles, ...groupEntries(primitive, "fontSize")];
     }
-    case "font":
-      return [
+    case "font": {
+      const bases = [
         { ref: "font.display", label: "display", value: theme.fonts.display.family },
         { ref: "font.body", label: "body", value: theme.fonts.body.family },
         ...(theme.fonts.mono
           ? [{ ref: "font.mono", label: "mono", value: theme.fonts.mono.family }]
           : []),
       ];
+      // User-authored font families sit next to the three generated roles in
+      // the same font-family control.
+      return [...bases, ...groupEntries(primitive, "fontFamily")];
+    }
     case "ease":
       return Object.entries(resolved.motion.ease).map(([name, value]) => ({
         ref: `ease.${name}`,

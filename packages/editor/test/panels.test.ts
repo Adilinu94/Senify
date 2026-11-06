@@ -119,10 +119,13 @@ describe("registry-generated property panels", () => {
     );
     expect(tokenOptionsFor("type", defaultTheme()).map((option) => option.ref)).toContain("type.h1.size");
     const withFontSize = mergeThemePatch(defaultTheme(), {
-      tokens: { primitive: { fontSize: { gross: "1.5rem" } } },
+      tokens: { primitive: { fontSize: { gross: "1.5rem" }, fontFamily: { marke: "\"Sora\", sans-serif" } } },
     });
     expect(tokenOptionsFor("type", withFontSize).map((option) => option.ref)).toContain(
       "fontSize.gross",
+    );
+    expect(tokenOptionsFor("font", withFontSize).map((option) => option.ref)).toContain(
+      "fontFamily.marke",
     );
   });
 

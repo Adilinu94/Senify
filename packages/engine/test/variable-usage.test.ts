@@ -46,6 +46,11 @@ describe("variable references", () => {
       ref: "fontSize.gross",
       cssVariable: "--font-size-gross",
     });
+    expect(variableReference("fontFamily", "marke")).toEqual({
+      group: "fontFamily",
+      ref: "fontFamily.marke",
+      cssVariable: "--font-family-marke",
+    });
     const value = { card: { $token: "radius.karte" }, box: "0 1px 2px var(--shadow-laut)" };
     const radius = variableReference("radius", "karte");
     const shadow = variableReference("shadow", "laut");

@@ -723,12 +723,17 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("textbox", { name: "Wert der neuen Schriftgröße" }).fill("1.5rem");
       await tab.getByRole("button", { name: "Schriftgröße hinzufügen" }).click();
       await tab.getByRole("textbox", { name: "Schriftgröße gross", exact: true }).waitFor();
+      await tab.getByRole("textbox", { name: "Name der neuen Schriftfamilie" }).fill("marke");
+      await tab.getByRole("textbox", { name: "Wert der neuen Schriftfamilie" }).fill("\"Sora\", sans-serif");
+      await tab.getByRole("button", { name: "Schriftfamilie hinzufügen" }).click();
+      await tab.getByRole("textbox", { name: "Schriftfamilie marke", exact: true }).waitFor();
       const extended = await (await fetch(`${running.dashboardUrl}/api/sites/${site.id}/theme`)).json() as {
-        theme: { tokens: { primitive: { radius: Record<string, string>; shadow: Record<string, string>; fontSize: Record<string, string> } } };
+        theme: { tokens: { primitive: { radius: Record<string, string>; shadow: Record<string, string>; fontSize: Record<string, string>; fontFamily: Record<string, string> } } };
       };
       expect(extended.theme.tokens.primitive.radius.karte).toBe("8px");
       expect(extended.theme.tokens.primitive.shadow.laut).toBe("0 1px 2px #00000033");
       expect(extended.theme.tokens.primitive.fontSize.gross).toBe("1.5rem");
+      expect(extended.theme.tokens.primitive.fontFamily.marke).toBe("\"Sora\", sans-serif");
       await search.fill("LUFT");
       expect(await tab.locator('input[aria-label="Farbe accent"]').isVisible()).toBe(false);
       expect(await tab.getByRole("textbox", { name: "Abstand luft", exact: true }).isVisible()).toBe(true);
@@ -771,6 +776,7 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       expect(await tab.getByRole("textbox", { name: "Radius karte", exact: true }).inputValue()).toBe("8px");
       expect(await tab.getByRole("textbox", { name: "Schatten laut", exact: true }).inputValue()).toBe("0 1px 2px #00000033");
       expect(await tab.getByRole("textbox", { name: "Schriftgröße gross", exact: true }).inputValue()).toBe("1.5rem");
+      expect(await tab.getByRole("textbox", { name: "Schriftfamilie marke", exact: true }).inputValue()).toBe("\"Sora\", sans-serif");
       const icon = tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="icon000001"]');
       await icon.click();
       await tab.locator('.senify-inspector__tab[data-tab="content"]').click();

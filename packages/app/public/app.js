@@ -6245,14 +6245,15 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   // Global tokens share the same versioned theme across every page.
   // The editor sends only the changed token, so other families stay intact.
   const variableDrafts = new Map();
-  const VARIABLE_GROUPS = ["color", "spacing", "radius", "shadow", "fontSize"];
-  const VARIABLE_LABELS = { color: "Farbe", spacing: "Abstand", radius: "Radius", shadow: "Schatten", fontSize: "Schriftgröße" };
+  const VARIABLE_GROUPS = ["color", "spacing", "radius", "shadow", "fontSize", "fontFamily"];
+  const VARIABLE_LABELS = { color: "Farbe", spacing: "Abstand", radius: "Radius", shadow: "Schatten", fontSize: "Schriftgröße", fontFamily: "Schriftfamilie" };
   const VARIABLE_CREATE_COPY = {
     color: { heading: "Farben", name: "Name der neuen Farbe", value: "Wert der neuen Farbe", add: "Farbe hinzufügen", exists: "Diese Farbe existiert bereits.", placeholder: "#000000" },
     spacing: { heading: "Abstände", name: "Name des neuen Abstands", value: "Wert des neuen Abstands", add: "Abstand hinzufügen", exists: "Dieser Abstand existiert bereits.", placeholder: "16px" },
     radius: { heading: "Radien", name: "Name des neuen Radius", value: "Wert des neuen Radius", add: "Radius hinzufügen", exists: "Dieser Radius existiert bereits.", placeholder: "8px" },
     shadow: { heading: "Schatten", name: "Name des neuen Schattens", value: "Wert des neuen Schattens", add: "Schatten hinzufügen", exists: "Dieser Schatten existiert bereits.", placeholder: "0 1px 2px #00000033" },
     fontSize: { heading: "Schriftgrößen", name: "Name der neuen Schriftgröße", value: "Wert der neuen Schriftgröße", add: "Schriftgröße hinzufügen", exists: "Diese Schriftgröße existiert bereits.", placeholder: "1.25rem" },
+    fontFamily: { heading: "Schriftfamilien", name: "Name der neuen Schriftfamilie", value: "Wert der neuen Schriftfamilie", add: "Schriftfamilie hinzufügen", exists: "Diese Schriftfamilie existiert bereits.", placeholder: "\"Sora\", sans-serif" },
   };
   const variableLabel = (group) => VARIABLE_LABELS[group] ?? group;
   const variableCreateDrafts = {
@@ -6261,6 +6262,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     radius: { name: "", value: "" },
     shadow: { name: "", value: "" },
     fontSize: { name: "", value: "" },
+    fontFamily: { name: "", value: "" },
   };
   let variableQuery = "";
   let variableSaving = false;
@@ -6390,6 +6392,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       if (group === "radius" && !window.CSS.supports("border-radius", value)) return "Bitte einen gültigen Radius eingeben, zum Beispiel 8px oder 1rem.";
       if (group === "shadow" && !window.CSS.supports("box-shadow", value)) return "Bitte einen gültigen Schatten eingeben, zum Beispiel 0 1px 2px #00000033.";
       if (group === "fontSize" && !window.CSS.supports("font-size", value)) return "Bitte eine gültige Schriftgröße eingeben, zum Beispiel 1.25rem oder 20px.";
+      if (group === "fontFamily" && !window.CSS.supports("font-family", value)) return "Bitte eine gültige Schriftfamilie eingeben, zum Beispiel \"Sora\", sans-serif.";
       return null;
     };
     const saveVariable = async (group, name, value, button) => {
@@ -6852,6 +6855,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     appendPrimitiveGroup("radius");
     appendPrimitiveGroup("shadow");
     appendPrimitiveGroup("fontSize");
+    appendPrimitiveGroup("fontFamily");
     filterVariables();
     if (variableHistory.state().status === "running") for (const button of variablesHost.querySelectorAll("button")) button.disabled = true;
   }
