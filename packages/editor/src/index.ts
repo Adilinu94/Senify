@@ -123,6 +123,7 @@ export {
 export {
   HistoryStack,
   HISTORY_LIMIT,
+  renameHistoryReferences,
   type HistoryEntry,
   type HistoryEntryStatus,
   type HistoryStackOptions,

@@ -24,11 +24,14 @@ Bearbeitungsschritte.
 3. Erst nach erfolgreicher Migration wird das Server-Dokument übernommen
    (`replaceDocumentPreservingHistory`). Cursor und Eintrags-IDs bleiben
    erhalten.
-4. Die Umbenennung selbst bleibt vorerst ein getrennter externer Schritt mit
-   eigenem Undo/Redo. Sie wird erst dann ein Eintrag der gemeinsamen History,
-   wenn die Pipeline eine dokumentändernde externe Bestätigung atomar
-   übernehmen kann (siehe Issue 09). Ein bloßes Erhalten der History ohne
-   Migration ist ausgeschlossen.
+4. Die Umbenennung ist ein bestätigter externer Eintrag der gemeinsamen History.
+   Der erste Schritt und die Navigation übernehmen Dokument, Eintrag und alle
+   Versionen atomar (`confirmExternalReplacement`); die Navigation reicht das
+   gefetchte Dokument über den externen Controller weiter. Die Reload-Recovery
+   importiert die migrierte History und das Dokument gemeinsam
+   (`confirmExternalHistoryReplacement`) und erlaubt dabei höchstens einen
+   Registry-Sprung. Ein bloßes Erhalten der History ohne Migration ist
+   ausgeschlossen.
 
 ## Folgen
 
@@ -36,5 +39,8 @@ Bearbeitungsschritte.
   Namen.
 - Bei CSS-Textverweisen in alten Patches bleibt das bisherige sichere Verhalten:
   die History wird verworfen.
-- Die gemeinsame History zeigt die Umbenennung noch nicht als eigenen Eintrag;
-  dieser Rest ist in Issue 09 mit dem fehlenden Pipeline-Vertrag dokumentiert.
+- Die gemeinsame History zeigt die Umbenennung als eigenen Eintrag; Undo/Redo,
+  Reload, Retry und die explizite Recovery laufen über denselben Lease- und
+  Checkpoint-Vertrag wie Delete/Restore.
+- Der getrennte Rename-Knopf ist entfallen; Toolbar und Variablenbereich zeigen
+  denselben Schritt.

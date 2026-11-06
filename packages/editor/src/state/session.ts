@@ -221,6 +221,22 @@ export class EditorSession {
     } finally { this.#confirming = false; this.#emit(); }
   }
 
+  confirmExternalHistoryReplacement(id: string, input: unknown, base: Readonly<ExternalVersions>, document: EditorDocument): boolean {
+    if (this.#disposed || this.pendingExternalId !== id || this.store.history.size !== 0) return false;
+    let checkpoint: SessionHistoryCheckpoint;
+    try {
+      const next = (input as SessionHistoryCheckpoint)?.versions;
+      if (!next) return false;
+      const matched = matchingHistoryCheckpoint(input, this.pageId, this.siteId, next, document);
+      if (matched === null) return false;
+      checkpoint = matched;
+    } catch { return false; }
+    this.#confirming = true;
+    try {
+      return this.pipeline.confirmExternalHistoryReplacement(id, checkpoint.history, base, checkpoint.versions, document, checkpoint.classDeletionReceipts);
+    } finally { this.#confirming = false; this.#emit(); }
+  }
+
   resetExternalHistory(id: string, original: EditorDocument, base: Readonly<ExternalVersions>, document: EditorDocument, next: Readonly<ExternalVersions>, beforeCommit: () => void): boolean {
     if (this.#disposed) return false;
     this.#confirming = true;

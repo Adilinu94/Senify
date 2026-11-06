@@ -6249,22 +6249,18 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   let variableQuery = "";
   let variableSaving = false;
   let lastVariableDeletion = null;
-  let lastVariableRename = null;
   const variableHistoryKey = `senify:variable-history:${siteId}:${pageId}`;
   try {
     const saved = JSON.parse(window.sessionStorage.getItem(variableHistoryKey) ?? "null");
     if (saved && ["color", "spacing"].includes(saved.group) && typeof saved.receiptId === "string") {
       if (saved.kind === "delete" && typeof saved.name === "string" && typeof saved.restored === "boolean") {
         lastVariableDeletion = { group: saved.group, name: saved.name, receiptId: saved.receiptId, restored: saved.restored };
-      } else if (saved.kind === "rename" && typeof saved.original === "string" && typeof saved.renamed === "string" && typeof saved.undone === "boolean") {
-        lastVariableRename = { group: saved.group, original: saved.original, renamed: saved.renamed, receiptId: saved.receiptId, undone: saved.undone };
       }
     }
   } catch { /* Storage can be unavailable or contain invalid data. */ }
   const rememberVariableHistory = () => {
     try {
       if (lastVariableDeletion) window.sessionStorage.setItem(variableHistoryKey, JSON.stringify({ kind: "delete", ...lastVariableDeletion }));
-      else if (lastVariableRename) window.sessionStorage.setItem(variableHistoryKey, JSON.stringify({ kind: "rename", ...lastVariableRename }));
       else window.sessionStorage.removeItem(variableHistoryKey);
     } catch { /* The action remains available for the current editor session. */ }
   };
@@ -6293,7 +6289,6 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       canvas.setTheme(latest.theme, latest.css);
       inspector.setTheme(latest.theme);
       lastVariableDeletion = null;
-      lastVariableRename = null;
       rememberVariableHistory();
     },
     onChange: () => {
@@ -6440,7 +6435,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       return entry.id;
     };
     const failVariableExternalHistory = (operation) => {
-      if (typeof operation.externalHistoryId !== "string") return;
+      if (operation.committed || typeof operation.externalHistoryId !== "string") return;
       try { session.failExternalAction(operation.externalHistoryId); } catch { /* History may have been cleared by a reload. */ }
       delete operation.externalHistoryId;
     };
@@ -6489,20 +6484,32 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         const clean = save.pending === 0 && save.unsupported.length === 0 && !["saving", "conflict", "error"].includes(save.status);
         const alreadyLoaded = session.version === result.pageDraftVersion && siteThemeVersion === result.version && clean;
         let accepted;
+        let renameEntryId;
         if (operation.action === "rename") {
           const unchanged = clean && session.version === operation.body.pageContext.baseDraftVersion && siteThemeVersion === operation.body.baseThemeVersion;
           accepted = (unchanged || alreadyLoaded) && latest.version === result.version && fresh.draftVersion === result.pageDraftVersion && registry.version === result.registryVersion;
           if (accepted) {
-            // Rename rewrites references on the server; replacing the document
-            // keeps the local page consistent. Structured token references in
-            // retained history patches are migrated so undo/redo cannot bring
-            // the old name back. CSS-text references are not guessed: then the
-            // history is discarded instead.
+            // Rename rewrites references on the server. Structured token
+            // references in retained history patches are migrated so undo/redo
+            // cannot bring the old name back; CSS-text references discard the
+            // history instead of guessing. The confirmed server state is
+            // adopted together with the committed external history entry.
             const loaded = editor.loadDocument(fresh.draft, { styleRules: registry.rules }).document;
             const migrated = session.migrateHistoryReferences(operation.group, operation.name, operation.body.newName);
-            session.replaceDocument(loaded, fresh.draftVersion, registry.version, { preserveHistory: migrated });
-            session.acceptThemeVersion(latest.version);
-            setVersion(fresh.draftVersion);
+            renameEntryId = operation.externalHistoryId;
+            const base = session.pipeline.externalVersions();
+            const next = { pageVersion: fresh.draftVersion, themeVersion: latest.version, registryVersion: registry.version };
+            const atomic = migrated && unchanged && clean && typeof renameEntryId === "string" &&
+              session.confirmExternalReplacement(renameEntryId, session.document, base, next, loaded);
+            if (!atomic) {
+              session.replaceDocument(loaded, fresh.draftVersion, registry.version, { preserveHistory: migrated });
+              session.acceptThemeVersion(latest.version);
+              setVersion(fresh.draftVersion);
+              if (typeof renameEntryId === "string") session.commitExternalAction(renameEntryId, { versionAfter: fresh.draftVersion });
+            } else {
+              setVersion(fresh.draftVersion);
+            }
+            operation.committed = typeof renameEntryId === "string";
           }
         } else {
           accepted = latest.version === result.version && (alreadyLoaded || session.acceptExternalVersions(operation.body.pageContext.baseDraftVersion, operation.body.baseThemeVersion, result.pageDraftVersion, result.version));
@@ -6512,10 +6519,8 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         canvas.setTheme(latest.theme, latest.css);
         inspector.setTheme(latest.theme);
         if (operation.action === "delete") {
-          lastVariableRename = null;
           lastVariableDeletion = { group: operation.group, name: operation.name, receiptId: operation.body.receiptId, restored: false };
         } else if (operation.action === "restore") {
-          lastVariableRename = null;
           lastVariableDeletion = { group: operation.group, name: operation.name, receiptId: operation.body.receiptId, restored: true };
         } else {
           const oldKey = `${operation.group}.${operation.name}`;
@@ -6525,18 +6530,15 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
             variableDrafts.delete(oldKey);
           }
           lastVariableDeletion = null;
-          const history = operation.history;
-          const hasHistory = history && typeof history.original === "string" && typeof history.renamed === "string" && typeof history.undone === "boolean";
-          lastVariableRename = hasHistory
-            ? { group: operation.group, original: history.original, renamed: history.renamed, undone: history.undone, receiptId: operation.body.receiptId }
-            : { group: operation.group, original: operation.name, renamed: operation.body.newName, undone: false, receiptId: operation.body.receiptId };
         }
         rememberVariableHistory();
         if (accepted) {
           pendingVariableOperation = null;
-          // The server result and local base agree; navigation is safe again.
-          // Shared async undo/redo is a separate contract.
-          failVariableExternalHistory(operation);
+          if (operation.action === "rename" && typeof renameEntryId === "string") {
+            variableHistory.recordRename(renameEntryId, { kind: "rename", group: operation.group, name: operation.name, newName: operation.body.newName, receiptId: result.receiptId, entryId: renameEntryId });
+          } else {
+            failVariableExternalHistory(operation);
+          }
           try { window.sessionStorage.removeItem(pendingVariableKey); } catch { /* A replay remains idempotent. */ }
         } else {
           // A confirmed write without an adoptable base still leaves this
@@ -6618,7 +6620,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
             beforeCommit: () => {
               if (!checkpointOnly) window.sessionStorage.removeItem(variableHistoryKey);
               pendingVariableOperation = null;
-              if (!checkpointOnly) { lastVariableDeletion = null; lastVariableRename = null; }
+              if (!checkpointOnly) { lastVariableDeletion = null; }
               siteTheme = theme.theme;
               siteThemeVersion = theme.version;
             },
@@ -6667,31 +6669,21 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     }
     const sharedNavigation = variableHistory.navigation();
     if (sharedNavigation) {
-      const label = sharedNavigation.action === "restore" ? `Löschen von ${sharedNavigation.name} rückgängig` : `Löschen von ${sharedNavigation.name} wiederholen`;
+      const label = sharedNavigation.action === "rename"
+        ? (sharedNavigation.direction === "undo" ? `Umbenennung von ${sharedNavigation.name} rückgängig` : `Umbenennung von ${sharedNavigation.name} wiederholen`)
+        : sharedNavigation.action === "restore" ? `Löschen von ${sharedNavigation.name} rückgängig` : `Löschen von ${sharedNavigation.name} wiederholen`;
       const undo = el("button", { type: "button", text: label, "aria-label": label });
       undo.disabled = !sharedNavigation.available;
       undo.addEventListener("click", () => {
         if (!canChangeVariable()) return;
-        if (sharedNavigation.action === "delete" && variableDrafts.has(`${sharedNavigation.group}.${sharedNavigation.name}`)) { status.textContent = "Bitte den geänderten Wert vor dem Löschen speichern."; return; }
+        const currentName = sharedNavigation.action === "rename"
+          ? (sharedNavigation.direction === "undo" ? sharedNavigation.newName : sharedNavigation.name)
+          : sharedNavigation.name;
+        if ((sharedNavigation.action === "delete" || sharedNavigation.action === "rename") && variableDrafts.has(`${sharedNavigation.group}.${currentName}`)) {
+          status.textContent = sharedNavigation.action === "rename" ? "Bitte den geänderten Wert vor dem Umbenennen speichern." : "Bitte den geänderten Wert vor dem Löschen speichern.";
+          return;
+        }
         void (sharedNavigation.direction === "undo" ? session.undoAsync() : session.redoAsync());
-      });
-      variablesHost.append(undo);
-    }
-    if (lastVariableRename) {
-      const entry = lastVariableRename;
-      const label = entry.undone ? `Umbenennung von ${entry.original} wiederholen` : `Umbenennung von ${entry.original} rückgängig`;
-      const undo = el("button", { type: "button", text: label, "aria-label": label });
-      let operation = null;
-      undo.addEventListener("click", () => {
-        if (!canChangeVariable()) return;
-        const current = entry.undone ? entry.original : entry.renamed;
-        const next = entry.undone ? entry.renamed : entry.original;
-        if (variableDrafts.has(`${entry.group}.${current}`)) { status.textContent = "Bitte den geänderten Wert vor dem Umbenennen speichern."; return; }
-        operation ??= newVariableOperation("rename", entry.group, current, window.crypto.randomUUID());
-        operation.body.newName = next;
-        operation.body.undoOf = entry.receiptId;
-        operation.history = { original: entry.original, renamed: entry.renamed, undone: !entry.undone };
-        void runVariableOperation(operation);
       });
       variablesHost.append(undo);
     }
@@ -6730,7 +6722,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       const confirm = el("button", { type: "button", text: "Umbenennen bestätigen", "aria-label": `${label} ${name} umbenennen bestätigen` });
       const cancel = el("button", { type: "button", text: "Abbrechen", "aria-label": `Umbenennen von ${label} ${name} abbrechen` });
       const panel = el("div", { class: "canvas-view__variable-delete", hidden: true },
-        el("p", { text: "Erkannte Verweise in Seiten, Klassen und Theme werden geändert. Externe oder dynamische Verweise können fehlen. Die Editor-History wird neu geladen. Rückgängig ist möglich, solange Theme, Klassen und Seiten unverändert bleiben." }), input, confirm, cancel);
+        el("p", { text: "Erkannte Verweise in Seiten, Klassen und Theme werden geändert. Externe oder dynamische Verweise können fehlen. Die Editor-History bleibt erhalten; strukturierte Token-Verweise werden mitgeführt. Rückgängig und Wiederholen laufen über die gemeinsame History." }), input, confirm, cancel);
       let operation = null;
       button.addEventListener("click", () => { panel.hidden = false; button.hidden = true; });
       cancel.addEventListener("click", () => { operation = null; panel.hidden = true; button.hidden = false; });

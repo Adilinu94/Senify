@@ -457,6 +457,15 @@ export class EditorStore {
     this.#emit();
   }
 
+  // Reload recovery for a document-changing external entry: the fetched
+  // document and the migrated checkpoint history become visible together.
+  replaceDocumentAndRestoreHistory(id: string, document: EditorDocument, snapshot: unknown): void {
+    if (this.pendingExternalId !== id) throw new SenifyError("conflict", "Der Verlaufsvorgang hat sich geändert", { field: "history" });
+    this.#document = document;
+    if (this.#selection.selected.some((nodeId) => document.nodes[nodeId] === undefined)) this.#selection = EMPTY_SELECTION;
+    this.restoreHistory(snapshot, id);
+  }
+
   setSelection(selection: SelectionState): void {
     this.#selection = selection;
     this.#emit();

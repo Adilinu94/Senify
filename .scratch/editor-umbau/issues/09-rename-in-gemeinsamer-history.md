@@ -1,6 +1,6 @@
 # 09 – Umbenennung in der gemeinsamen History
 
-- Status: claimed
+- Status: resolved
 - Prio: P1
 - Erstellt: 2026-11-05
 - Kontext: `.scratch/editor-umbau/review-07.md`, `docs/adr/0016-historische-tokenmigration-bei-umbenennung.md`
@@ -40,10 +40,10 @@ Gate 09a:
 - Echter Browserfall: token-verweisender History-Eintrag, Umbenennung,
   anschließendes Undo/Redo mit `color.marke` statt `color.marker`.
 
-## Teil 09b – Umbenennung als History-Eintrag (Grundlage umgesetzt, Anbindung offen)
+## Teil 09b – Umbenennung als History-Eintrag (umgesetzt)
 
-Die Pipeline kann einen Dokumentwechsel jetzt atomar mit dem externen Eintrag
-und allen Versionen bestätigen:
+Die Pipeline kann einen Dokumentwechsel atomar mit dem externen Eintrag und
+allen Versionen bestätigen:
 
 - `EditorStore.replaceDocumentAndCommitExternal(id, document, versionAfter)`
   setzt Dokument und Commit in einem Store-Emit.
@@ -51,18 +51,45 @@ und allen Versionen bestätigen:
   Seiten-/Theme-Sprung und höchstens einen Registry-Sprung und übernimmt dann
   Dokument, Entry und Versionen gemeinsam.
 - `EditorSession.confirmExternalReplacement(...)` reicht das durch.
-- Zwei Tests in `packages/editor/test/state/history-checkpoint.test.ts` sichern
-  die atomare Sichtbarkeit und die abgewiesene falsche Basis bzw. den
-  abgewiesenen Versionssprung.
+- `confirmExternalHistoryReplacement(...)` übernimmt denselben Vertrag für die
+  Reload-Recovery mit importierter, migrierter History; abgewiesene
+  Registry-Sprünge und Dokumente bleiben gesperrt.
+- Tests in `packages/editor/test/state/history-checkpoint.test.ts` sichern die
+  atomare Sichtbarkeit, die abgewiesene falsche Basis und den abgewiesenen
+  Registry-Sprung.
 
-Noch offen ist die Anbindung:
+App-Anbindung:
 
-- Rename-Receipt mit `oldName`/`newName`/Ketten-`receiptId`.
-- Adapter-Navigation über Undo (`new→old`) und Redo (`old→new`) mit `undoOf`,
-  Reload- und Retry-Vertrag, Dokument-/Theme-Verifikation.
-- Ersatz des getrennten `lastVariableRename`-Undo/Redo-Knopfs durch die
-  gemeinsame History; der bestehende Rename-Browsertest muss auf die
-  History-Navigation umgestellt werden.
+- Der erste bestätigte Rename committet den externen Eintrag atomar (bei
+  sauberer Basis) oder über den sicheren Fallback und registriert einen
+  Rename-Receipt mit `name`/`newName`/Ketten-`receiptId`.
+- Der Adapter navigiert Undo (`new→old`) und Redo (`old→new`) mit `undoOf`,
+  prüft Theme, Page, Registry und die erwartete Dokumenttransformation und
+  migriert die History-Verweise in beide Richtungen.
+- Verlorene Antworten, Reload, Retry und die explizite Recovery nutzen denselben
+  Lease-/Checkpoint-Vertrag; die Recovery importiert migrierte History und den
+  gefetchten Dokumentstand gemeinsam.
+- Der getrennte `lastVariableRename`-Knopf ist entfernt; die gemeinsame
+  History-Toolbar und der Variablenbereich zeigen denselben Rename-Schritt.
+
+Gate 09b:
+
+- Vollständiger App-/History-Gate: 277 bestanden in 13 Dateien, keine Skips.
+- Rename-Browsertest: echter Verlust der Undo-Antwort, Reload, Retry, dann
+  Redo über die gemeinsame Canvas-History.
+- Legacy-Rename-Browsertest: bestätigter Retry erhält Checkpoint und Belege,
+  erzeugt einen Eintrag und lässt Undo zu.
+- Typecheck und Lint grün.
+
+## Answer
+
+Umgesetzt und gegatet. Die Umbenennung ist jetzt ein bestätigter externer
+History-Schritt mit eigener Undo-/Redo-Navigation. Strukturierte Tokenverweise
+werden in Forward- und Undo-Patches migriert; CSS-Textverweise in alten
+Patches führen weiterhin bewusst zum Verwerfen. Die Recovery kann einen
+dokumentändernden Eintrag inklusive Registry-Sprung atomar importieren.
+Engine und PostgreSQL-Verträge blieben unverändert; der letzte vollständige
+Engine-/PostgreSQL-Lauf bleibt 88 bestanden ohne Skips.
 
 ## Akzeptanz
 

@@ -161,6 +161,7 @@ export type SavePipeline = {
   // document, the committed entry and every version become visible together.
   confirmExternalReplacement(id: string, original: EditorDocument, base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>, document: EditorDocument): boolean;
   confirmExternalHistoryRecovery(id: string, history: unknown, base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>, classDeletionReceipts?: unknown): boolean;
+  confirmExternalHistoryReplacement(id: string, history: unknown, base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>, document: EditorDocument, classDeletionReceipts?: unknown): boolean;
   resetExternalHistory(id: string, original: EditorDocument, base: Readonly<ExternalVersions>, document: EditorDocument, next: Readonly<ExternalVersions>, beforeCommit: () => void): boolean;
   // Adopt all versions and the store's reserved navigation before notifying
   // either pipeline or store observers. The external runner already wrote it.
@@ -741,6 +742,18 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
       Number.isSafeInteger(next.pageVersion) && Number.isSafeInteger(next.themeVersion) && base.themeVersion !== null && next.themeVersion !== null &&
       (increment === 1 || (allowLoaded && increment === 0)) && next.themeVersion - base.themeVersion === increment && next.registryVersion === base.registryVersion;
   };
+  // Document-changing external recovery also accepts the registry write that a
+  // rename may have produced (at most one server step).
+  const canReplacePreservedDocument = (base: Readonly<ExternalVersions>, next: Readonly<ExternalVersions>, allowLoaded: boolean): boolean => {
+    const increment = next.pageVersion - base.pageVersion;
+    return !running && pending.length === 0 && unsupported.size === 0 && status !== "conflict" && status !== "error" &&
+      version === base.pageVersion && (themeVersion ?? null) === base.themeVersion &&
+      (hasStyleRegistryVersion ? styleRegistryVersion : null) === base.registryVersion &&
+      Number.isSafeInteger(next.pageVersion) && Number.isSafeInteger(next.themeVersion) && base.themeVersion !== null && next.themeVersion !== null &&
+      (increment === 1 || (allowLoaded && increment === 0)) && next.themeVersion - base.themeVersion === increment &&
+      next.registryVersion !== null && Number.isSafeInteger(next.registryVersion) &&
+      next.registryVersion >= (base.registryVersion ?? 0) && next.registryVersion <= (base.registryVersion ?? 0) + 1;
+  };
 
   store.setActionListener(record);
   return {
@@ -824,6 +837,26 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
       themeVersion = next.themeVersion!;
       classDeletionReceipts = checkedReceipts;
       store.restoreHistory(snapshot, id);
+      emit();
+      return true;
+    },
+    confirmExternalHistoryReplacement(id, history, base, next, document, receipts) {
+      if (store.pendingExternalId !== id || store.history.size !== 0 || !canReplacePreservedDocument(base, next, true) ||
+          validateDocument(document).length > 0) return false;
+      let snapshot;
+      let checkedReceipts;
+      try {
+        snapshot = checkedEditorHistory(history, document);
+        checkedReceipts = checkedClassDeletionReceipts(receipts, snapshot);
+      } catch { return false; }
+      version = next.pageVersion;
+      themeVersion = next.themeVersion!;
+      styleRegistryVersion = next.registryVersion!;
+      hasStyleRegistryVersion = true;
+      knownRuleIds.clear();
+      for (const rule of document.styleRules) knownRuleIds.add(rule.id);
+      classDeletionReceipts = checkedReceipts;
+      store.replaceDocumentAndRestoreHistory(id, document, snapshot);
       emit();
       return true;
     },

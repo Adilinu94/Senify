@@ -4,9 +4,30 @@ const sorted = (value) => Array.isArray(value) ? value.map(sorted) : value && ty
   ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, sorted(item)])) : value;
 const equal = (left, right) => JSON.stringify(sorted(left)) === JSON.stringify(sorted(right));
 const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-const validReceipt = (receipt) => record(receipt) && ["delete", "restore"].includes(receipt.kind) && ["color", "spacing"].includes(receipt.group) &&
+const validReceipt = (receipt) => record(receipt) && ["delete", "restore", "rename"].includes(receipt.kind) && ["color", "spacing"].includes(receipt.group) &&
   typeof receipt.name === "string" && /^[a-z][a-z0-9-]*$/.test(receipt.name) && !["constructor", "prototype"].includes(receipt.name) &&
+  (receipt.kind !== "rename" || (typeof receipt.newName === "string" && /^[a-z][a-z0-9-]*$/.test(receipt.newName) && !["constructor", "prototype"].includes(receipt.newName))) &&
   typeof receipt.receiptId === "string" && /^[a-zA-Z0-9_-]+$/.test(receipt.receiptId) && typeof receipt.entryId === "string";
+const actionFor = (receipt, direction) => receipt.kind === "rename" ? "rename" : (receipt.kind === "delete") === (direction === "redo") ? "delete" : "restore";
+// Mirrors the server rewrite for a confirmed rename so the fetched page can be
+// compared with the pre-rename document. The server rejected the rename if a
+// CSS reference was in a position it cannot rewrite, so every remaining
+// occurrence in this document is safe to rename here too.
+const renameDocumentReferences = (document, group, fromName, toName) => {
+  const fromRef = `${group}.${fromName}`;
+  const toRef = `${group}.${toName}`;
+  const fromCss = `--${group === "color" ? "color" : "space"}-${fromName}`;
+  const toCss = `--${group === "color" ? "color" : "space"}-${toName}`;
+  const cssReference = new RegExp(`([vV][aA][rR]\\(\\s*)${fromCss}(?=\\s|,|\\))`, "g");
+  const visit = (value) => {
+    if (typeof value === "string") return value.replace(cssReference, `$1${toCss}`);
+    if (value === null || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map(visit);
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key,
+      (key === "$token" || key === "$ref") && child === fromRef ? toRef : visit(child)]));
+  };
+  return visit(document);
+};
 
 export function createVariableHistory({ session, api, storage, editor, getTheme, setTheme, onChange, isActive, hasPendingLegacyRename }) {
   const { siteId, pageId } = session;
@@ -49,7 +70,7 @@ export function createVariableHistory({ session, api, storage, editor, getTheme,
       const entry = session.store.history.navigationEntry(direction);
       const receipt = entry && receipts.get(entry.id);
       if (receipt) {
-        const action = (receipt.kind === "delete") === (direction === "redo") ? "delete" : "restore";
+        const action = actionFor(receipt, direction);
         return { ...receipt, direction, action, available: direction === "undo" ? session.canUndoAsync : session.canRedoAsync };
       }
     }
@@ -89,10 +110,13 @@ export function createVariableHistory({ session, api, storage, editor, getTheme,
     receipts.set(candidate.receipt.entryId, candidate.receipt);
     const latest = candidate.theme;
     const action = operation.action;
+    const direction = operation.direction;
     operation = null;
     candidate = null;
     reloaded = false;
-    state = { status: "idle", message: action === "delete" ? "Variable gelöscht." : "Variable wiederhergestellt." };
+    state = { status: "idle", message: action === "rename"
+      ? (direction === "undo" ? "Umbenennung rückgängig gemacht." : direction === "redo" ? "Umbenennung wiederholt." : "Variable umbenannt.")
+      : action === "delete" ? "Variable gelöscht." : "Variable wiederhergestellt." };
     pendingCleanup = true;
     setTheme(latest);
     register();
@@ -105,8 +129,12 @@ export function createVariableHistory({ session, api, storage, editor, getTheme,
     const before = operation?.before;
     const body = operation?.body;
     if (!validEnvelope(before) || !record(before.theme) || !validReceipt(operation.record) || !["first", "navigation", "legacy"].includes(operation.mode) ||
-        !["delete", "restore"].includes(operation.action) || operation.group !== operation.record.group || operation.name !== operation.record.name ||
+        !["delete", "restore", "rename"].includes(operation.action) || operation.group !== operation.record.group || operation.name !== operation.record.name ||
         typeof body?.receiptId !== "string" || !/^[a-zA-Z0-9_-]+$/.test(body.receiptId) || body.pageContext?.pageId !== pageId ||
+        (operation.action === "rename" && (typeof body?.newName !== "string" || !/^[a-z][a-z0-9-]*$/.test(body.newName) ||
+          ["constructor", "prototype"].includes(body.newName) || body.undoOf !== operation.record.receiptId ||
+          (operation.mode === "navigation" && (operation.renameFrom !== (operation.direction === "undo" ? operation.record.newName : operation.record.name) ||
+            operation.renameTo !== (operation.direction === "undo" ? operation.record.name : operation.record.newName))))) ||
         before.checkpoint.siteId !== siteId || before.checkpoint.pageId !== pageId) return false;
     const loadedIncrement = before.checkpoint.versions.themeVersion - body.baseThemeVersion;
     if (operation.mode === "legacy") {
@@ -118,7 +146,7 @@ export function createVariableHistory({ session, api, storage, editor, getTheme,
     if (operation.mode === "navigation") {
       if (!["undo", "redo"].includes(operation.direction)) return false;
       const entry = history.entries[operation.direction === "undo" ? history.cursor - 1 : history.cursor];
-      const action = (operation.record.kind === "delete") === (operation.direction === "redo") ? "delete" : "restore";
+      const action = actionFor(operation.record, operation.direction);
       if (entry?.id !== operation.record.entryId || !entry.external || action !== operation.action ||
           !equal(before.receipts.find((item) => item.entryId === entry.id), operation.record)) return false;
     } else {
@@ -136,18 +164,43 @@ export function createVariableHistory({ session, api, storage, editor, getTheme,
       // Retry never changes this body, including after a reload or a conflict.
       rememberPending();
     } catch (error) { throw Object.assign(error, { notSent: true }); }
-    const result = await api(`/api/sites/${siteId}/theme/variables/${operation.group}/${encodeURIComponent(operation.name)}/${operation.action}`, { method: "POST", body: operation.body });
+    const requestName = operation.action === "rename" ? operation.renameFrom : operation.name;
+    const result = await api(`/api/sites/${siteId}/theme/variables/${operation.group}/${encodeURIComponent(requestName)}/${operation.action}`, { method: "POST", body: operation.body });
     operation.uncertain = true;
     if (!Number.isSafeInteger(result.version) || !Number.isSafeInteger(result.pageDraftVersion) ||
         result.version !== operation.body.baseThemeVersion + 1 || result.pageDraftVersion !== operation.body.pageContext.baseDraftVersion + 1 ||
-        (operation.action === "delete" && result.receiptId !== operation.body.receiptId)) throw new Error("Der Server hat die Änderung nicht vollständig bestätigt. Bitte erneut versuchen.");
+        (["delete", "rename"].includes(operation.action) && result.receiptId !== operation.body.receiptId) ||
+        (operation.action === "rename" && !Number.isSafeInteger(result.registryVersion))) throw new Error("Der Server hat die Änderung nicht vollständig bestätigt. Bitte erneut versuchen.");
     const [theme, page, registry] = await Promise.all([api(`/api/sites/${siteId}/theme`), api(`/api/pages/${pageId}`), api(`/api/sites/${siteId}/style-rules`)]);
     if (!active()) throw new Error("Die Editoransicht wurde verlassen. Bitte den Vorgang beim erneuten Öffnen prüfen.");
     const before = operation.before.checkpoint;
+    const registryVersionOk = operation.action === "rename"
+      ? Number.isSafeInteger(result.registryVersion) && registry.version === result.registryVersion
+      : registry.version === before.versions.registryVersion;
     if (!theme.theme || theme.version !== result.version || !page.draft || page.draftVersion !== result.pageDraftVersion ||
-        !Array.isArray(registry.rules) || registry.version !== before.versions.registryVersion) throw new Error("Der aktuelle Editorstand bestätigt den Vorgang nicht. Bitte erneut prüfen.");
+        !Array.isArray(registry.rules) || !registryVersionOk) throw new Error("Der aktuelle Editorstand bestätigt den Vorgang nicht. Bitte erneut prüfen.");
     const document = editor.loadDocument(page.draft, { styleRules: registry.rules }).document;
-    if (!editor.historyDocumentsEqual(before.document, document) || !editor.historyDocumentsEqual(before.document, session.document)) throw new Error("Der Editorinhalt hat sich inzwischen geändert. Bitte offene Änderungen prüfen.");
+    const localUnchanged = editor.historyDocumentsEqual(before.document, session.document);
+    if (operation.action === "rename") {
+      const expectedDocument = renameDocumentReferences(before.document, operation.group, operation.renameFrom, operation.renameTo);
+      const alreadyLoaded = editor.historyDocumentsEqual(document, session.document);
+      if (!editor.historyDocumentsEqual(expectedDocument, document) || (!localUnchanged && !alreadyLoaded)) throw new Error("Der Editorinhalt bestätigt die Umbenennung nicht. Bitte erneut prüfen.");
+      const expectedTheme = globalThis.structuredClone(operation.before.theme);
+      const bag = expectedTheme.tokens?.primitive?.[operation.group];
+      if (!bag || typeof bag[operation.renameFrom] !== "string" || Object.hasOwn(bag, operation.renameTo)) throw new Error("Der Variableninhalt wurde nicht bestätigt.");
+      bag[operation.renameTo] = bag[operation.renameFrom];
+      delete bag[operation.renameFrom];
+      if (!equal(expectedTheme, theme.theme)) throw new Error("Weitere Variableninhalte haben sich inzwischen geändert. Bitte erneut prüfen.");
+      if (!editor.renameHistoryReferences(session.store.history.entries(), operation.group, operation.renameFrom, operation.renameTo)) {
+        throw new Error("Die Umbenennung kann nicht sicher in den Verlauf übernommen werden. Bitte die Prüfung ausdrücklich beenden.");
+      }
+      candidate = { theme, document, alreadyLoaded, receipt: { ...operation.record, receiptId: result.receiptId },
+        versions: { pageVersion: result.pageDraftVersion, themeVersion: result.version, registryVersion: registry.version } };
+      // The external controller replaces the local document from this field;
+      // without it a registry-changing rename would be treated as unconfirmed.
+      return { status: "committed", document, ...candidate.versions };
+    }
+    if (!localUnchanged || !editor.historyDocumentsEqual(before.document, document)) throw new Error("Der Editorinhalt hat sich inzwischen geändert. Bitte offene Änderungen prüfen.");
     const oldTheme = globalThis.structuredClone(operation.before.theme);
     const newTheme = globalThis.structuredClone(theme.theme);
     const oldBag = oldTheme.tokens?.primitive?.[operation.group];
@@ -168,12 +221,27 @@ export function createVariableHistory({ session, api, storage, editor, getTheme,
     return { status: "committed", ...candidate.versions };
   };
   const run = async () => {
-    state = { status: "running", message: operation.action === "delete" ? "Variable wird gelöscht …" : "Variable wird wiederhergestellt …" };
+    state = { status: "running", message: operation.action === "rename"
+      ? (operation.direction === "undo" ? "Umbenennung wird rückgängig gemacht …" : operation.direction === "redo" ? "Umbenennung wird wiederholt …" : "Variable wird umbenannt …")
+      : operation.action === "delete" ? "Variable wird gelöscht …" : "Variable wird wiederhergestellt …" };
     notify();
     try {
       await execute();
       if (!preflight()) return unresolved("Änderung ausgeführt. Der Editorstand hat sich inzwischen geändert; bitte offene Änderungen prüfen.");
-      if (reloaded) {
+      if (reloaded && operation.action === "rename") {
+        // The page content changed with the rename. Migrate the retained
+        // checkpoint history to the confirmed target name before importing the
+        // fetched document and the history together.
+        const checkpoint = globalThis.structuredClone(operation.before.checkpoint);
+        const migrated = editor.renameHistoryReferences(checkpoint.history.entries, operation.group, operation.renameFrom, operation.renameTo);
+        if (!migrated) return unresolved("Die Umbenennung kann nach dem Neuladen nicht sicher übernommen werden. Bitte die Prüfung ausdrücklich beenden.");
+        checkpoint.history = { ...checkpoint.history, entries: migrated };
+        checkpoint.versions = candidate.versions;
+        checkpoint.document = candidate.document;
+        if (operation.mode === "navigation") checkpoint.history.cursor += operation.direction === "undo" ? -1 : 1;
+        if (!session.confirmExternalHistoryReplacement(operation.externalHistoryId, checkpoint, originalVersions, candidate.document)) return unresolved("Der gespeicherte Verlauf kann nicht übernommen werden. Bitte erneut prüfen oder die Prüfung beenden.");
+        receipts = new Map(operation.before.receipts.map((item) => [item.entryId, item]));
+      } else if (reloaded) {
         const checkpoint = operation.mode !== "navigation" ? editor.checkpointAfterExternalCommit(operation.before.checkpoint, operation.entry, candidate.versions)
           : globalThis.structuredClone(operation.before.checkpoint);
         checkpoint.versions = candidate.versions;
@@ -181,6 +249,13 @@ export function createVariableHistory({ session, api, storage, editor, getTheme,
         if (operation.mode === "navigation") checkpoint.history.cursor += operation.direction === "undo" ? -1 : 1;
         if (!session.confirmExternalHistoryRecovery(operation.externalHistoryId, checkpoint, originalVersions)) return unresolved("Der gespeicherte Verlauf kann nicht übernommen werden. Bitte erneut prüfen oder die Prüfung beenden.");
         receipts = new Map(operation.before.receipts.map((item) => [item.entryId, item]));
+      } else if (operation.action === "rename") {
+        if (!session.confirmExternalReplacement(operation.externalHistoryId, originalDocument, originalVersions, candidate.versions, candidate.document)) {
+          return unresolved("Der Editorstand kann nicht übernommen werden. Bitte offene Änderungen prüfen.");
+        }
+        if (!session.migrateHistoryReferences(operation.group, operation.renameFrom, operation.renameTo)) {
+          return unresolved("Die Umbenennung kann nicht sicher in den Verlauf übernommen werden. Bitte die Prüfung ausdrücklich beenden.");
+        }
       } else if (!session.confirmExternalAction(operation.externalHistoryId, originalDocument, originalVersions, candidate.versions)) {
         return unresolved("Der Editorstand kann nicht übernommen werden. Bitte offene Änderungen prüfen.");
       }
@@ -212,9 +287,14 @@ export function createVariableHistory({ session, api, storage, editor, getTheme,
           if (!validEnvelope(before) || !equal(before.checkpoint.versions, request.versions) || !editor.historyDocumentsEqual(before.checkpoint.document, session.document)) {
             return { status: "rejected", message: "Der Verlauf kann nicht sicher vorgemerkt werden. Bitte Browser-Speicher freigeben." };
           }
-          const action = (receipt.kind === "delete") === (request.direction === "redo") ? "delete" : "restore";
-          operation = { format: 2, mode: "navigation", direction: request.direction, action, group: receipt.group, name: receipt.name, record: { ...receipt }, before: { ...before, theme: globalThis.structuredClone(getTheme()) },
-            body: { receiptId: action === "delete" ? globalThis.crypto.randomUUID() : receipt.receiptId, baseThemeVersion: request.versions.themeVersion, pageContext: { pageId, baseDraftVersion: request.versions.pageVersion } }, externalHistoryId: session.pendingExternalId };
+          const action = actionFor(receipt, request.direction);
+          const renameFrom = action === "rename" ? (request.direction === "undo" ? receipt.newName : receipt.name) : undefined;
+          const renameTo = action === "rename" ? (request.direction === "undo" ? receipt.name : receipt.newName) : undefined;
+          operation = { format: 2, mode: "navigation", direction: request.direction, action, group: receipt.group, name: receipt.name, renameFrom, renameTo, record: { ...receipt }, before: { ...before, theme: globalThis.structuredClone(getTheme()) },
+            body: action === "rename"
+              ? { receiptId: globalThis.crypto.randomUUID(), newName: renameTo, undoOf: receipt.receiptId, baseThemeVersion: request.versions.themeVersion, pageContext: { pageId, baseDraftVersion: request.versions.pageVersion } }
+              : { receiptId: action === "delete" ? globalThis.crypto.randomUUID() : receipt.receiptId, baseThemeVersion: request.versions.themeVersion, pageContext: { pageId, baseDraftVersion: request.versions.pageVersion } },
+            externalHistoryId: session.pendingExternalId };
           originalDocument = session.document;
           originalVersions = request.versions;
         }
@@ -235,7 +315,12 @@ export function createVariableHistory({ session, api, storage, editor, getTheme,
     try {
       if (operation?.mode === "navigation" && !reloaded) {
         const external = session.externalHistoryState();
-        if (external.status === "idle" && !session.pendingExternalId && candidate) finish();
+        if (external.status === "idle" && !session.pendingExternalId && candidate) {
+          if (operation.action === "rename" && !session.migrateHistoryReferences(operation.group, operation.renameFrom, operation.renameTo)) {
+            return unresolved("Die Umbenennung kann nicht sicher in den Verlauf übernommen werden. Bitte die Prüfung ausdrücklich beenden.");
+          }
+          finish();
+        }
         else if (external.status === "unresolved") unresolved(external.message ?? "Der Serverstand ist unklar.");
         else if (external.status === "rejected" && !session.pendingExternalId) {
           operation = null; candidate = null; clearPending(); state = external;
@@ -330,6 +415,14 @@ export function createVariableHistory({ session, api, storage, editor, getTheme,
         }
       } finally { syncing = false; }
       if (replacement) persist();
+      return true;
+    },
+    recordRename(entryId, receipt) {
+      if (!active() || typeof entryId !== "string" || !validReceipt({ ...receipt, entryId })) return false;
+      receipts.set(entryId, { ...receipt, entryId });
+      register();
+      persist();
+      notify();
       return true;
     },
     dispose() { disposed = true; unsubscribe(); },

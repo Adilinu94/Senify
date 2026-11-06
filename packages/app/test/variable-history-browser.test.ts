@@ -165,12 +165,13 @@ describe.skipIf(!browserAvailable)("gemeinsame Variablen-History in der App", ()
       await f.tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen", exact: true }).click();
       await f.tab.locator('[data-variable-status]').getByText("Variable umbenannt.", { exact: true }).waitFor();
       expect(bodies[1]).toEqual(bodies[0]);
-      // This slice retains the existing separate Rename contract: only the
-      // confirmed retry may clear prior history. Token migration follows later.
-      expect(await f.history()).toHaveLength(0);
+      // The confirmed retry keeps the retained history and records the rename
+      // as an external entry; its token references are migrated with it.
+      const labels = await f.history();
+      expect(labels.some((label) => label.includes("umbenannt"))).toBe(true);
       expect((await f.getTheme()).theme.tokens.primitive.color.anders).toBe("#654321");
       await f.tab.reload(); await f.ready();
-      expect(await f.tab.locator('.senify-canvas__button[data-action="undo"]').isDisabled()).toBe(true);
+      await expect.poll(() => f.tab.locator('.senify-canvas__button[data-action="undo"]').isDisabled(), { timeout: 20000 }).toBe(false);
       await f.tab.getByRole("tab", { name: "Variablen" }).click();
       expect(await f.tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen", exact: true }).count()).toBe(0);
     } finally { await f.close(); }
@@ -559,14 +560,21 @@ describe.skipIf(!browserAvailable)("gemeinsame Variablen-History in der App", ()
       await f.tab.getByRole("status").getByText("Variable umbenannt.").waitFor();
       await f.saved();
 
-      const retained = await f.tab.evaluate(`(() => { const session = window.__historyTestSession; return { json: JSON.stringify(session.store.history.entries()), canUndo: session.canUndo }; })()`) as { json: string; canUndo: boolean };
-      expect(retained.canUndo).toBe(true);
-      expect(retained.json).toContain("color.marke");
-      expect(retained.json).not.toContain("color.marker");
+      const retained = await f.tab.evaluate(`(() => { const session = window.__historyTestSession; return { json: JSON.stringify(session.store.history.entries().map((entry) => ({ mutations: entry.mutations, undoPatch: entry.undoPatch }))), canUndoAsync: session.canUndoAsync }; })()`) as { json: string; canUndoAsync: boolean };
+      expect(retained.canUndoAsync).toBe(true);
+      expect(retained.json).toContain('"$token":"color.marke"');
+      expect(retained.json).not.toContain('"$token":"color.marker"');
+
+      await f.navigate("undo");
+      await expect.poll(async () => (await f.getTheme()).theme.tokens.primitive.color.marker).toBe("#123456");
+      await expect.poll(() => f.tab.evaluate(`JSON.stringify(window.__historyTestSession.store.history.entries().map((entry) => ({ mutations: entry.mutations, undoPatch: entry.undoPatch })))`)).toContain('"$token":"color.marker"');
+      const renamedBack = await f.tab.evaluate(`(() => { const session = window.__historyTestSession; return { json: JSON.stringify(session.store.history.entries().map((entry) => ({ mutations: entry.mutations, undoPatch: entry.undoPatch }))) }; })()`) as { json: string };
+      expect(renamedBack.json).toContain('"$token":"color.marker"');
+      expect(renamedBack.json).not.toContain('"$token":"color.marke"');
 
       await f.navigate("undo");
       await f.saved();
-      expect(await f.tab.evaluate(`window.__historyTestSession.document.nodes.frame00001?.props.background`)).toEqual({ $token: "color.marke" });
+      expect(await f.tab.evaluate(`window.__historyTestSession.document.nodes.frame00001?.props.background`)).toEqual({ $token: "color.marker" });
 
       await f.navigate("redo");
       await f.saved();

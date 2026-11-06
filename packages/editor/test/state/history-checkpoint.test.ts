@@ -307,6 +307,39 @@ describe("geprüfte History-Checkpoints", () => {
     } finally { source.dispose(); target?.dispose(); }
   });
 
+  it("übernimmt eine dokumentändernde Reload-Recovery nur mit höchstens einem Registry-Sprung", async () => {
+    const source = session();
+    let target: ReturnType<typeof session> | undefined;
+    let other: ReturnType<typeof session> | undefined;
+    try {
+      source.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "Vorher" });
+      await source.flush();
+      const checkpoint = source.historyCheckpoint()!;
+      const replacement = structuredClone(source.document);
+      checkpoint.document = replacement;
+      checkpoint.versions = { pageVersion: 2, themeVersion: 2, registryVersion: 2 };
+      target = session(structuredClone(replacement), { page: 1, theme: 1, registry: 1 });
+      const base = target.pipeline.externalVersions();
+      const pending = target.beginExternalAction({ label: "Umbenannt", versionBefore: 1, versionAfter: 1 });
+      const seen: unknown[] = [];
+      target.subscribe(() => seen.push([target!.document, target!.version, target!.pendingExternalId, target!.store.history.size]));
+      expect(target.confirmExternalHistoryReplacement(pending.id, checkpoint, base, replacement)).toBe(true);
+      expect(seen).toEqual([[replacement, 2, null, checkpoint.history.entries.length]]);
+      expect(target.store.history.snapshot()).toEqual(checkpoint.history);
+      expect(target.pipeline.externalVersions()).toEqual(checkpoint.versions);
+
+      other = session(structuredClone(replacement), { page: 1, theme: 1, registry: 1 });
+      const otherBase = other.pipeline.externalVersions();
+      const otherPending = other.beginExternalAction({ label: "Umbenannt", versionBefore: 1, versionAfter: 1 });
+      const jump = structuredClone(checkpoint);
+      jump.versions.registryVersion = 3;
+      expect(other.confirmExternalHistoryReplacement(otherPending.id, jump, otherBase, replacement)).toBe(false);
+      expect(other.pendingExternalId).toBe(otherPending.id);
+      expect(other.document).toEqual(replacement);
+      expect(other.store.history.size).toBe(0);
+    } finally { source.dispose(); target?.dispose(); other?.dispose(); }
+  });
+
   it("erhält lokale und externe Schritte samt Cursor, ohne einen Runner zu serialisieren", async () => {
     const source = session();
     let target: ReturnType<typeof session> | undefined;
