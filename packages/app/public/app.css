@@ -3966,8 +3966,6 @@ body.is-editor .view.editor-view > .toolbar > .senify-canvas__topbar {
 
 /* Editor-Arbeitsbereich: ein Werkzeugpanel und ein aktiver Geräte-Frame. */
 body.is-editor .view.editor-view > .editor-host.canvas-view {
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 0;
   background: var(--ui-editor-canvas);
 }
 .canvas-view__sidebar {
@@ -4070,6 +4068,3 @@ body.is-editor .view.editor-view > .editor-host.canvas-view {
 .canvas-view .senify-canvas__stage { background: var(--ui-editor-canvas) !important; }
 body.is-editor .view.editor-view > .toolbar { background: var(--ui-editor-panel); color: var(--ui-editor-ink); border-color: var(--ui-editor-line); }
 body.is-editor .view.editor-view > .toolbar h1 { color: var(--ui-editor-strong); }
-@media (max-width: 700px) {
-  body.is-editor .view.editor-view > .editor-host.canvas-view { grid-template-columns: minmax(220px, 38%) minmax(0, 1fr); }
-}

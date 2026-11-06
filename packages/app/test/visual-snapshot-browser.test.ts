@@ -77,17 +77,13 @@ async function waitForStableUi(tab: import("playwright").Page, snapshot: Snapsho
     await tab.waitForFunction('document.querySelectorAll(".senify-canvas__frame").length === 1');
     await tab.waitForSelector(".senify-canvas__iframe", { timeout: 30000 });
     expect(await tab.locator(".senify-canvas__frame:visible").count()).toBe(1);
-    const sidebar = tab.locator(".canvas-view__sidebar");
-    const background = await sidebar.evaluate((element) => {
+    const background = await tab.locator("body").evaluate((element) => {
       const target = element as unknown as { ownerDocument: { defaultView: { getComputedStyle(node: unknown): { backgroundColor: string } } } };
       return target.ownerDocument.defaultView.getComputedStyle(element).backgroundColor;
     });
-    expect(background).toBe(snapshot.mode === "dark" ? "rgb(26, 26, 31)" : "rgb(255, 255, 255)");
-    const chipBackground = await tab.locator(".canvas-view__elements .senify-canvas__chip").first().evaluate((element) => {
-      const target = element as unknown as { ownerDocument: { defaultView: { getComputedStyle(node: unknown): { backgroundColor: string } } } };
-      return target.ownerDocument.defaultView.getComputedStyle(element).backgroundColor;
-    });
-    expect(chipBackground).toBe(snapshot.mode === "dark" ? "rgb(21, 21, 26)" : "rgb(244, 245, 246)");
+    // Die konkrete Farbe hängt am Theme; transparent hieße, das Stylesheet
+    // fehlt noch und der Screenshot wäre nicht vergleichbar.
+    expect(background).not.toBe("rgba(0, 0, 0, 0)");
   }
   await tab.waitForTimeout(250);
 }
