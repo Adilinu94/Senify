@@ -150,7 +150,7 @@ export function tokenOptionsFor(group: TokenGroup, theme: Theme): TokenOption[] 
       return groupEntries(primitive, "shadow");
     case "type": {
       const type = primitive.type ?? {};
-      return Object.entries(type)
+      const roles = Object.entries(type)
         .filter(([, role]) => {
           const size = (role as { size?: unknown }).size;
           return typeof size === "string";
@@ -160,6 +160,10 @@ export function tokenOptionsFor(group: TokenGroup, theme: Theme): TokenOption[] 
           label: name,
           value: (role as { size: string }).size,
         }));
+      // The type scale and the user-authored font-size primitives feed the same
+      // font-size control. Two ref namespaces (`type.*` and `fontSize.*`) keep
+      // the generated scale and the custom variables distinguishable.
+      return [...roles, ...groupEntries(primitive, "fontSize")];
     }
     case "font":
       return [
