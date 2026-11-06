@@ -165,3 +165,42 @@ Die Site ist eine echte lokale Tännig-Apotheke-Installation mit realen Seiten, 
 - Das Variablen-Plus öffnet die Typauswahl **Color/Font/Size** in englischer Sprache; die drei echten Variablen sind sichtbar. Eine Testvariable wurde nicht gespeichert, weil das Design-System-Panel im Editor nicht stabil offen blieb. Die echten Variablen wurden nicht verändert.
 - Aufgeräumt wurden: Testklasse 1334, Testseite 1331 und temporärer Administrator 13. Die sechs echten Klassen und drei echten Variablen sind unverändert; der echte Bestand ist wiederhergestellt.
 - Konsequenz: Der Klassen-/Variablentest braucht einen stabilen Editorlauf. Der Klassen-Anlegepfad liegt in den Atomic-Elementen, nicht im Klassen-Manager. Der Test bleibt der nächste offene Punkt; die Datenmodelle und die Nutzung sind dokumentiert.
+
+## 11. Qualität, Sicherheit, DSGVO, SEO und Backup
+
+### Footer 860 (Theme Builder)
+- 32 Elemente, 14 Container, 18 Widgets: 5 Überschriften, 3 MetForm-Formulare, 1 Nested-Tabs, 4 Icon-List, 1 Animated Headline, 2 Text-Editor, 1 Bild, 1 Social Icons.
+- 20 Global-Color-Referenzen, eine dynamische Bindung, 120 Tablet- und 150 Mobile-Overrides. Keine Klassen-, Variablen- oder Custom-CSS-Referenzen.
+- Der Footer ist damit der einzige geprüfte Bereich, der die Kit-Globalfarben tatsächlich nutzt. Header 789 und die Seiten 824/1009 nutzen lokale Stile.
+
+### Sicherheit
+- `elementor_unfiltered_files_upload` ist aktiviert (`1`), der Elementor-Beta-Kanal ist aktiv (`elementor_beta=yes`), ein Elementor-Connect-Schlüssel ist hinterlegt, und es existieren sechs Anwendungspasswörter am Administrator Adrian. Der temporäre Abnahme-Admin ist entfernt.
+- `blog_public=0`, `users_can_register=0`, `default_role=subscriber`. Die Site ist als Staging/Local eingerichtet und nicht für Suchmaschinen freigegeben.
+- Kein dediziertes Security-Plugin ist aktiv. All-in-One-WP-Migration samt Unlimited-Erweiterung ist aktiv; der Elementor-Wartungsmodus ist aus, Slim Maintenance ist vorhanden, aber nicht in der aktiven Plugin-Liste.
+- Empfehlung: Unfiltered Uploads und den Beta-Kanal nach der Abnahme abschalten, Connect-Schlüssel und Anwendungspasswörter prüfen, ein Backup vor weiteren Eingriffen erstellen.
+
+### Performance
+- 19 aktive Plugins, darunter Elementor 4.2.3, `pro-elements` 4.2.2, WooCommerce 11.2.1, MetForm 4.3.0, ElementsKit Lite 4.0.2, Header Footer Elementor 2.9.4, WP GSAP Heading Reveal 4.0.0, WebP Uploads 2.7.1, All-in-One WP Migration 7.78.
+- Startseite 824: rund 409 KB Elementor-Daten, 81 Elemente. Leistungen 1009: rund 216 KB, 96 Elemente. Dazu 135 Anhänge, WebP-Konvertierung, aber kein aktives Caching-Plugin in der Liste.
+- Die GSAP-/WPGHR-Widgets im Testlab und die zahlreichen Responsive-Overrides sind eigene Performance- und Paritätsfelder.
+
+### SEO
+- Yoast SEO 28.3 ist im Plugin-Verzeichnis vorhanden, aber nicht in der aktiven Plugin-Liste. `wpseo`-Optionen existieren aus früheren Konfigurationen. `blog_public=0` verhindert die Indexierung; die Site ist Staging.
+- Für eine spätere Veröffentlichung fehlen ein aktives SEO-Plugin, eine Sitemap-Prüfung und eine bewusste Indexierungsentscheidung.
+
+### DSGVO und Inhalte
+- Kit-Typografie Rubik/Inter; der Ursprung der Schriftdateien und mögliche Google-Fonts-/CDN-Bezüge sind vor einer Veröffentlichung zu prüfen.
+- Drei MetForm-Formulare, davon drei im Footer und zwei Formularbezüge auf der Startseite. Die Formulare enthalten Einwilligungstexte („Ich stimme zu …“), die rechtlich zu prüfen sind.
+- WooCommerce mit zwei Testprodukten und einer abgeschlossenen Testbestellung; Zahlungs-, Versand- und Widerrufsdaten sind zu prüfen.
+- KI-Kennzeichnung, Novamira, Nick-Feedback und die KI-bezogenen Plugins sind eigene DSGVO-/Transparenzfelder. Die Rechtstexte (Impressum, Datenschutz, AGB, Widerruf) sind vorhanden, aber nicht juristisch geprüft. Keine Rechtsberatung.
+
+### Barrierefreiheit
+- Überschriftenhierarchie, Alternativtexte, Formularlabels, Kontraste und Tastaturbedienung sind noch nicht automatisiert geprüft. Die vorhandenen 135 Medien und die drei Formulare sind die wichtigsten Prüfstellen.
+
+## 12. Senify-Abbildung und Export
+
+- **Kit:** Globalfarben, Typografie, Breakpoints (768/1025), Bildradius 25, Seitentitel-Selektor und Body-Hintergrund lassen sich auf Senify-Theme-Tokens abbilden.
+- **Design System:** Sechs globale Klassen mit Varianten/Zuständen und die drei Variablen sind als StyleRule-/Theme-Variablen-Kandidaten dokumentiert, aber in den produktiven Seiten ungenutzt. Der Klassen-Anlegepfad liegt in den Atomic-Elementen; der Klassen-Manager listet/cached.
+- **Seiten:** Startseite und Leistungen nutzen klassische Widgets und Plugin-Widgets; der Footer nutzt Globalfarben und MetForm. Die Theme-Builder-Templates Header 789/Footer 860 sind eigene Senify-Header-/Footer-Verträge.
+- **Gaps:** Plugin-Widgets (ElementsKit, Qi, OriginKit, WPGHR/GSAP), MetForm-Formulare, WooCommerce-Daten, dynamische Bindungen, Atomar-Elemente, Klassen-/Variablen-Speicher, Pro-Ersatz und die Staging-/Backup-Prozesse.
+- **Export:** All-in-One WP Migration, Elementor-Daten, Kit, Klassen, Variablen, Templates, Medien, Formulare und Shop-Daten müssen vor einer Migration gesichert und in einem eigenen Mapping dokumentiert werden.
