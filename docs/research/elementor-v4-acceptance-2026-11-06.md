@@ -132,3 +132,5 @@ Die Aufnahme verwendete Playwright/Chromium aus dem Projekt. Die Referenzdienste
 - Belege: [Editor](elementor-captures-2026-11-06/hcm-editor.png), [Editor-DOM](elementor-captures-2026-11-06/hcm-editor-dom.png), [Klassen-Einführung](elementor-captures-2026-11-06/hcm-classes-intro.png), [Klassenliste](elementor-captures-2026-11-06/hcm-classes.png), [Variablen](elementor-captures-2026-11-06/hcm-variables.png).
 
 **Offen:** Testklasse/Testvariable anlegen, priorisieren, umbenennen und löschen; die echten 6 Klassen und 3 Variablen wurden nicht verändert. Aufräumen von Testseite 1331 und temporärem Administrator. Der Editor braucht beim ersten Laden deutlich länger als die Core-Referenz; eine versteckte Loader-Vorlage täuscht einfache Ready-Checks. Die Pro-Flächen sind über `pro-elements` und Addons, nicht über offizielles Elementor Pro, exponiert; eine Pro-Paritätsaussage bleibt ausgeschlossen.
+
+Die vertiefte Live-Analyse mit Inventar, Kit-, Klassen- und Variablendaten, möglichen nächsten Arbeiten und Risiken steht in `elementor-hcm-live-analyse-2026-11-06.md`.
