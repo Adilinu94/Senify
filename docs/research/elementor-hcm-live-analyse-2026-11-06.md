@@ -132,3 +132,36 @@ Die Site ist eine echte lokale Tännig-Apotheke-Installation mit realen Seiten, 
 - Datenbank und REST: Kit ID 6, sechs `e_global_class`-Beiträge, 17 Bibliothekseinträge, Header 789/Footer 860, Seiten 824/1009/1032/476/1195, Testseite 1331, zwei Produkte, eine Bestellung, drei MetForm-Formulare, Benutzer Adrian (1) und Abnahme-Admin (13).
 - Die bisherige Core-Referenz und die übrigen Elementor-Belege: `docs/research/elementor-v4-acceptance-2026-11-06.md` und `docs/research/elementor-captures-2026-11-06/`.
 - Arbeitsstand und Messwerte: `docs/current/stand.md`, `docs/current/qualitaet.md`, `docs/fahrplan.md`.
+
+## 9. Vertiefte Live-Daten (Nachtrag 06.11.2026)
+
+### Seiteninhalte
+- **home 824:** 81 Elemente, 41 Container, 40 Widgets; 18 Überschriften, 7 Text-Editor, 5 Icon-List, 4 Icon-Box, 2 Button, je 1 ElementsKit-Business-Hours, Shortcode, Qi-Bildergalerie und OriginKit-Button-Karussell; 1839 Tablet- und 1916 Mobile-Overrides; zwei Formularbezüge.
+- **Leistungen 1009:** 96 Elemente, 49 Container, 47 Widgets; 13 Überschriften, 18 Text-Editor, 10 Icon-List, 4 Icon-Box, je 1 Animated Headline und Button; 828 Tablet- und 894 Mobile-Overrides.
+- **Header 789:** 8 Elemente, 5 Container, 3 Widgets (Bild, Navigation, Button); 137 Tablet- und 130 Mobile-Overrides.
+- **Footer 860:** 39 KB; der JSON-Export ließ sich nicht parsen (Exportproblem, nicht zwingend ein Originalfehler). Der Footer muss erneut exportiert und geparst werden.
+- **WPGHR Testlab 1032:** 183 Elemente, 72 Container, 111 Widgets; 96 Überschriften, 8 Bilder und je ein WPGHR-Marquee/Split-Hero/Stacking-Cards/Odometer/Flip-Gallery/Scroll-Sequence; keine Tablet-/Mobile-Overrides.
+- **WPGHR Atomic Testlab 1200:** genau ein atomares `e-heading` in 311 Bytes.
+- Die echten Seiten verwenden **klassische Widgets und Plugin-Widgets**, kein `__dynamic__`, keine `globals/colors`, keine `e-gv`-, Klassen- oder `custom_css`-Referenzen in den Seitendaten.
+- Die sechs globalen Klassen und drei Variablen sind in den echten Seitendaten **nicht verwendet**; die `using_documents`-Metadaten der Klassen sind leer. Der Design-System-Bestand ist damit ein Atomic-/WPGHR-Testbestand, kein produktiver Bestand.
+- Die Kit-Globalfarben und die Kit-Typografie sind vorhanden, werden in den Seiten aber nicht über `globals`-Referenzen genutzt; die Seiten arbeiten mit lokalen Stilen.
+
+### Klassendaten
+- Sechs `e_global_class`-Beiträge (IDs 306 bis 311) mit `_elementor_global_class_data`: Typ `class`, Varianten für Desktop/Tablet/Mobile und Zustände `hover`/`focus`, Props für Schriftfamilie, Schriftgröße, Farbe, Margin, Padding, Border-Radius und Hintergrund, dazu `custom_css` und eine stabile `g-...`-ID.
+- Die Klassen 306 und 307 referenzieren die Variablen `e-gv-279f32e` und `e-gv-bba5997`; die Live-Variablen heißen `accent`, `ueberschrift` und `hell`.
+- Eine eigene Tabelle für globale Klassen oder Variablen existiert nicht. Die Klassen liegen als `e_global_class`-Posttyp vor, die Klassen-Datenbankversion ist 4.
+- Die exakte Ablage der drei Variablen war in den offensichtlichen Optionen und Tabellen nicht auffindbar. Das Anlegen einer Testvariable und der Vergleich der Datenbank vor und nach dem Speichern soll diese Lücke schließen.
+
+### Konsequenzen für die weitere Arbeit
+- Die Design-System-Oberfläche ist live exponiert, aber die produktiven Seiten nutzen sie nicht. Ein Klassen-/Variablentest braucht die Testseite 1331 oder eine ausdrücklich markierte Testsektion.
+- Die Senify-Parität muss drei Schichten trennen: Kit-Globalfarben/-typografie, Design-System-Variablen und lokale Element-Stile.
+- Der Footer 860 braucht einen erneuten Export und Parse. Danach ist die Theme-Builder-Abnahme vollständig.
+- Die echten Seiten sind stark pluginabhängig (ElementsKit, Qi, OriginKit, WPGHR/GSAP, MetForm). Diese Widgets sind eigene Migrations- und Paritätsfelder.
+
+## 10. Klassen-/Variablen-Testlauf und Aufräumen (06.11.2026)
+
+- Die Design-System-Oberfläche im Editor ließ sich nicht zuverlässig öffnen; die Live-Liste zeigte die sechs echten Klassen und die Klassen-Manager-Einführung. Ein eigener Anlegeknopf fehlt im Klassen-Manager.
+- Eine datenmodellseitig angelegte Testklasse (`e_global_class` 1334, `senify-test-class`) erhöhte die Live-Liste nicht. Der Klassen-Manager liest offenbar einen Cache beziehungsweise den Atomic-Anlegepfad, nicht beliebige `e_global_class`-Beiträge. Die Testklasse wurde wieder entfernt.
+- Das Variablen-Plus öffnet die Typauswahl **Color/Font/Size** in englischer Sprache; die drei echten Variablen sind sichtbar. Eine Testvariable wurde nicht gespeichert, weil das Design-System-Panel im Editor nicht stabil offen blieb. Die echten Variablen wurden nicht verändert.
+- Aufgeräumt wurden: Testklasse 1334, Testseite 1331 und temporärer Administrator 13. Die sechs echten Klassen und drei echten Variablen sind unverändert; der echte Bestand ist wiederhergestellt.
+- Konsequenz: Der Klassen-/Variablentest braucht einen stabilen Editorlauf. Der Klassen-Anlegepfad liegt in den Atomic-Elementen, nicht im Klassen-Manager. Der Test bleibt der nächste offene Punkt; die Datenmodelle und die Nutzung sind dokumentiert.
