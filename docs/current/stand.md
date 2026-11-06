@@ -133,7 +133,7 @@ Statuswerte: `belegt` (Test + Code), `implementiert` (Code, Test deckt es nicht 
 | Referenz/Redesign | belegt | `redesign-proposals.ts`, `redesign-section-plan.ts`, `redesign-section-apply.ts`, vier Redesign-Suiten, ADR-0012/0013/0014 | Apply ist atomar, der Sektions-Plan wird ausgeführt (R3), Proposals veralten (R2), der Design-Record ist eingefroren (R4) und Medienbedarfe sind bedienbar (P2-2). Offen: automatische Medienbeschaffung — der Bedarf wird benannt und geschlossen, aber nicht selbst beschafft |
 | Asset-Zugriff | belegt | `media.ts` `copySiteAssets`/`purgeAsset`, `http.ts` unter `/api/sites/:siteId/assets/…` | Site-Guard erzwungen; `getAsset` bleibt bewusst ungeprüft |
 | Baustein-Bibliothek | teilweise | `packages/engine/src/library-*`, Bausteine-Workspace | Re-Attach, Similarity und mehrstelliger E2E-Nachweis fehlen |
-| Framer-Import | teilweise | `packages/framer-import`, `packages/engine/src/imports.ts` | `runImport()` nutzt bei URL statisches `fetch()` (holt jetzt die verlinkten Stylesheets) statt `captureBrowser()`; Motion, Section-Erkennung, Mehrseiten-Crawl und Theme-Farben offen |
+| Framer-Import | teilweise | `packages/framer-import`, `packages/engine/src/imports.ts`, `.scratch/framer/acceptance-chocolate-2026-11-06.md` | Browser-Capture, Sitemap-Koordinator, CMS-Routen und seitenweit eindeutige Knoten-IDs sind belegt. Offen: SVG-Icons, dekorative Pseudo-Elemente/Hintergründe, `/404`-Fallback, Pixel-/Font-/Motion-Parität und vollständiges `runtimeFreeVerified` |
 | Import-Transaktion | belegt | `packages/engine/src/imports.ts`, `packages/engine/test/imports.test.ts` | DB-Commit ist atomar; neu hochgeladene Assets werden bei Commit-Fehler kompensiert. Bereits vorhandene Assets werden nicht entfernt (R10 geschlossen) |
 | Token-Trust-Seam | belegt | `operator-token.ts`, `http.ts:1202`, `auth.test.ts`, `server.test.ts:108` | Token-Routen sind `operatorOnly`, Proxy prüft Herkunft; Agents behalten normale Write-Rechte innerhalb ihrer Scopes |
 | Payload-Islands | belegt | `renderer/src/islands.ts`, `engine/src/code-payloads.ts`, ADR-0010 | generische Framer-Module, Poster-Pflicht und Lizenz-Promotion unvollständig |
@@ -212,6 +212,8 @@ Noch nicht vorhanden: **automatische Medienbeschaffung**. Medienbedarfe sind adr
 | S7 Bibliotheks-UI | teilweise | Bausteine-Workspace, Explorer-Tab | vollständiger menschlicher E2E-Weg offen |
 | S8 Motion-Mapping | implementiert | `mapFramerMotion`, Motion-Report, ADR-0006 | eigene Framer-Motion-ADR und vollständiger Coverage-Nachweis offen |
 | S9 Erweiterung | geplant | `.scratch/framer-import/plan.md` | Mehrseitenbaum, CMS-Mapping, Localization, Code-Sections |
+
+**Echtabnahme Chocolate (06.11.2026):** 9 Framer-Seiten, 13 Komponenten und eine CMS-Collection mit 3 Einträgen; 10 Sitemap-Routen plus `/404` in ein isoliertes Projekt importiert, 19 Assets und 54 Fonts, 0 fehlgeschlagene Downloads. Der Build enthält keine Framer-Runtime und keine Framer-CDN-URLs. Ein site-weiter ID-Konflikt wurde behoben: Framer vergibt `fi*`-IDs pro Seite neu, der CSS-Bake deduplizierte aber nur nach ID; importierte Knoten werden jetzt mit dem Seiten-Hash gescoped. Dadurch stieg `/about` von 44,8 % auf 100 % Textüberlappung und von 3876 auf 5557 px (Original 5537); `/price` und die drei Blog-Routen treffen die Originalhöhe. Der Pixel-Diff bleibt bei 80–97 %; SVG-Icons, Pseudo-Elemente/Hintergründe, `/404` und die Motion-Gegenprobe bleiben offen. Beleg: `.scratch/framer/acceptance-chocolate-2026-11-06.md`.
 
 ## Priorisierte offene Arbeit
 
