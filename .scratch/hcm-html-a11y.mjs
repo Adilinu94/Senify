@@ -1,0 +1,17 @@
+import fs from 'node:fs';
+const html = fs.readFileSync(process.argv[2], 'utf8');
+const lang = html.match(/<html[^>]*\blang="([^"]*)"/i)?.[1] || null;
+const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g,' ').trim() || null;
+const h1 = [...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/gi)].map(m=>m[1].replace(/<[^>]+>/g,'').replace(/\s+/g,' ').trim()).filter(Boolean);
+const imgs = [...html.matchAll(/<img\b([^>]*)>/gi)].map(m=>m[1]);
+const imgNoAlt = imgs.filter(a=>!/alt\s*=/.test(a)).length;
+const imgEmptyAlt = imgs.filter(a=>/\balt\s*=\s*""/.test(a)).length;
+const skip = /skip.?to|zum.?inhalt|skip.?link/i.test(html);
+const main = /<main\b|role="main"/i.test(html);
+const nav = (html.match(/<nav\b|role="navigation"/gi)||[]).length;
+const googleFonts = (html.match(/fonts\.googleapis\.com|fonts\.gstatic\.com/gi)||[]).length;
+const scripts = (html.match(/<script\b/gi)||[]).length;
+const styles = (html.match(/<link[^>]+stylesheet|<style\b/gi)||[]).length;
+const forms = (html.match(/<form\b/gi)||[]).length;
+const viewport = /name="viewport"/i.test(html);
+console.log(JSON.stringify({lang,title,h1Count:h1.length,h1:h1.slice(0,5),imgTags:imgs.length,imgNoAltAttr:imgNoAlt,imgEmptyAlt,skipLink:skip,mainLandmark:main,navLandmarks:nav,googleFontsRefs:googleFonts,scripts,stylesheetsOrStyle:styles,forms,viewport}, null, 2));
