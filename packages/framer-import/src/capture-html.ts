@@ -1099,6 +1099,16 @@ function mediaRange(prelude: string): { min: number | null; max: number | null }
   };
 }
 
+// Hover-capability gates carry the link and button hover rules on real Framer
+// pages. They are not a width range, but they must reach the state capture:
+// the emitted `:hover` state itself only fires on capable devices. A plain
+// non-width query (print, color scheme, orientation) still must not leak.
+function hoverMediaGate(prelude: string): boolean {
+  const query = prelude.replace(/^@media/i, "").trim();
+  if (!/\(\s*(?:any-)?hover\s*:\s*hover\s*\)/i.test(query)) return false;
+  return !/prefers-|print|orientation|color-scheme|(?:min|max)-width|resolution/i.test(query);
+}
+
 function parseCssRules(source: string): { rules: ParsedCssRule[]; media: ParsedCssMedia[] } {
   const rules: ParsedCssRule[] = [];
   const media: ParsedCssMedia[] = [];
@@ -1119,6 +1129,8 @@ function parseCssRules(source: string): { rules: ParsedCssRule[]; media: ParsedC
       const range = mediaRange(prelude);
       if (range !== null) {
         media.push({ minWidth: range.min, maxWidth: range.max, rules: parseCssRules(body).rules });
+      } else if (hoverMediaGate(prelude)) {
+        media.push({ minWidth: null, maxWidth: null, rules: parseCssRules(body).rules });
       }
     } else if (!prelude.startsWith("@")) {
       for (const selector of prelude.split(",").map((entry) => entry.trim()).filter(Boolean)) {
@@ -1157,7 +1169,7 @@ const STATE_PSEUDO: Record<string, IrPseudoState> = {
   disabled: "disabled",
 };
 
-function compileSelector(
+function compileSelectorPart(
   selector: string,
   order: number,
   values: Record<string, string>,
@@ -1215,6 +1227,53 @@ function compileSelector(
   };
 }
 
+// A CSS rule can list several selectors (`a:hover,span:hover`). The list is
+// split at top-level commas so every part applies to its own elements; the
+// shared cascade order keeps the source order.
+function splitSelectorList(selector: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let start = 0;
+  for (let index = 0; index < selector.length; index += 1) {
+    const char = selector[index]!;
+    if (quote !== null) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "(" || char === "[") depth += 1;
+    else if (char === ")" || char === "]") depth = Math.max(0, depth - 1);
+    else if (char === "," && depth === 0) {
+      parts.push(selector.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(selector.slice(start).trim());
+  return parts.filter((part) => part !== "");
+}
+
+function compileSelectors(
+  selector: string,
+  order: number,
+  values: Record<string, string>,
+): { rules: CompiledRule[]; skippedPseudo: number; stateRules: number } {
+  const rules: CompiledRule[] = [];
+  let skippedPseudo = 0;
+  let stateRules = 0;
+  for (const part of splitSelectorList(selector)) {
+    const compiled = compileSelectorPart(part, order, values);
+    if (compiled.pseudo) skippedPseudo += 1;
+    if (compiled.rule === null) continue;
+    if (compiled.state !== null) stateRules += 1;
+    rules.push(compiled.rule);
+  }
+  return { rules, skippedPseudo, stateRules };
+}
+
 function buildIndex(rules: readonly ParsedCssRule[]): {
   index: RuleIndex;
   skippedPseudo: number;
@@ -1224,18 +1283,19 @@ function buildIndex(rules: readonly ParsedCssRule[]): {
   let skippedPseudo = 0;
   let stateRules = 0;
   rules.forEach((entry, order) => {
-    const { rule, pseudo, state } = compileSelector(entry.selector, order, entry.values);
-    if (pseudo) skippedPseudo += 1;
-    if (rule === null) return;
-    if (state !== null) stateRules += 1;
-    const first = rule.classes[0];
-    if (first === undefined) {
-      index.generic.push(rule);
-      return;
+    const compiled = compileSelectors(entry.selector, order, entry.values);
+    skippedPseudo += compiled.skippedPseudo;
+    stateRules += compiled.stateRules;
+    for (const rule of compiled.rules) {
+      const first = rule.classes[0];
+      if (first === undefined) {
+        index.generic.push(rule);
+        continue;
+      }
+      const bucket = index.byClass.get(first);
+      if (bucket === undefined) index.byClass.set(first, [rule]);
+      else bucket.push(rule);
     }
-    const bucket = index.byClass.get(first);
-    if (bucket === undefined) index.byClass.set(first, [rule]);
-    else bucket.push(rule);
   });
   return { index, skippedPseudo, stateRules };
 }

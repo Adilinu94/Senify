@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { captureHtml, mapDocument, normalize, ruleScopeOf } from "../src/index.ts";
+import { captureHtml, mapDocument, normalize, ruleScopeOf, type IrNode } from "../src/index.ts";
 import { expandBox, splitDeclarations, splitSpaces } from "../src/css-util.ts";
 
 const page = (body: string, css = "", head = ""): string =>
@@ -121,6 +121,50 @@ describe("capture fidelity", () => {
         /1 Pseudo-Zustände übernommen, 1 Pseudo-Elemente oder Strukturregeln nicht übernommen/.test(finding.message),
       ),
     ).toBe(true);
+  });
+
+  it("applies comma-separated selectors individually, including state rules", () => {
+    const { document } = run(
+      page(
+        '<div class="a">A</div><div class="b">B</div>',
+        ".a,.b{color:#111}.a:hover,.b:hover{color:#f00}",
+      ),
+    );
+    const find = (node: IrNode, name: string): IrNode | undefined => {
+      if (node.baseClasses.includes(name)) return node;
+      for (const child of node.children) {
+        const hit = find(child, name);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    };
+    const root = document.pages[0]?.root;
+    expect(root).toBeDefined();
+    const a = root === undefined ? undefined : find(root, "a");
+    const b = root === undefined ? undefined : find(root, "b");
+    expect(a?.states[0]?.visual["color"]).toBe("#111");
+    expect(b?.states[0]?.visual["color"]).toBe("#111");
+    expect(a?.states[0]?.interactive?.hover?.["color"]).toBe("#f00");
+    expect(b?.states[0]?.interactive?.hover?.["color"]).toBe("#f00");
+  });
+
+  it("reads hover states from a hover-capability media block", () => {
+    const { document } = run(
+      page('<div class="btn">Go</div>', "@media (hover: hover){.btn{color:#111}.btn:hover{color:#f00}}"),
+    );
+    const find = (node: IrNode): IrNode | undefined => {
+      if (node.baseClasses.includes("btn")) return node;
+      for (const child of node.children) {
+        const hit = find(child);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    };
+    const root = document.pages[0]?.root;
+    expect(root).toBeDefined();
+    const button = root === undefined ? undefined : find(root);
+    expect(button?.states[0]?.visual["color"]).toBe("#111");
+    expect(button?.states[0]?.interactive?.hover?.["color"]).toBe("#f00");
   });
 
   it("applies class rules on a large stylesheet (no size limit)", () => {
