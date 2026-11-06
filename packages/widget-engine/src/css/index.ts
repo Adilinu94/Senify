@@ -1,6 +1,7 @@
 export {
   CASCADE_LAYER,
   CASCADE_ORDER,
+  CASCADE_PRECEDENCE,
   DEVICE_BREAKPOINTS,
   MEDIA_QUERY_OFFSET,
   NODE_ATTRIBUTE,
@@ -12,6 +13,7 @@ export {
   nodeSelector,
   statePseudoClass,
   stateSelector,
+  type CascadePrecedenceLevel,
   type CascadeStage,
   type MediaDevice,
   type StateName,

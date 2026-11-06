@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CASCADE_LAYER,
   CASCADE_ORDER,
+  CASCADE_PRECEDENCE,
   STATE_ORDER,
   classSelector,
   compileCss,
@@ -36,8 +37,20 @@ function block(css: string, header: string): string {
 }
 
 describe("cascade decision", () => {
-  it("declares the five levels weak to strong", () => {
+  it("declares the stage names and the ADR-0017 precedence matrix", () => {
     expect([...CASCADE_ORDER]).toEqual(["base", "device", "state", "class", "inline"]);
+    expect([...CASCADE_PRECEDENCE]).toEqual([
+      "class-base",
+      "base",
+      "local-rule-base",
+      "class-device",
+      "device",
+      "local-rule-device",
+      "class-state",
+      "state",
+      "local-rule-state",
+      "inline",
+    ]);
     expect(CASCADE_LAYER).toBe("user-authored");
   });
 
@@ -48,17 +61,17 @@ describe("cascade decision", () => {
     expect(css.match(/@layer /g)).toHaveLength(1);
   });
 
-  it("emits the stages in cascade order", () => {
+  it("emits the class base before the local base, then device and state", () => {
     const css = compileCss(document);
+    const classBase = css.indexOf(`.highlight {`);
     const base = css.indexOf(`[data-node-id="card"] {`);
     const device = css.indexOf("@media (max-width: 1023.98px)");
     const state = css.indexOf(`[data-node-id="card"]:hover {`);
-    const userClass = css.indexOf(`.highlight {`);
 
-    expect(base).toBeGreaterThan(-1);
+    expect(classBase).toBeGreaterThan(-1);
+    expect(base).toBeGreaterThan(classBase);
     expect(device).toBeGreaterThan(base);
     expect(state).toBeGreaterThan(device);
-    expect(userClass).toBeGreaterThan(state);
   });
 
   it("lets the device rule override the base rule", () => {
@@ -75,17 +88,96 @@ describe("cascade decision", () => {
     );
   });
 
-  it("lets the user class override the state rule", () => {
-    const css = compileCss(document);
-    // Ticket 14: the plain class rule is global (`.highlight`, one simple
-    // selector) and still wins against base/device/state through source order;
-    // where the node has its own state, the anchored combination
-    // (`[data-node-id].highlight:hover`, three simple selectors) carries the
-    // class values over the state values.
+  it("lets the local base override the class base and the local state override the class state", () => {
+    const css = compileCss({
+      nodes: [node],
+      classRules: [
+        {
+          name: "highlight",
+          props: { color: "#0000ff" },
+          states: { hover: { color: "#123456" } },
+        },
+      ],
+    });
     expect(classSelector("card", "highlight")).toBe(`[data-node-id="card"].highlight`);
     expect(stateSelector("card", "hover")).toBe(`[data-node-id="card"]:hover`);
     expect(block(css, `.highlight {`)).toContain("color: #0000ff;");
-    expect(block(css, `[data-node-id="card"].highlight:hover {`)).toContain("color: #0000ff;");
+    expect(block(css, `.highlight:hover {`)).toContain("color: #123456;");
+    expect(block(css, `[data-node-id="card"] {`)).toContain("color: #ff0000;");
+    expect(block(css, `[data-node-id="card"]:hover {`)).toContain("color: #00ff00;");
+
+    const classBase = css.indexOf(`.highlight {`);
+    const localBase = css.indexOf(`[data-node-id="card"] {`);
+    const classState = css.indexOf(`.highlight:hover {`);
+    const localState = css.indexOf(`[data-node-id="card"]:hover {`);
+    expect(classBase).toBeLessThan(localBase);
+    expect(classState).toBeLessThan(localState);
+  });
+
+  it("orders class, local node and scoped rules by condition (ADR-0017)", () => {
+    const css = compileCss(
+      {
+        nodes: [
+          {
+            id: "card",
+            primitive: "button",
+            props: { color: "#ff0000", padding_tablet: P4 },
+            states: { hover: { color: "#00ff00" } },
+            classIds: ["highlight"],
+          },
+        ],
+        classRules: [
+          {
+            name: "highlight",
+            props: { color: "#0000ff", padding_tablet: P8 },
+            states: { hover: { color: "#123456" } },
+          },
+          {
+            name: "local",
+            kind: "scoped",
+            scope: { nodeId: "card" },
+            selector: ".local",
+            props: { background: "#111111", padding_tablet: P8 },
+            states: { hover: { background: "#222222" } },
+          },
+          {
+            name: "ambient",
+            kind: "ambient",
+            selector: ".ambient",
+            props: { borderColor: "#333333" },
+          },
+        ],
+      },
+      { layer: null },
+    );
+
+    const classBase = css.indexOf(`.highlight {`);
+    const ambientBase = css.indexOf(`.ambient {`);
+    const nodeBase = css.indexOf(`[data-node-id="card"] {`);
+    const scopedBase = css.indexOf(`[data-node-id="card"].local {`);
+    const media = css.indexOf("@media (max-width: 1023.98px)");
+    const classDevice = css.indexOf(`.highlight {`, media);
+    const nodeDevice = css.indexOf(`[data-node-id="card"] {`, media);
+    const scopedDevice = css.indexOf(`[data-node-id="card"].local {`, media);
+    const classState = css.indexOf(`.highlight:hover {`);
+    const nodeState = css.indexOf(`[data-node-id="card"]:hover {`);
+    const scopedState = css.indexOf(`[data-node-id="card"].local:hover {`);
+
+    expect(classBase).toBeGreaterThan(-1);
+    expect(classBase).toBeLessThan(ambientBase);
+    expect(ambientBase).toBeLessThan(nodeBase);
+    expect(nodeBase).toBeLessThan(scopedBase);
+    expect(scopedBase).toBeLessThan(media);
+    expect(media).toBeLessThan(classDevice);
+    expect(classDevice).toBeLessThan(nodeDevice);
+    expect(nodeDevice).toBeLessThan(scopedDevice);
+    expect(scopedDevice).toBeLessThan(classState);
+    expect(classState).toBeLessThan(nodeState);
+    expect(nodeState).toBeLessThan(scopedState);
+
+    expect(block(css, `.highlight:hover {`)).toContain("color: #123456;");
+    expect(block(css, `[data-node-id="card"]:hover {`)).toContain("color: #00ff00;");
+    expect(block(css, `[data-node-id="card"].local:hover {`)).toContain("background-color: #222222;");
   });
 
   it("leaves the inline value as the strongest level, outside the layer", () => {

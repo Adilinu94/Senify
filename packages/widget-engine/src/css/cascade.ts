@@ -8,19 +8,24 @@
 // `Repos/instatic/docs/features/canvas-iframe-per-frame.md`, section
 // "CSS injection into iframes".
 //
-// Inside that one layer the order is *emission order*, and the compiler emits
-// strictly from weak to strong:
+// Inside that one layer the order is *emission order*. ADR-0017 replaced the
+// pure origin order with a condition matrix:
 //
-//   base   -> `[data-node-id="id"]`                     (desktop values)
-//   device -> `@media (max-width: …)` per device        (tablet, then mobile)
-//   state  -> `[data-node-id="id"]:hover` etc.
-//   class  -> `.user-class` once per class              (ticket 14)
-//   inline -> the element's `style` attribute, outside the layer
+//   class-base      -> `.user-class`                    (global, weakest)
+//   base            -> `[data-node-id="id"]`            (local, desktop)
+//   local-rule-base -> `[data-node-id].scope`           (local rule, desktop)
+//   class-device    -> `@media` class rules
+//   device          -> `@media` local node values
+//   local-rule-device
+//   class-state     -> `.user-class:hover` etc.
+//   state           -> `[data-node-id="id"]:hover` etc.
+//   local-rule-state
+//   inline          -> the element's `style` attribute, outside the layer
 //
-// A rule of a stronger stage is written after the weaker one, so it wins the
-// tie on specificity. `kind` (class | ambient | scoped) stays data and no
-// longer decides the order — the stage does. That is the merger: one layer,
-// one fixed stage list, no per-kind layers.
+// Condition before origin: state beats device beats base. Local beats global
+// at the same condition. `kind` (class | ambient | scoped) still decides
+// whether a rule is global or local, and the stage names in `CASCADE_ORDER`
+// stay the labels on a compiled rule.
 
 import { BREAKPOINTS } from "../breakpoints.ts";
 
@@ -31,6 +36,25 @@ export const NODE_ATTRIBUTE = "data-node-id";
 export const CASCADE_ORDER = ["base", "device", "state", "class", "inline"] as const;
 
 export type CascadeStage = (typeof CASCADE_ORDER)[number];
+
+// ADR-0017: the authored levels from weak to strong. `CASCADE_ORDER` stays the
+// list of stage names on a compiled rule; this list is the order in which the
+// compiler actually writes them. Condition before origin, local before global
+// at the same condition.
+export const CASCADE_PRECEDENCE = [
+  "class-base",
+  "base",
+  "local-rule-base",
+  "class-device",
+  "device",
+  "local-rule-device",
+  "class-state",
+  "state",
+  "local-rule-state",
+  "inline",
+] as const;
+
+export type CascadePrecedenceLevel = (typeof CASCADE_PRECEDENCE)[number];
 
 // Decision O11 (17.09.): four pseudo states. `disabled` is not a transient
 // interaction like the other three — it is a form state — but it belongs to the
@@ -98,23 +122,22 @@ function escapeClassName(className: string): string {
   return trimmed.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
 }
 
-// The anchored spelling of a class rule: `[data-node-id].cls` has the same
-// specificity as a state rule of the same node, so the later stage (classes)
-// wins purely through source order and the layer stays intact. Since ticket 14
-// the compiler emits classes globally (`.cls`, `globalClassSelector`); the
-// anchored form stays for node state combinations and as the measured
-// regional alternative.
+// The anchored spelling of a class rule: `[data-node-id].cls` keeps a class
+// rule attached to one carrier. Since ADR-0017 the default global class base
+// (`.cls`) is emitted before the local base, so a local node value wins at the
+// same condition. The anchored form remains for the `regional` emission mode
+// and as the measured alternative.
 export function classSelector(id: string, className: string): string {
   return `${nodeSelector(id)}.${escapeClassName(className)}`;
 }
 
 // The global spelling of a class rule (ticket 14, the measured winner): one
 // `.cls` selector for all carriers instead of one anchored rule per node.
-// The class stage still wins against base/device/state through source order
-// (base < device < state < class), but the selector is one simple selector
-// lighter than an anchored one — a node state (`[data-node-id]:hover`, two
-// simple selectors) would win against it, which is why the compiler keeps
-// node-specific state combinations anchored on their node.
+// Since ADR-0017 it is the weakest authored level: a local node base of the
+// same condition is emitted later and wins, and a class state is emitted as
+// `.cls:hover`, so the local node state that follows wins the same-condition
+// tie. A narrower condition (device, state) still beats a local base because
+// the class rule for that condition is emitted later.
 export function globalClassSelector(className: string): string {
   return `.${escapeClassName(className)}`;
 }

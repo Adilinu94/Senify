@@ -2,10 +2,9 @@
 // measured winner (and default) emits one `.cls` per class and dedupes it over
 // all carriers, the regional path anchors every class rule on its carrier
 // (`[data-node-id].cls`, kept as the documented retreat). The tests pin that
-// both describe the same declarations per carrier, that the global rule still
-// comes after the base stage (source order carries the class stage), and that
-// a node-specific state combination stays anchored — an unanchored `.cls`
-// loses against `[data-node-id]:hover` on specificity alone (O1).
+// both describe the same declarations per carrier, that the global class base
+// is emitted before the local base (ADR-0017), and that a node state and a
+// rule state are separate rules with the local node state later.
 
 import { describe, expect, it } from "vitest";
 import { compileCss, compileCssReport, type CssDocument } from "../src/index.ts";
@@ -54,15 +53,16 @@ describe("class emission (ticket 14)", () => {
     expect(anchored[2]?.declarations).toEqual(anchored[0]?.declarations);
   });
 
-  it("keeps the class stage after the base stage in global mode", () => {
+  it("emits the global class base before the local base in global mode", () => {
     const css = compileCss(document(), { layer: null });
     const base = css.indexOf(`[data-node-id="a"] {`);
     const global = css.indexOf(".cta {");
     expect(base).toBeGreaterThan(-1);
-    expect(global).toBeGreaterThan(base);
+    expect(global).toBeGreaterThan(-1);
+    expect(global).toBeLessThan(base);
   });
 
-  it("keeps a node state combination anchored in global mode", () => {
+  it("keeps the node state separate and local in global mode", () => {
     const css = compileCss(
       {
         nodes: [
@@ -78,9 +78,11 @@ describe("class emission (ticket 14)", () => {
       { layer: null },
     );
     expect(css).toContain(".cta {");
-    expect(css).toContain(`[data-node-id="a"].cta:hover {`);
-    expect(css).toContain("color: #ff0000;");
+    expect(css).toContain(`[data-node-id="a"]:hover {`);
+    expect(css).toContain("color: #00ff00;");
     expect(css).not.toContain(`[data-node-id="a"].cta {`);
+    expect(css).not.toContain(`[data-node-id="a"].cta:hover {`);
+    expect(css.indexOf(".cta {")).toBeLessThan(css.indexOf(`[data-node-id="a"]:hover {`));
   });
 
   it("emits rule states globally in global mode", () => {

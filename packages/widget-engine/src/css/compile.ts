@@ -282,6 +282,7 @@ export function overlayDeviceValues(strong: DeviceValueMap, weak: DeviceValueMap
 function expandSources(
   sources: readonly ValueSource[],
   options: CompileOptions,
+  devices: readonly Device[] = ["desktop", "tablet", "mobile"],
 ): { blocks: string[]; rules: CompiledRule[]; ruleCount: number; declarationCount: number } {
   const blocks: string[] = [];
   const rules: CompiledRule[] = [];
@@ -311,13 +312,14 @@ function expandSources(
     // conditions are independent, so they may not be merged with `and`.
     if (source.context !== undefined) {
       const inner: string[] = [];
-      if (per.desktop.length > 0) {
+      if (devices.includes("desktop") && per.desktop.length > 0) {
         inner.push(writeBlock(source.selector, per.desktop, 1));
         rules.push(ruleFor(null, per.desktop));
         ruleCount += 1;
         declarationCount += per.desktop.length;
       }
       for (const device of ["tablet", "mobile"] as const) {
+        if (!devices.includes(device)) continue;
         const declarations = per[device];
         if (declarations.length === 0) continue;
         inner.push(
@@ -331,13 +333,14 @@ function expandSources(
       continue;
     }
 
-    if (per.desktop.length > 0) {
+    if (devices.includes("desktop") && per.desktop.length > 0) {
       blocks.push(writeBlock(source.selector, per.desktop, 0));
       rules.push(ruleFor(null, per.desktop));
       ruleCount += 1;
       declarationCount += per.desktop.length;
     }
     for (const device of ["tablet", "mobile"] as const) {
+      if (!devices.includes(device)) continue;
       const declarations = per[device];
       if (declarations.length === 0) continue;
       const bucket = buckets[device];
@@ -380,66 +383,79 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
     declarationCount += rule.declarations.length;
   };
 
-  // 1 — base values (desktop).
-  for (const node of flat) {
-    const declarations = declarationsForNode(node, "desktop", options);
-    if (declarations.length === 0) continue;
-    const selector = selectorFor(node.id);
-    push(
-      {
-        media: null,
-        selector,
-        stage: "base",
-        state: null,
-        classIds: [],
-        declarations,
-      },
-      writeBlock(selector, declarations, 0),
-    );
-  }
+  const emitSources = (
+    sources: readonly ValueSource[],
+    devices: readonly Device[] = ["desktop", "tablet", "mobile"],
+  ): void => {
+    if (sources.length === 0) return;
+    const stage = expandSources(sources, options, devices);
+    blocks.push(...stage.blocks);
+    rules.push(...stage.rules);
+    ruleCount += stage.ruleCount;
+    declarationCount += stage.declarationCount;
+  };
 
-  // 2 — device values. Only what differs from the inherited device reaches the
-  // stylesheet, so a reset (dropped suffix key) simply inherits again.
-  for (const device of ["tablet", "mobile"] as const) {
-    const deviceBlocks: string[] = [];
-    const query = mediaQueryFor(device);
+  const emitNodeBase = (): void => {
     for (const node of flat) {
-      if (node.props === undefined) continue;
-      const resolved = resolveAllForDevice(node.props, device);
-      const baseline = resolveAllForDevice(node.props, previousDevice(device));
-      const declarations = declarationsForValues(node.primitive, resolved, {
-        ...options,
-        baseline,
-      });
+      const declarations = declarationsForNode(node, "desktop", options);
       if (declarations.length === 0) continue;
       const selector = selectorFor(node.id);
-      deviceBlocks.push(writeBlock(selector, declarations, 1));
-      rules.push({
-        media: query,
-        selector,
-        stage: "device",
-        state: null,
-        classIds: [],
-        declarations,
-      });
-      ruleCount += 1;
-      declarationCount += declarations.length;
+      push(
+        {
+          media: null,
+          selector,
+          stage: "base",
+          state: null,
+          classIds: [],
+          declarations,
+        },
+        writeBlock(selector, declarations, 0),
+      );
     }
-    if (deviceBlocks.length > 0) {
-      blocks.push(writeMedia(query, deviceBlocks, 0));
+  };
+
+  const emitNodeDevice = (): void => {
+    for (const device of ["tablet", "mobile"] as const) {
+      const deviceBlocks: string[] = [];
+      const query = mediaQueryFor(device);
+      for (const node of flat) {
+        if (node.props === undefined) continue;
+        const resolved = resolveAllForDevice(node.props, device);
+        const baseline = resolveAllForDevice(node.props, previousDevice(device));
+        const declarations = declarationsForValues(node.primitive, resolved, {
+          ...options,
+          baseline,
+        });
+        if (declarations.length === 0) continue;
+        const selector = selectorFor(node.id);
+        deviceBlocks.push(writeBlock(selector, declarations, 1));
+        rules.push({
+          media: query,
+          selector,
+          stage: "device",
+          state: null,
+          classIds: [],
+          declarations,
+        });
+        ruleCount += 1;
+        declarationCount += declarations.length;
+      }
+      if (deviceBlocks.length > 0) {
+        blocks.push(writeMedia(query, deviceBlocks, 0));
+      }
     }
-  }
+  };
 
   const classRules = new Map((document.classRules ?? []).map((rule) => [rule.name, rule]));
 
-  // 3 — pseudo states, device-expanded: `[data-node-id]:hover` and, when the
-  // state carries device values, the same rule inside the media query.
-  const stateSources: ValueSource[] = [];
+  // 1 — the node's own pseudo states. They are local and are emitted after the
+  // global class states, so a local hover wins at the same condition.
+  const nodeStateSources: ValueSource[] = [];
   for (const node of flat) {
     for (const state of STATE_ORDER) {
       const values = node.states?.[state];
       if (values === undefined) continue;
-      stateSources.push({
+      nodeStateSources.push({
         selector: stateSelector(node.id, state),
         primitive: node.primitive,
         values,
@@ -449,34 +465,22 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
       });
     }
   }
-  const stateStage = expandSources(stateSources, options);
-  blocks.push(...stateStage.blocks);
-  rules.push(...stateStage.rules);
-  ruleCount += stateStage.ruleCount;
-  declarationCount += stateStage.declarationCount;
 
-  // 4 — user rules, in the class stage.
-  //
-  // A class rule is emitted once for all its carriers (`.cls`, ticket 14) by
-  // default; the rule order of the document carries the class stage. A state
-  // at the node or at the rule becomes a combined selector — anchored on the
-  // node when the node state is involved (`[data-node-id].cls:hover`), global
-  // when only the rule state is — with the class stage staying the stronger
-  // one (O1): class state over class props over node state.
-  //
-  // An ambient rule is emitted verbatim and never anchored — it attaches by
-  // selector matching. A scoped rule is anchored on the one node it belongs to.
-  // Both are skipped when nothing can carry them.
-  const classSources: ValueSource[] = [];
+  // The sources of the matrix of ADR-0017. Global rules are classes and
+  // ambient rules; local rules are node values and scoped rules.
+  const globalBaseSources: ValueSource[] = [];
+  const globalStateSources: ValueSource[] = [];
+  const localBaseSources: ValueSource[] = [];
+  const localStateSources: ValueSource[] = [];
 
-  // The props of a rule (and its custom conditions), one selector each.
   const pushRuleProps = (
+    target: ValueSource[],
     rule: CssClassRule,
     selector: string,
     primitive: string | undefined,
     classIds: readonly string[],
   ): void => {
-    classSources.push({
+    target.push({
       selector,
       primitive,
       values: rule.props,
@@ -485,7 +489,7 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
       classIds,
     });
     for (const [context, contextValues] of contextEntries(rule.contextStyles)) {
-      classSources.push({
+      target.push({
         selector,
         primitive,
         values: overlayDeviceValues(contextValues, rule.props),
@@ -497,24 +501,25 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
     }
   };
 
-  // The pseudo states of a rule, combined with the states of a node when the
-  // call comes from a carrying node. The rule state wins over the node state,
-  // the class stage stays stronger than both (O1).
+  // A rule state is a global (or local, for scoped rules) state source. The
+  // node's own state stays a separate local source, so at the same condition
+  // the later local rule wins. A rule state no longer needs the anchored
+  // `[data-node-id].cls:hover` combination: `.cls:hover` carries the class
+  // state, the node state carries the local values, and the cascade resolves
+  // the overlap.
   const pushRuleStates = (
+    target: ValueSource[],
     rule: CssClassRule,
     selector: string,
     primitive: string | undefined,
-    nodeStates: Partial<Record<StateName, DeviceValueMap>> | undefined,
     classIds: readonly string[],
   ): void => {
     for (const state of STATE_ORDER) {
-      const nodeState = nodeStates?.[state];
       const ruleState = rule.states?.[state];
-      if (nodeState === undefined && ruleState === undefined) continue;
-      const overNode = overlayDeviceValues(rule.props, nodeState ?? {});
-      const stateValues = ruleState === undefined ? overNode : overlayDeviceValues(ruleState, overNode);
+      if (ruleState === undefined) continue;
+      const stateValues = overlayDeviceValues(ruleState, rule.props);
       const stateSelector_ = `${selector}${statePseudoClass(state)}`;
-      classSources.push({
+      target.push({
         selector: stateSelector_,
         primitive,
         values: stateValues,
@@ -523,7 +528,7 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
         classIds,
       });
       for (const [context, contextValues] of contextEntries(rule.contextStyles)) {
-        classSources.push({
+        target.push({
           selector: stateSelector_,
           primitive,
           values: overlayDeviceValues(contextValues, stateValues),
@@ -537,14 +542,15 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
   };
 
   const pushRuleSources = (
+    baseTarget: ValueSource[],
+    stateTarget: ValueSource[],
     rule: CssClassRule,
     selector: string,
     primitive: string | undefined,
-    nodeStates: Partial<Record<StateName, DeviceValueMap>> | undefined,
     classIds: readonly string[],
   ): void => {
-    pushRuleProps(rule, selector, primitive, classIds);
-    pushRuleStates(rule, selector, primitive, nodeStates, classIds);
+    pushRuleProps(baseTarget, rule, selector, primitive, classIds);
+    pushRuleStates(stateTarget, rule, selector, primitive, classIds);
   };
 
   if (options.classEmission === "regional") {
@@ -553,22 +559,21 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
         const rule = classRules.get(name);
         if (rule === undefined) continue;
         pushRuleSources(
+          globalBaseSources,
+          globalStateSources,
           rule,
           classSelector(node.id, name),
           node.primitive,
-          node.states,
           [name],
         );
       }
     }
   } else {
     // Ticket 14: one rule per class for all its carriers, in the rule order of
-    // the document (`order` is the cascade order, ticket 07) — the class stage
-    // no longer depends on where the first carrier sits in the tree. The props
-    // (and rule states) are emitted once; a node that carries both the class
-    // and its own state keeps the anchored combination, because the unanchored
-    // `.cls` would lose against `[data-node-id]:hover` (two simple selectors
-    // beat one) and the class stage must stay the stronger one (O1).
+    // the document (`order` is the cascade order, ticket 07). The class base
+    // (`.cls`) is global and weaker than a local node value of the same
+    // condition; class states are emitted as `.cls:hover`, so a local node
+    // state of the same condition follows and wins.
     const firstCarrier = new Map<string, CssNode>();
     for (const node of flat) {
       for (const name of node.classIds ?? []) {
@@ -579,22 +584,21 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
       if (rule.kind !== undefined && rule.kind !== "class") continue;
       const carrier = firstCarrier.get(rule.name);
       if (carrier === undefined) continue;
-      pushRuleSources(rule, globalClassSelector(rule.name), carrier.primitive, undefined, [rule.name]);
-    }
-    for (const node of flat) {
-      if (node.states === undefined) continue;
-      for (const name of node.classIds ?? []) {
-        const rule = classRules.get(name);
-        if (rule === undefined) continue;
-        pushRuleStates(rule, classSelector(node.id, name), node.primitive, node.states, [name]);
-      }
+      pushRuleSources(
+        globalBaseSources,
+        globalStateSources,
+        rule,
+        globalClassSelector(rule.name),
+        carrier.primitive,
+        [rule.name],
+      );
     }
   }
 
   for (const rule of document.classRules ?? []) {
     if (rule.kind === "ambient") {
       const selector = rule.selector ?? rule.name;
-      pushRuleSources(rule, selector, undefined, undefined, []);
+      pushRuleSources(globalBaseSources, globalStateSources, rule, selector, undefined, []);
       continue;
     }
     if (rule.kind === "scoped" && rule.scope !== undefined) {
@@ -602,22 +606,31 @@ function build(document: CssDocument, options: CompileOptions): BuildResult {
       // A scoped rule whose node is gone is dead; it is not emitted.
       if (node === undefined || rule.selector === undefined) continue;
       pushRuleSources(
+        localBaseSources,
+        localStateSources,
         rule,
         `${selectorFor(node.id)}${rule.selector}`,
         node.primitive,
-        node.states,
         [rule.name],
       );
     }
   }
 
-  const classStage = expandSources(classSources, options);
-  blocks.push(...classStage.blocks);
-  rules.push(...classStage.rules);
-  ruleCount += classStage.ruleCount;
-  declarationCount += classStage.declarationCount;
+  // ADR-0017: condition before origin, local before global at the same
+  // condition. The class base is the weakest authored level; the class device
+  // and class state remain stronger than a local base, because the condition
+  // is narrower. Inline stays outside the layer and is not part of this list.
+  emitSources(globalBaseSources, ["desktop"]);
+  emitNodeBase();
+  emitSources(localBaseSources, ["desktop"]);
+  emitSources(globalBaseSources, ["tablet", "mobile"]);
+  emitNodeDevice();
+  emitSources(localBaseSources, ["tablet", "mobile"]);
+  emitSources(globalStateSources);
+  emitSources(nodeStateSources);
+  emitSources(localStateSources);
 
-  // 5 — raw at-rules (ADR-0005): only `@keyframes`, validated and normalized.
+  // Raw at-rules (ADR-0005): only `@keyframes`, validated and normalized.
   // They carry no declarations of a rule, so they add bytes but no rule count.
   for (const rule of document.classRules ?? []) {
     if (rule.rawCss === undefined || !isSafeRawCss(rule.rawCss)) continue;
