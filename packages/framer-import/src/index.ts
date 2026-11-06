@@ -35,6 +35,7 @@ export {
 export { captureHtml, captureFixture, type CaptureHtmlInput } from "./capture-html.ts";
 export { readAppearTween, type AppearTween, type AppearTweenResult, type AppearTweenState } from "./appear-tween.ts";
 export { listMirrorPages, prepareMirrorSite, type PreparedMirrorSite } from "./prepare-site.ts";
+export { fetchSitemapRoutes, importRoutes, parseSitemap, type ImportRoute, type SitemapRoute } from "./route-manifest.ts";
 
 export {
   normalize,

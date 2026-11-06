@@ -3631,13 +3631,14 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: "import_framer_site",
     title: "Import a multi-page Framer export",
-    description: "Analyze all pages in a structured local export, or create them one at a time when write is true. Existing pages are never overwritten. A partial run is reported explicitly; CMS bindings, animation fidelity and runtime freedom remain unverified.",
+    description: "Analyze all pages in a structured local export, or create them one at a time when write is true. Flattened FramerExport subpages are expanded from the published sitemap through the live browser capture when sourceUrl is set. Existing pages are never overwritten. A partial run is reported explicitly; CMS bindings, animation fidelity and runtime freedom remain unverified.",
     scope: "write",
-    inputSchema: objectSchema({ siteId: { type: "string" }, rootDir: { type: "string" }, write: { type: "boolean" }, assetCacheDir: { type: "string" } }, ["siteId", "rootDir"]),
+    inputSchema: objectSchema({ siteId: { type: "string" }, rootDir: { type: "string" }, write: { type: "boolean" }, assetCacheDir: { type: "string" }, sourceUrl: { type: "string" } }, ["siteId", "rootDir"]),
     entity: (args) => `site:${String(args.siteId ?? "")}:framer-import`,
     handler: async (context, args) => {
       const assetCacheDir = optionalString(args, "assetCacheDir");
-      return importFramerSite(context.client, { siteId: requireString(args, "siteId"), rootDir: requireString(args, "rootDir"), write: optionalBoolean(args, "write") ?? false, ...(assetCacheDir === undefined ? {} : { assetCacheDir }) });
+      const sourceUrl = optionalString(args, "sourceUrl");
+      return importFramerSite(context.client, { siteId: requireString(args, "siteId"), rootDir: requireString(args, "rootDir"), write: optionalBoolean(args, "write") ?? false, ...(assetCacheDir === undefined ? {} : { assetCacheDir }), ...(sourceUrl === undefined ? {} : { sourceUrl }) });
     },
   },
   {
