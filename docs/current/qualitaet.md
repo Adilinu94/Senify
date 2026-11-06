@@ -17,10 +17,10 @@
 | Serverbestätigte History, Library | `pnpm exec vitest run packages/editor/test/state/external-history.test.ts packages/editor/test/history.test.ts packages/editor/test/state/store.test.ts packages/editor/test/state/persist.test.ts packages/editor/test/state/session.test.ts packages/app/test/variables-editor-browser.test.ts packages/app/test/canvas-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026**, 117 bestanden in 7 Dateien nach rot/grünen Regressionen für atomare Beobachterbestätigung, ungültige Antworten, Ownership/Recovery und Registry-Belege. `pnpm typecheck`, `pnpm lint`, `pnpm quality:check` und `git diff --check` grün. App-/Canvas-Runner noch nicht angebunden; kein neuer Voll-, Coverage-, PostgreSQL-, Visual-, Parity- oder Importlauf für diese Scheibe. |
 | History-Sperrerhalt | `pnpm exec vitest run packages/app/test/variables-editor-browser.test.ts packages/app/test/canvas-browser.test.ts packages/editor/test/history.test.ts packages/editor/test/state/store.test.ts packages/editor/test/state/persist.test.ts packages/editor/test/state/session.test.ts --no-file-parallelism` | **Grün am 05.11.2026**, 91 bestanden in 6 Dateien nach den Unknown-/Reload-/Dokumentwechsel- und Storage-Retry-Korrekturen. Storage-Retry-Regression vorher gezielt rot. `pnpm typecheck` und `pnpm lint` danach grün. Kein Backend-Vertrag geändert; kein neuer Voll-, Coverage-, PostgreSQL- oder Paritätslauf. |
 | Externe History, Vorbereitung | `pnpm exec vitest run packages/editor/test/history.test.ts packages/editor/test/state/store.test.ts packages/editor/test/state/persist.test.ts packages/editor/test/state/session.test.ts packages/app/test/variables-editor-browser.test.ts packages/app/test/canvas-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026**, 89 bestanden in 6 Dateien. Danach Browser-Storage-Typisierung und eine Session-/Pipeline-Regression ergänzt: vier vollständige History-/State-Dateien erneut grün (79 bestanden), Retry-/Dialog-Browserfall erneut grün (gefilterter Lauf: 12 bestanden, 77 gezielt nicht ausgewählt). `pnpm typecheck` und `pnpm lint` danach grün. Kein neuer Voll-, Coverage-, PostgreSQL- oder Paritätslauf für diesen Diff. |
-| Build, Typprüfung, Lint und Volltest | `pnpm verify` | **Grün am 06.11.2026 nach dem Selektorlisten-Diff**: Build, Typecheck, `verify:dist`, Lint, Patch-Gate und vollständige Tests. 2103 bestanden, 36 übersprungen, 0 fehlgeschlagen in 220 Testdateien (217 bestanden, 3 mit erwarteten Skips). Ein früherer Lauf war einmal durch einen ephemeren Port in der Fetch-Sperrliste rot (`redesign-cards-browser`); derselbe Test war isoliert grün. |
+| Build, Typprüfung, Lint und Volltest | `pnpm verify` | **Grün am 06.11.2026 nach dem Selektorlisten-Diff**: Build, Typecheck, `verify:dist`, Lint, Patch-Gate und vollständige Tests. 2103 bestanden, 36 übersprungen, 0 fehlgeschlagen in 220 Testdateien (217 bestanden, 3 mit erwarteten Skips). Ein früherer Lauf war einmal durch einen ephemeren Port in der Fetch-Sperrliste rot (`redesign-cards-browser`); derselbe Test war isoliert grün. Ein weiterer vollständiger `pnpm verify` nach dem Kaskaden-Diff (ADR-0017) lief mit Exit 0; die Testzählung dieses Hintergrundlaufs wurde nicht separat erfasst. |
 | Editor-Konfliktauflösung | `pnpm exec vitest run packages/app/test/variables-editor-browser.test.ts --no-file-parallelism` | **Grün am 05.11.2026** für die nachfolgenden UI-Änderungen, einschließlich Antwortverlust, konkurrierender Eingaben und Undo/Redo nach Neuladen. Anschließende Fixes der Pipeline und des Konflikt-Neuladens wurden mit Pipeline- und Browser-Tests geprüft. |
 | Visueller Editor-Gate | `pnpm test:visual` | **Grün am 06.11.2026 nach dem Framer-Browser-Import-Diff**: 1 Browsertest, Desktop-Baselines bei 1440/1024 px stabil. Die Baselines decken nicht alle Variablenzustände ab. |
-| Coverage | `pnpm test:coverage` | **Grün am 06.11.2026 nach dem Sitemap-Manifest-Diff**: 1229 bestanden, 36 übersprungen, 0 fehlgeschlagen in 112 Dateien, keine Schwellenfehler. Messwerte siehe Coverage-Block. |
+| Coverage | `pnpm test:coverage` | **Grün am 06.11.2026 nach dem Kaskaden-Diff**: 1244 bestanden, 36 übersprungen, 0 fehlgeschlagen in 113 Dateien, keine Schwellenfehler. Messwerte siehe Coverage-Block. |
 | PostgreSQL-Lane | `TEST_DATABASE_URL=… pnpm test:postgres` | **Grün am 06.11.2026 nach dem Framer-Browser-Import-Diff** gegen den isolierten PostgreSQL-18.6-Cluster (Port 55486): 6 Fälle in 2 Dateien, 0 übersprungen. Deckt Transaktions- und Redesign-Apply-Atomarität ab; der Cluster wurde danach gestoppt. |
 | PostgreSQL, gezielt | `TEST_DATABASE_URL=… pnpm exec vitest run packages/engine/test/theme-variable-rename.test.ts packages/engine/test/backup-restore.test.ts --no-file-parallelism` | **Grün am 05.11.2026** gegen einen isolierten PostgreSQL-18.6-Cluster für Umbenennung, Undo, Migration, Konkurrenz und Rollback. Der Schutz reservierter Namen wurde danach gezielt in der In-Memory-Suite geprüft. |
 | Doku-Messwerte | `pnpm quality:render` und `pnpm quality:check` | **Grün am 06.11.2026**; der erzeugte Coverage-Block stimmt mit dem Messlauf überein. |
@@ -54,7 +54,7 @@ Die PostgreSQL-Gates für die betroffenen Transaktionspfade liefen separat gegen
 
 Geführt über `pnpm test:coverage`, v8-Provider und `perFile: true`. Der Lauf umfasst `engine`, `editor` und `mcp`, nicht die schweren Browser-Suiten. Die Schwellen liegen in `vitest.config.ts`.
 
-Der Lauf vom 06.11.2026 meldete **1229 bestanden / 36 übersprungen / 0 fehlgeschlagen** in 112 Dateien und keine Schwellenfehler. Die Übersicht unten wurde aus derselben Messung gerendert und mit `pnpm quality:check` geprüft.
+Der Lauf vom 06.11.2026 meldete **1244 bestanden / 36 übersprungen / 0 fehlgeschlagen** in 113 Dateien und keine Schwellenfehler. Die Übersicht unten wurde aus derselben Messung gerendert und mit `pnpm quality:check` geprüft.
 
 ### Gemessene Coverage der geschützten Pfade
 
@@ -68,14 +68,14 @@ Der Lauf vom 06.11.2026 meldete **1229 bestanden / 36 übersprungen / 0 fehlgesc
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
-| `packages/engine/src/http.ts` | 90.85 | 72.62 | 92.47 | 90.85 |
-| `packages/engine/src/store.ts` | 85.92 | 79.07 | 93.61 | 85.92 |
+| `packages/engine/src/http.ts` | 90.85 | 72.55 | 92.47 | 90.85 |
+| `packages/engine/src/store.ts` | 85.92 | 79.04 | 93.61 | 85.92 |
 | `packages/engine/src/lifecycle.ts` | 87.01 | 74.19 | 100.00 | 87.01 |
 | `packages/engine/src/forms.ts` | 84.09 | 73.60 | 100.00 | 84.09 |
-| `packages/mcp/src/tools.ts` | 91.81 | 61.10 | 85.06 | 91.81 |
+| `packages/mcp/src/tools.ts` | 92.20 | 61.03 | 85.12 | 92.20 |
 | `packages/editor/src/state/*` (16 Dateien) | 66.98 bis 100.00 | 56.75 bis 100.00 | 66.66 bis 100.00 | 66.98 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 88.51 · Branches 75.84 · Functions 90.94 · Lines 88.51
+**Über alle gemessenen Dateien:** Statements 88.60 · Branches 75.74 · Functions 90.90 · Lines 88.60
 
 <!-- messwerte:ende -->
 
@@ -89,7 +89,7 @@ Coverage misst nur, was die Suite ausführt, und ist kein Vollständigkeitsbewei
 - Der separate Parity- und Import-Gate lief am 05.11.2026 nach dem Slice-08-Diff erneut grün. Beide Tore bleiben kontrollierte Browser-/Fixture-Abnahmen und kein Beweis vollständiger Elementor-/Framer-Parität.
 - Die Visual-Baselines liegen unter `packages/app/test/visual-baselines/`; Aktualisierung ist ein expliziter Vorgang über `UPDATE_VISUAL_SNAPSHOTS=1`.
 - Das Import-Tor nutzt eine kontrollierte Fixture; nicht alle echten Export-Fixtures durchlaufen es vollständig.
-- Paging ist in `packages/engine/src/paging.ts` für Sites, Seiten, Assets, Einträge, Referenzzuweisungen, Releases, Bake-Jobs und Image-Jobs eingebaut (`limit` Standard 50, Kappe 200, `offset` validiert). `outputSchema` tragen weiterhin nur die lesenden Werkzeuge; die Schreibwerkzeuge sind bewusst zurückgestellt. Beleg: `paging.test.ts` (9 Fälle).
+- Paging ist in `packages/engine/src/paging.ts` für Sites, Seiten, Assets, Einträge, Referenzzuweisungen, Releases, Bake-Jobs und Image-Jobs eingebaut (`limit` Standard 50, Kappe 200, `offset` validiert) und wird von den MCP-Listenwerkzeugen durchgereicht. `outputSchema` tragen die lesenden Werkzeuge und die relevanten Schreibwerkzeuge (Seiten, Theme, Releases, Assets, Style-Regeln, Entries, Undo-Batch); spezialisierte Schreibwerkzeuge ohne Schema bleiben offen. Belege: `packages/engine/test/paging.test.ts`, `packages/mcp/test/workflow.test.ts`, `packages/manifest/test/manifest.test.ts`.
 
 ## CI-Stand
 
