@@ -48,6 +48,11 @@ export type ToolFact = {
    *  `null` for a tool that needs no route. The route matrix is generated from
    *  this field, which is why it is here and not in a hand-written table. */
   route: string | null;
+  /** All engine routes the tool calls, in source order. `route` is the first
+   *  entry; the list exists because a workflow tool (duplicate, deploy, a brief
+   *  with three reads) may call more than one route, and the route matrix must
+   *  see every one of them. */
+  routes: { method: string; path: string }[];
   /** The same route with `:param` written as `{param}` - what a reader of the
    *  documentation should type. */
   routeExample: string | null;

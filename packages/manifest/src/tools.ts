@@ -21,6 +21,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "katalog",
     description: "Returns the token identity, its scopes and last usage. Use it to debug a client setup and to check that `senify setup` worked.",
     route: "GET /api/whoami",
+    routes: [
+      { method: "GET", path: "/api/whoami" },
+    ],
     routeExample: "GET /api/whoami",
     writes: false,
     parameters: [
@@ -34,6 +37,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "katalog",
     description: "Lists all website projects with id, name, slug and profile. Start here to discover the siteId other tools need.",
     route: "GET /api/sites",
+    routes: [
+      { method: "GET", path: "/api/sites" },
+    ],
     routeExample: "GET /api/sites",
     writes: false,
     parameters: [
@@ -47,6 +53,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "katalog",
     description: "Loads one site with its profile and timestamps. Use it to confirm a siteId before writing.",
     route: "GET /api/sites/:param",
+    routes: [
+      { method: "GET", path: "/api/sites/:param" },
+    ],
     routeExample: "GET /api/sites/{param}",
     writes: false,
     parameters: [
@@ -60,6 +69,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "katalog",
     description: "Legt ein Website-Projekt an: name ist Pflicht, slug und profile (clean|standard|showcase) sind optional. Für ein Redesign ist duplicate_site meist der bessere Start, weil es Inhalte und Theme mitbringt.",
     route: "POST /api/sites",
+    routes: [
+      { method: "POST", path: "/api/sites" },
+    ],
     routeExample: "POST /api/sites",
     writes: true,
     parameters: [
@@ -75,6 +87,10 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "katalog",
     description: "Kopiert ein Projekt samt Theme; withContent (Default true) übernimmt Seiten, Artikel und Sammlungen, sonst nur Struktur und Design. name benennt die Kopie direkt um (sonst \"<Name> (Kopie)\"). Der Weg für ein Redesign: je Referenz eine Kopie, danach update_theme mit dem themePatch aus plan_redesign.",
     route: "POST /api/sites/:param/duplicate",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/duplicate" },
+      { method: "PATCH", path: "/api/sites/:param" },
+    ],
     routeExample: "POST /api/sites/{param}/duplicate",
     writes: true,
     parameters: [
@@ -90,6 +106,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Lists the pages of a site with path, title and draftVersion. Use it to find the pageId for get_page and apply_mutations.",
     route: "GET /api/sites/:param/pages",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/pages" },
+    ],
     routeExample: "GET /api/sites/{param}/pages",
     writes: false,
     parameters: [
@@ -103,6 +122,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Returns the outline of a page: top-level sections with id, type, variant and a short content summary plus the draftVersion needed for apply_mutations. Use get_nodes for full props.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: false,
     parameters: [
@@ -116,6 +138,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Loads full nodes (props, overrides, motion) by node id from a page. Use it after get_page when you need exact values before editing.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: false,
     parameters: [
@@ -130,6 +155,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Lists the section catalog (building blocks) with type, title and description. Use get_section for the full prop schema and a golden example.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: false,
     parameters: [
@@ -143,6 +171,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Returns a section definition: props with controls, style props and parts, variants, slots, motion presets and the golden example props. Use it before inserting a section.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: false,
     parameters: [
@@ -156,6 +187,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Returns the design tokens of a site (primitives, semantic roles, modes, fonts, motion). Use token roles in style props instead of raw values.",
     route: "GET /api/sites/:param/theme",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/theme" },
+    ],
     routeExample: "GET /api/sites/{param}/theme",
     writes: false,
     parameters: [
@@ -169,6 +203,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Lists recognizable direct references to a saved color or spacing variable in page drafts, style rules and theme aliases. This is a snapshot; unsaved changes, external libraries and indirect or dynamic references may be missing.",
     route: "GET /api/sites/:param/theme/variables/:param/param/usage",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/theme/variables/:param/param/usage" },
+    ],
     routeExample: "GET /api/sites/{param}/theme/variables/{param}/param/usage",
     writes: false,
     parameters: [
@@ -184,6 +221,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Lists the widget catalog (the atomic building blocks: frame, heading, image, …) with type, name, category and the style groups each one accepts. Use get_widget for the full control schema.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: false,
     parameters: [
@@ -197,6 +237,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Returns one widget's schema: controls (key, kind, value type, options, units, bounds), style groups, container rules, slots and — for the style groups it accepts — the style properties with their units. Use it before set_styles or create_style_rule.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: false,
     parameters: [
@@ -210,6 +253,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "katalog",
     description: "Searches the Senify documentation (tool reference, section catalog, error codes, guides) and returns ranked snippets with page paths. Fetch a hit with read_docs.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: false,
     parameters: [
@@ -224,6 +270,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "katalog",
     description: "Returns a documentation page as markdown by its path, e.g. /reference/tools or /guides/site-aus-brief. Paths come from search_docs or /llms.txt.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: false,
     parameters: [
@@ -237,6 +286,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "The single write API: applies a batch of canonical mutations (insertNode, updateNodeProps, moveNode, setMotion, …) atomically. Send baseDraftVersion from get_page; use dry_run to validate without writing. Conflicts return a conflict error — reload the page and retry.",
     route: "POST /api/pages/:param/mutations",
+    routes: [
+      { method: "POST", path: "/api/pages/:param/mutations" },
+    ],
     routeExample: "POST /api/pages/{param}/mutations",
     writes: true,
     parameters: [
@@ -253,6 +305,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Agent undo: reverts the newest mutation batches of a page server-side. Every apply_mutations call is one batch in the page's audit log (list it with the audit route or get_page); send baseDraftVersion from get_page plus either steps (default 1) or the exact batchIds of the newest remaining batches. Only the newest remaining batches can be undone — an older one would replay against a state that no longer exists. A stale baseDraftVersion is a conflict: reload the page and retry. Each undo is itself audited (undoBatch); to redo, re-apply the original mutations.",
     route: "POST /api/pages/:param/undo-batch",
+    routes: [
+      { method: "POST", path: "/api/pages/:param/undo-batch" },
+    ],
     routeExample: "POST /api/pages/{param}/undo-batch",
     writes: true,
     parameters: [
@@ -269,6 +324,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Sets the motion spec of one node: preset + intensity (1-10) + trigger + delay + tokens (ease/durationScale/stagger) + reduced-motion policy (static|fade|off) + enabled. Presets come from the registry (get_section.motionPresets); the site profile caps the intensity and narrows the preset classes. Send baseDraftVersion from get_page.",
     route: "POST /api/pages/:param/mutations",
+    routes: [
+      { method: "POST", path: "/api/pages/:param/mutations" },
+    ],
     routeExample: "POST /api/pages/{param}/mutations",
     writes: true,
     parameters: [
@@ -291,6 +349,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Removes the motion spec of one node (the node stays, only the animation goes). Send baseDraftVersion from get_page.",
     route: "POST /api/pages/:param/mutations",
+    routes: [
+      { method: "POST", path: "/api/pages/:param/mutations" },
+    ],
     routeExample: "POST /api/pages/{param}/mutations",
     writes: true,
     parameters: [
@@ -306,6 +367,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Lists the visual components defined on a page (definitions in the page draft) with name, part count, slot names and instance count. Use get_component for part ids, slot ids and instance ids.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: false,
     parameters: [
@@ -319,6 +383,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Returns one component definition with its parts (id, type, current props - the override keys), its slot placeholders and its instances with their override bags. Use set_component_override to change one instance without touching the definition.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: false,
     parameters: [
@@ -332,8 +399,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "write",
     group: "referenzen",
     description: "Any JSON value; null clears the key.",
-    route: null,
-    routeExample: null,
+    route: "POST /api/pages/:param/mutations",
+    routes: [
+      { method: "POST", path: "/api/pages/:param/mutations" },
+    ],
+    routeExample: "POST /api/pages/{param}/mutations",
     writes: true,
     parameters: [
       { name: "pageId", type: "string", required: true },
@@ -350,8 +420,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "write",
     group: "referenzen",
     description: "true activates, false deactivates.",
-    route: null,
-    routeExample: null,
+    route: "POST /api/pages/:param/mutations",
+    routes: [
+      { method: "POST", path: "/api/pages/:param/mutations" },
+    ],
+    routeExample: "POST /api/pages/{param}/mutations",
     writes: true,
     parameters: [
       { name: "pageId", type: "string", required: true },
@@ -367,8 +440,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "write",
     group: "referenzen",
     description: "Raises a component definition's version by one (`props.version`). The instances keep their pin, so the difference shows as drift until update_component_instances pulls them up. Send baseDraftVersion from get_page.",
-    route: null,
-    routeExample: null,
+    route: "POST /api/pages/:param/mutations",
+    routes: [
+      { method: "POST", path: "/api/pages/:param/mutations" },
+    ],
+    routeExample: "POST /api/pages/{param}/mutations",
     writes: true,
     parameters: [
       { name: "pageId", type: "string", required: true },
@@ -382,8 +458,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "write",
     group: "referenzen",
     description: "Pulls every instance of a definition up to its current version in one batch (one undo). Instances that are already current stay untouched. Read versions and drift with get_component, then send baseDraftVersion from get_page.",
-    route: null,
-    routeExample: null,
+    route: "POST /api/pages/:param/mutations",
+    routes: [
+      { method: "POST", path: "/api/pages/:param/mutations" },
+    ],
+    routeExample: "POST /api/pages/{param}/mutations",
     writes: true,
     parameters: [
       { name: "pageId", type: "string", required: true },
@@ -397,8 +476,13 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "write",
     group: "seiten",
     description: "Writes style declarations onto one node through its scoped style rule (the same carrier the editor uses for pseudo states). Pass styles as property → value (string, number or { $token }), device \"tablet\"/\"mobile\" for a breakpoint override and state \"hover\"/\"focus\"/\"active\"/\"disabled\" for a pseudo state. Only documented style properties are accepted; raw colour literals that match a theme token are rejected — use the token. Returns the written rule.",
-    route: "POST /api/sites/:param/style-rules",
-    routeExample: "POST /api/sites/{param}/style-rules",
+    route: "GET /api/sites/:param/style-rules",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/style-rules" },
+      { method: "POST", path: "/api/sites/:param/style-rules" },
+      { method: "PATCH", path: "/api/sites/:param/style-rules/:param" },
+    ],
+    routeExample: "GET /api/sites/{param}/style-rules",
     writes: true,
     parameters: [
       { name: "siteId", type: "string", required: true },
@@ -416,6 +500,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Creates a style rule: a class rule (name required) that nodes can be assigned, or a scoped rule for one node (nodeId). Pass styles and optional per-state styles (hover/focus/active/disabled). Ambient selectors and rawCss stay a human capability; raw colour literals that match a theme token are rejected — use { $token }.",
     route: "POST /api/sites/:param/style-rules",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/style-rules" },
+    ],
     routeExample: "POST /api/sites/{param}/style-rules",
     writes: true,
     parameters: [
@@ -435,6 +522,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Creates a page on a site and returns it with an empty node tree. The path defaults to a slug of the title; \"/\" is the home page. Pass an idempotencyKey to make a retry return the first result instead of creating a duplicate.",
     route: "POST /api/sites/:param/pages",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/pages" },
+    ],
     routeExample: "POST /api/sites/{param}/pages",
     writes: true,
     parameters: [
@@ -451,6 +541,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Marks a page as a layout or collection (entry) template, assigns a page's layout, or removes the mark. kind \"layout\" wraps pages that pick it via layoutId (the label shown in lists is the page title); kind \"collection\" renders the detail routes of collectionIds (priority decides among several templates); kind \"none\" removes the mark. layoutId alone only changes the layout choice.",
     route: "PUT /api/pages/:param/template",
+    routes: [
+      { method: "PUT", path: "/api/pages/:param/template" },
+    ],
     routeExample: "PUT /api/pages/{param}/template",
     writes: true,
     parameters: [
@@ -468,6 +561,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Patches the theme of a site (scales, semantic roles, fonts, motion) and records the change in the audit log. Send only the branches you change.",
     route: "PUT /api/sites/:param/theme",
+    routes: [
+      { method: "PUT", path: "/api/sites/:param/theme" },
+    ],
     routeExample: "PUT /api/sites/{param}/theme",
     writes: true,
     parameters: [
@@ -482,6 +578,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "review",
     description: "Builds a real draft build of the site and returns a signed preview URL (30 days). Use it to check your work visually before submitting for review.",
     route: "POST /api/sites/:param/previews",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/previews" },
+    ],
     routeExample: "POST /api/sites/{param}/previews",
     writes: true,
     parameters: [
@@ -495,6 +594,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "review",
     description: "Submits the current drafts for human review: builds a preview, computes the structure diff against the active release and creates a review item. Hard checks must pass — violations come back as a guardrail error instead of a review item.",
     route: "POST /api/sites/:param/reviews",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/reviews" },
+    ],
     routeExample: "POST /api/sites/{param}/reviews",
     writes: true,
     parameters: [
@@ -510,6 +612,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "review",
     description: "Reads a review item: status, thread (the operator's notes), structure diff and immutable import reports. Call it after a submit to see whether changes were requested; newer feedback means new work.",
     route: "GET /api/reviews/:param",
+    routes: [
+      { method: "GET", path: "/api/reviews/:param" },
+    ],
     routeExample: "GET /api/reviews/{param}",
     writes: false,
     parameters: [
@@ -523,6 +628,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "release",
     description: "Publishes the drafts as a release: runs the publish checks (hard gate), snapshots every page as a revision, bakes the release and makes it active. Needs the publish scope; unapproved releases stay theory.",
     route: "POST /api/sites/:param/releases",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/releases" },
+    ],
     routeExample: "POST /api/sites/{param}/releases",
     writes: true,
     parameters: [
@@ -537,6 +645,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "release",
     description: "Creates a new release from an older release's state (basisReleaseId) and snaps theme plus drafts back to it. Nothing is overwritten — the history stays append-only.",
     route: "POST /api/sites/:param/releases",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/releases" },
+    ],
     routeExample: "POST /api/sites/{param}/releases",
     writes: true,
     parameters: [
@@ -552,6 +663,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "release",
     description: "Lists a site's releases (newest first) with the active release id. Each release carries its manifest: renderer version, build hash and the style registry snapshot it was baked with (rollback restores it).",
     route: "GET /api/sites/:param/releases",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/releases" },
+    ],
     routeExample: "GET /api/sites/{param}/releases",
     writes: false,
     parameters: [
@@ -565,6 +679,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "release",
     description: "Loads one release with its page revisions, theme snapshot and manifest (renderer version, build hash, restored-from).",
     route: "GET /api/releases/:param",
+    routes: [
+      { method: "GET", path: "/api/releases/:param" },
+    ],
     routeExample: "GET /api/releases/{param}",
     writes: false,
     parameters: [
@@ -578,6 +695,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "release",
     description: "Lists the durable re-bake jobs of a site (newest first): content changes enqueue them, a worker re-bakes the active release and records done/failed with attempts, next attempt time and the last error. Use it to check why a published content change is not live yet.",
     route: "GET /api/sites/:param/bake-jobs",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/bake-jobs" },
+    ],
     routeExample: "GET /api/sites/{param}/bake-jobs",
     writes: false,
     parameters: [
@@ -591,6 +711,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "release",
     description: "Delivers the active release's build. Provider \"static\" copies into a target directory (staging + swap, a failed deploy leaves the previous site untouched); provider \"netlify\" ships the build through the Netlify API and provider \"vercel\" through the Vercel deployments API (file list with SHA1, upload of missing files, poll until ready) — the target (site id / project id + token) sits in the deploy settings (set_deploy_settings). Returns the deployment record with file count and size; for netlify and vercel the target carries the live deploy URL. Needs the publish scope.",
     route: "POST /api/sites/:param/deployments",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/deployments" },
+    ],
     routeExample: "POST /api/sites/{param}/deployments",
     writes: true,
     parameters: [
@@ -606,6 +729,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "release",
     description: "Reads the deploy settings of a site: the provider (static, netlify or vercel), the Netlify site id, the Vercel project id and whether tokens are stored (the tokens themselves never leave the engine).",
     route: "GET /api/sites/:param/deploy-settings",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/deploy-settings" },
+    ],
     routeExample: "GET /api/sites/{param}/deploy-settings",
     writes: false,
     parameters: [
@@ -619,6 +745,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "release",
     description: "Writes the deploy settings of a site: provider (static|netlify|vercel), netlifySiteId + netlifyToken or vercelProjectId + vercelToken (a new token is encrypted engine-side and never returned; null clears it; omitting keeps it). The chosen provider needs both its id and its token before deploy_site can deliver. Read the settings with get_deploy_settings.",
     route: "PUT /api/sites/:param/deploy-settings",
+    routes: [
+      { method: "PUT", path: "/api/sites/:param/deploy-settings" },
+    ],
     routeExample: "PUT /api/sites/{param}/deploy-settings",
     writes: true,
     parameters: [
@@ -637,6 +766,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "release",
     description: "Lists a site's deployments (newest first) with status, target, file count and size. Use it to see where the site was delivered and whether the last deploy succeeded.",
     route: "GET /api/sites/:param/deployments",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/deployments" },
+    ],
     routeExample: "GET /api/sites/{param}/deployments",
     writes: false,
     parameters: [
@@ -650,6 +782,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Uses an old page revision as the new draft (append-only: nothing is rewritten, the restore lands in the audit log).",
     route: "POST /api/pages/:param/restore",
+    routes: [
+      { method: "POST", path: "/api/pages/:param/restore" },
+    ],
     routeExample: "POST /api/pages/{param}/restore",
     writes: true,
     parameters: [
@@ -664,6 +799,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Deletes a page and its draft (destructive, audited). Needs the publish scope.",
     route: "DELETE /api/pages/:param",
+    routes: [
+      { method: "DELETE", path: "/api/pages/:param" },
+    ],
     routeExample: "DELETE /api/pages/{param}",
     writes: true,
     parameters: [
@@ -676,8 +814,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "read",
     group: "medien",
     description: "Lists the media library of a site with filters (folder, tag, alt=missing, minBytes, q) and sorting. Use alt=missing for the no-alt-text smart list and sort=replacedAt for recently replaced files.",
-    route: "GET /api/sites/:param/assets${query === \"\" ? \"\" : ",
-    routeExample: "GET /api/sites/{param}/assets${query === \"\" ? \"\" : ",
+    route: "GET /api/sites/:param/assets",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/assets" },
+    ],
+    routeExample: "GET /api/sites/{param}/assets",
     writes: false,
     parameters: [
       { name: "siteId", type: "string", required: true },
@@ -697,6 +838,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Uploads a local file to the media library: asks for a signed upload URL, sends the bytes and returns the asset record. Identical bytes dedupe onto the existing asset instead of creating a second record. Pass an idempotencyKey to make a retry reuse the first upload URL.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: true,
     parameters: [
@@ -716,6 +860,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Updates asset metadata (alt text, decorative flag, folder, tags). Mark purely decorative images as decorative so the alt-text check exempts them; pass null for altText or folderId to clear it. The asset must belong to siteId.",
     route: "PATCH /api/sites/:param/assets/:param",
+    routes: [
+      { method: "PATCH", path: "/api/sites/:param/assets/:param" },
+    ],
     routeExample: "PATCH /api/sites/{param}/assets/{param}",
     writes: true,
     parameters: [
@@ -734,6 +881,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Replaces the file of an asset under the same id and URL: every usage stays valid, the previous file lands in the history (restorable) and metadata like alt text and tags is kept.",
     route: "PATCH /api/sites/:param/assets/:param",
+    routes: [
+      { method: "PATCH", path: "/api/sites/:param/assets/:param" },
+    ],
     routeExample: "PATCH /api/sites/{param}/assets/{param}",
     writes: true,
     parameters: [
@@ -750,6 +900,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Moves an asset to the trash (reversible). References to it are marked broken at submit and publish; restore it with restore_asset or delete it for good from the program. The asset must belong to siteId.",
     route: "DELETE /api/sites/:param/assets/:param",
+    routes: [
+      { method: "DELETE", path: "/api/sites/:param/assets/:param" },
+    ],
     routeExample: "DELETE /api/sites/{param}/assets/{param}",
     writes: true,
     parameters: [
@@ -764,6 +917,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Takes an asset out of the trash so references become valid again. The file was never deleted; only the record status changes. The asset must belong to siteId.",
     route: "POST /api/sites/:param/assets/:param/restore",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/assets/:param/restore" },
+    ],
     routeExample: "POST /api/sites/{param}/assets/{param}/restore",
     writes: true,
     parameters: [
@@ -778,6 +934,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Starts an image generation job and returns its id — poll it with get_image_job. The provider chain is configured in the program (custom endpoint → ChatGPT subscription → local Qwen fallback); read providerUsed instead of guessing. The subscription takes ~1 min, the local Qwen fallback 9–45 min. Pass a prompt or a referenceId with a stored recipe; altText, decorative, folderId and tags carry the asset metadata. Not idempotent: an idempotencyKey makes retries safe.",
     route: "POST /api/sites/:param/images/jobs",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/images/jobs" },
+    ],
     routeExample: "POST /api/sites/{param}/images/jobs",
     writes: true,
     parameters: [
@@ -804,6 +963,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Returns the status of an image job: status, providerUsed, assetId, the provider attempt history and timestamps. Poll it (at least every 60 s); succeeded hands over the assetId for the assetRef.",
     route: "GET /api/images/jobs/:param",
+    routes: [
+      { method: "GET", path: "/api/images/jobs/:param" },
+    ],
     routeExample: "GET /api/images/jobs/{param}",
     writes: false,
     parameters: [
@@ -816,8 +978,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "read",
     group: "medien",
     description: "Lists the image jobs of a site (newest first), optionally filtered by status. Use it to coordinate parallel generations.",
-    route: "GET /api/sites/:param/images/jobs:param",
-    routeExample: "GET /api/sites/{param}/images/jobs{param}",
+    route: "GET /api/sites/:param/images/jobs",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/images/jobs" },
+    ],
+    routeExample: "GET /api/sites/{param}/images/jobs",
     writes: false,
     parameters: [
       { name: "siteId", type: "string", required: true },
@@ -830,8 +995,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "read",
     group: "medien",
     description: "Lists the content collections of a site with slug, fields and supports flags. Start here to find the collectionId that get_collection and list_entries need.",
-    route: "GET /api/sites/:param/collections:param",
-    routeExample: "GET /api/sites/{param}/collections{param}",
+    route: "GET /api/sites/:param/collections",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/collections" },
+    ],
+    routeExample: "GET /api/sites/{param}/collections",
     writes: false,
     parameters: [
       { name: "siteId", type: "string", required: true },
@@ -845,6 +1013,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Loads one collection with its field definitions (id, key, type, required, description). Read it before writing entries: cells are keyed by field id.",
     route: "GET /api/collections/:param",
+    routes: [
+      { method: "GET", path: "/api/collections/:param" },
+    ],
     routeExample: "GET /api/collections/{param}",
     writes: false,
     parameters: [
@@ -857,8 +1028,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "read",
     group: "medien",
     description: "Lists the entries of a site with filters (collectionId, status, q, trashed) and sorting (sort, dir). With q the hits come back ranked by weight (title, then slug, then body), not by the sort field.",
-    route: "GET /api/sites/:param/entries${query === \"\" ? \"\" : ",
-    routeExample: "GET /api/sites/{param}/entries${query === \"\" ? \"\" : ",
+    route: "GET /api/sites/:param/entries",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/entries" },
+    ],
+    routeExample: "GET /api/sites/{param}/entries",
     writes: false,
     parameters: [
       { name: "siteId", type: "string", required: true },
@@ -869,6 +1043,7 @@ export const TOOL_MANIFEST: ToolFact[] = [
       { name: "sort", type: "string", required: false },
       { name: "dir", type: "string", required: false },
       { name: "limit", type: "number", required: false },
+      { name: "offset", type: "number", required: false },
     ],
   },
   {
@@ -878,6 +1053,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Loads one entry with its cells, slug, status and the baseVersion that update_entry expects. The version number also tells you how often the entry changed.",
     route: "GET /api/entries/:param",
+    routes: [
+      { method: "GET", path: "/api/entries/:param" },
+    ],
     routeExample: "GET /api/entries/{param}",
     writes: false,
     parameters: [
@@ -891,6 +1069,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Creates a draft entry in a collection. Cells are keyed by field id (see get_collection) and may stay incomplete; required fields are checked at publish. Without a slug it is derived from the title field. Pass an idempotencyKey to make a retry return the first result instead of creating a duplicate.",
     route: "POST /api/sites/:param/entries",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/entries" },
+    ],
     routeExample: "POST /api/sites/{param}/entries",
     writes: true,
     parameters: [
@@ -908,6 +1089,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Writes cells, slug or status of an entry. baseVersion from get_entry is mandatory; a conflict error means: reload the entry and retry. Cells are merged per field, null clears a field.",
     route: "PUT /api/entries/:param",
+    routes: [
+      { method: "PUT", path: "/api/entries/:param" },
+    ],
     routeExample: "PUT /api/entries/{param}",
     writes: true,
     parameters: [
@@ -926,6 +1110,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Publishes an entry: validates required and unique fields, writes an immutable version, records the 301 redirect when the slug changed and triggers the re-bake of the affected routes.",
     route: "POST /api/entries/:param/publish",
+    routes: [
+      { method: "POST", path: "/api/entries/:param/publish" },
+    ],
     routeExample: "POST /api/entries/{param}/publish",
     writes: true,
     parameters: [
@@ -940,6 +1127,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Moves an entry to the trash (reversible) and drops its route from the bake. Nothing is deleted for good — restore it with restore_entry.",
     route: "DELETE /api/entries/:param",
+    routes: [
+      { method: "DELETE", path: "/api/entries/:param" },
+    ],
     routeExample: "DELETE /api/entries/{param}",
     writes: true,
     parameters: [
@@ -953,6 +1143,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Takes an entry out of the trash. Fails with a conflict if another live entry took over its slug in the meantime.",
     route: "POST /api/entries/:param/restore",
+    routes: [
+      { method: "POST", path: "/api/entries/:param/restore" },
+    ],
     routeExample: "POST /api/entries/{param}/restore",
     writes: true,
     parameters: [
@@ -966,6 +1159,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Copies a published version into the draft (append-only, publishes nothing). Version ids come from the entry timeline; the next publish writes a new version.",
     route: "POST /api/entries/:param/restore-version/:param",
+    routes: [
+      { method: "POST", path: "/api/entries/:param/restore-version/:param" },
+    ],
     routeExample: "POST /api/entries/{param}/restore-version/{param}",
     writes: true,
     parameters: [
@@ -980,6 +1176,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "medien",
     description: "Full-text search across the entries of a site, ranked by weight (title A, slug B, body C) and date. Returns the hits with their score; narrow with collectionId or status.",
     route: "POST /api/sites/:param/entries/search",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/entries/search" },
+    ],
     routeExample: "POST /api/sites/{param}/entries/search",
     writes: false,
     parameters: [
@@ -996,8 +1195,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "read",
     group: "medien",
     description: "Lists the submissions of a collection as a flat inbox view (columns + rows mapped to their field labels). Submissions are ordinary entries, so list_entries, get_entry and search_entries work on them too; this view is the labelled inbox for form data.",
-    route: "GET /api/sites/:param/submissions?:param",
-    routeExample: "GET /api/sites/{param}/submissions?{param}",
+    route: "GET /api/sites/:param/submissions",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/submissions" },
+    ],
+    routeExample: "GET /api/sites/{param}/submissions",
     writes: false,
     parameters: [
       { name: "siteId", type: "string", required: true },
@@ -1012,6 +1214,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Starts the full design analysis of a reference URL: capture → deterministic extraction (frequency-ranked tokens with Belegstellen) → AI classification → design profile. Blocked sites fail with a clear cause; pass snapshot.html (saved page source, optional computed samples/motion) for the fallback with a reduced profile. Returns the reference with status, progress, families and the profile.",
     route: "POST /api/references",
+    routes: [
+      { method: "POST", path: "/api/references" },
+    ],
     routeExample: "POST /api/references",
     writes: true,
     parameters: [
@@ -1027,8 +1232,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "read",
     group: "referenzen",
     description: "Listet die Referenzen der Bibliothek als Karten (Name, Quell-URL, Status, Familien, Sammlung, Vokabular, Projekt-Nutzung) und dazu die Sammlungen mit Zählern sowie die Fußzeilenzahl der Ansicht. Filter: q (Suche über Titel, Familie, Notiz, Vokabular und Sammlungsnamen), family (Taxonomie), status (analyzing|ready|failed), collection (Sammlungs-id oder none für Referenzen ohne Sammlung); sort ist newest (Standard) oder name. Nutze get_reference für das volle Profil und get_reference_brief für den Brief.",
-    route: "GET /api/references${query === \"\" ? \"\" : ",
-    routeExample: "GET /api/references${query === \"\" ? \"\" : ",
+    route: "GET /api/references",
+    routes: [
+      { method: "GET", path: "/api/references" },
+    ],
+    routeExample: "GET /api/references",
     writes: false,
     parameters: [
       { name: "q", type: "string", required: false },
@@ -1044,8 +1252,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "read",
     group: "referenzen",
     description: "Volltextsuche über die Referenz-Bibliothek mit Gewichtungs-Ranking: die Treffermenge umfasst Name, Notiz, Vokabular, Familien, Sammlungsnamen UND die Original-Dokumente (design.md & Co.). Vault-first-Regel: erst hier suchen, dann neu analysieren — verhindert Dubletten und spart Capture-Läufe.",
-    route: "GET /api/references/search?q=:param",
-    routeExample: "GET /api/references/search?q={param}",
+    route: "GET /api/references/search",
+    routes: [
+      { method: "GET", path: "/api/references/search" },
+    ],
+    routeExample: "GET /api/references/search",
     writes: false,
     parameters: [
       { name: "q", type: "string", required: true },
@@ -1058,6 +1269,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Findet Dubletten-Kandidaten der Bibliothek: gleiche Quell-URL (ohne Protokoll/Trailing-Slash) oder gleicher normalisierter Name. Rein lesend — löschen bleibt delete_reference, damit ein Fork mit anderer URL nie verloren geht. Vor analyze_reference laufen lassen, um Doppel-Analysen zu vermeiden.",
     route: "GET /api/references/duplicates",
+    routes: [
+      { method: "GET", path: "/api/references/duplicates" },
+    ],
     routeExample: "GET /api/references/duplicates",
     writes: false,
     parameters: [
@@ -1071,6 +1285,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Loads one reference with its design profile: tokens (with frequency and Belegstellen), type scale, families, vocabulary, components, composition rules (constants/never), motion recipes mapped to the presets, evidence with confidence levels and the machine-readable style brief. Read it before building in the reference's style.",
     route: "GET /api/references/:param",
+    routes: [
+      { method: "GET", path: "/api/references/:param" },
+    ],
     routeExample: "GET /api/references/{param}",
     writes: false,
     parameters: [
@@ -1084,6 +1301,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Assigns a reference to a project per scale (color/type/motion/rest; default: the reference for everything) and returns the derived theme draft (scale inputs, fonts, motion) plus its round-trip verification. Applying never changes the current bake — write the draft with update_theme when it should take effect.",
     route: "POST /api/sites/:param/references",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/references" },
+    ],
     routeExample: "POST /api/sites/{param}/references",
     writes: true,
     parameters: [
@@ -1098,8 +1318,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "read",
     group: "referenzen",
     description: "Listet die Sammlungen der Referenz-Bibliothek mit Beschreibung, Farbe, deployFor, Vokabular, risk, Bildrezept und Zähler der zugeordneten Referenzen. kind=collection für die eigenen Sammlungen, kind=style für den Stil-Katalog (18 Familien mit Erkennungsmerkmalen, Beispielseiten, Warnung und Lizenzhinweis). Die collectionId passt in list_references, assign_reference_to_collection und get_reference_brief.",
-    route: "GET /api/reference-collections${kind === undefined ? \"\" : ",
-    routeExample: "GET /api/reference-collections${kind === undefined ? \"\" : ",
+    route: "GET /api/reference-collections",
+    routes: [
+      { method: "GET", path: "/api/reference-collections" },
+    ],
+    routeExample: "GET /api/reference-collections",
     writes: false,
     parameters: [
       { name: "kind", type: "string", required: false },
@@ -1112,6 +1335,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Legt eine Sammlung der Referenz-Bibliothek an: name ist Pflicht, description, deployFor, vocabulary, risk, accent, imageStyle, recognize, examples (je name und url), warning, kind und position sind optional. kind=style legt einen Eintrag des Stil-Katalogs an. Nutze list_reference_collections für die bestehenden Sammlungen und assign_reference_to_collection, um Referenzen zuzuordnen. idempotencyKey lässt einen Retry die erste Antwort liefern statt eines Duplikats.",
     route: "POST /api/reference-collections",
+    routes: [
+      { method: "POST", path: "/api/reference-collections" },
+    ],
     routeExample: "POST /api/reference-collections",
     writes: true,
     parameters: [
@@ -1137,6 +1363,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Ordnet eine Referenz einer Sammlung zu (collectionId) oder löst die Zuordnung wieder, indem collectionId null ist. Eine Referenz trägt genau eine Sammlung; der alte Stand bleibt in der Referenz erhalten, nur die Zuordnung wechselt. Nutze list_reference_collections für die Sammlungs-ids.",
     route: "PATCH /api/references/:param",
+    routes: [
+      { method: "PATCH", path: "/api/references/:param" },
+    ],
     routeExample: "PATCH /api/references/{param}",
     writes: true,
     parameters: [
@@ -1151,6 +1380,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Single reference brief, e.g. ref_123.",
     route: "GET /api/reference-collections/:param/brief",
+    routes: [
+      { method: "GET", path: "/api/reference-collections/:param/brief" },
+      { method: "GET", path: "/api/references/:param/brief" },
+      { method: "POST", path: "/api/references/brief" },
+    ],
     routeExample: "GET /api/reference-collections/{param}/brief",
     writes: false,
     parameters: [
@@ -1165,8 +1399,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "read",
     group: "redesign",
     description: "Das Redesign-Paket für eine Seite im Stil von ein bis drei Referenzen: Inhalts-Outline der Seite, je Referenz der abgeleitete Theme-Patch (für update_theme), die Vorschau der Skalenwerte, die Gegenprobe, Design.md/Guidelines/Komponenten, Vokabular, Regeln und die Schrittfolge. Ablauf: plan_redesign → je Referenz duplicate_site → update_theme mit dem themePatch → Seite anpassen (apply_mutations) → create_preview → submit_for_review. Eine Referenz ohne Profil (reiner Bild-Upload) wird mit Hinweis abgelehnt.",
-    route: "GET /api/pages/:param/redesign-package?referenceIds=:param",
-    routeExample: "GET /api/pages/{param}/redesign-package?referenceIds={param}",
+    route: "GET /api/pages/:param/redesign-package",
+    routes: [
+      { method: "GET", path: "/api/pages/:param/redesign-package" },
+    ],
+    routeExample: "GET /api/pages/{param}/redesign-package",
     writes: false,
     parameters: [
       { name: "pageId", type: "string", required: true },
@@ -1180,6 +1417,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "redesign",
     description: "Legt ein Redesign Proposal für eine Quellseite an: der Server leitet aus den Referenz-Profilen ein bis drei Direction Cards ab (Bild, Theme-Specimen, Begründung, Regeln, Warnungen) und aus Quellbaum und Registry den Sektions-Plan mit Medienbedarf. Nimmt nur referenceIds und einen stabilen idempotencyKey entgegen — Cards, Sektions-Plan, Assets und Entscheidungen kommen nie vom Agenten (ADR-0012, ADR-0013). Danach warten: die Richtung bestätigt ein Mensch im Programm. Mit get_redesign_proposal den Status lesen.",
     route: "POST /api/pages/:param/redesign-proposals",
+    routes: [
+      { method: "POST", path: "/api/pages/:param/redesign-proposals" },
+    ],
     routeExample: "POST /api/pages/{param}/redesign-proposals",
     writes: true,
     parameters: [
@@ -1195,6 +1435,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "redesign",
     description: "Liest ein Redesign Proposal: Status, die angebotenen Direction Cards, ob die Planbasis noch aktuell ist (freshness), die Direction Decision des Menschen und das Apply-Ergebnis. Jede Card trägt sectionPlan: geplante registrierte Zieltypen und Varianten je Quell-Section, erhaltene Inhalte, Slots und Medienbedarf (reuse/select/upload/generate/avoid). Das ist die verbindliche Baugrundlage für get_page/get_section/apply_mutations — bestätigt wird aber nur Theme und Draft-Grundstruktur: applyResult.scope ist scaffold-theme und sectionPlanApplied ist false (ADR-0013).",
     route: "GET /api/redesign-proposals/:param",
+    routes: [
+      { method: "GET", path: "/api/redesign-proposals/:param" },
+    ],
     routeExample: "GET /api/redesign-proposals/{param}",
     writes: false,
     parameters: [
@@ -1208,6 +1451,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "redesign",
     description: "Autonomer Redesign-Weg: führt die mechanischen Schritte ohne menschliche Richtungswahl aus — ohne pageId wird die Site dupliziert, mit pageId wird der Draft dieser Seite bearbeitet. referenceIds (1-3) oder collectionId (Set-Semantik) wählen die Designrichtung. Schreibt den abgeleiteten Theme-Patch und seedet leere Seiten mit hero/content/cta; bestehende Sektionen bleiben und werden danach mit get_page/get_section/apply_mutations umgebaut. Nutze einen stabilen idempotencyKey, damit ein Retry dieselbe Draft-Site zurückgibt. Läuft nie am aktiven Release. Für den menschlichen Weg ist create_redesign_proposal die richtige Wahl (ADR-0012).",
     route: "POST /api/sites/:param/redesign",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/redesign" },
+    ],
     routeExample: "POST /api/sites/{param}/redesign",
     writes: true,
     parameters: [
@@ -1225,8 +1471,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "read",
     group: "redesign",
     description: "Leitet aus dem design.md einer Referenz einen Theme-Entwurf für eine Site ab: den patch für update_theme (scales/fonts/motion), je Wert die Belegstelle mit Evidenzstufe (kein Wert ohne Quelle), die Lücken des Dokuments (gaps — dort bleibt das Theme unverändert), die Font-Zuordnung mit Lizenz-Hinweis und die Konflikte gegen das aktuelle Theme. reduced=true heißt: dünnes Dokument oder Profil ohne Laufzeitmessung. Ein Lese-Weg; geschrieben wird mit update_theme.",
-    route: "GET /api/references/:param/design-system?siteId=:param",
-    routeExample: "GET /api/references/{param}/design-system?siteId={param}",
+    route: "GET /api/references/:param/design-system",
+    routes: [
+      { method: "GET", path: "/api/references/:param/design-system" },
+    ],
+    routeExample: "GET /api/references/{param}/design-system",
     writes: false,
     parameters: [
       { name: "referenceId", type: "string", required: true },
@@ -1240,6 +1489,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "redesign",
     description: "Der Design-Score (0–100) einer Site mit acht Dimensionen (Typo, Spacing, Farbe, Hierarchie, Sektions-Varianz, Assets, Motion, A11y), der Schwelle des Site-Profils (green/hint/gate) und den benannten Slop-Findings S1–S12 mit Fundstelle und Vorschlag. Reproduzierbar: gleiche Eingabe, gleicher Score. Vor submit_for_review nutzen, um generische Seiten selbst nachzubessern.",
     route: "GET /api/sites/:param/design-report",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/design-report" },
+    ],
     routeExample: "GET /api/sites/{param}/design-report",
     writes: false,
     parameters: [
@@ -1253,6 +1505,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Compares a reference against the current drafts: bakes the pages to a throwaway directory, captures them at the slot widths of the reference (hero-desktop, hero-mobile, fullpage) and diffs slot by slot. Returns the number per slot (changed pixels, ratio, bounds) plus the heatmap preview paths. Read-only in effect — no preview record, no review item. Use it to verify a redesign against its reference before submitting.",
     route: "POST /api/references/:param/visual-diff",
+    routes: [
+      { method: "POST", path: "/api/references/:param/visual-diff" },
+    ],
     routeExample: "POST /api/references/{param}/visual-diff",
     writes: false,
     parameters: [
@@ -1268,6 +1523,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Liest die importierten Design-Dokumente einer Referenz: design (design.md), guidelines (design-guidelines.md), components (design-components.md) plus Name und Quell-URL. kind grenzt auf ein Dokument ein. Die Dokumente sind die Quelle des Profils; update_reference_doc schreibt sie, update_reference pflegt die Bibliotheksfelder.",
     route: "GET /api/references/:param",
+    routes: [
+      { method: "GET", path: "/api/references/:param" },
+    ],
     routeExample: "GET /api/references/{param}",
     writes: false,
     parameters: [
@@ -1282,6 +1540,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Schreibt genau ein Design-Dokument einer Referenz (design, guidelines oder components); die anderen Dokumente bleiben unberührt, content null löscht das Dokument. Der Text ist Markdown im Format der Referenz-Sammlung (Tabellen + sys.*-Block); das Profil wird davon nicht automatisch neu abgeleitet — dafür einen Import-Lauf (import_references) oder edit_reference_profile nutzen.",
     route: "PATCH /api/references/:param",
+    routes: [
+      { method: "PATCH", path: "/api/references/:param" },
+    ],
     routeExample: "PATCH /api/references/{param}",
     writes: true,
     parameters: [
@@ -1297,6 +1558,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Legt eine Referenz manuell an: name und image (Base64, PNG/JPEG/WebP bis 20 MB, mit oder ohne data:-Präfix) sind Pflicht; imageMobile ist der zweite Snapshot. sourceUrl, collectionId, note, vocabulary, imageRecipe, heroUsage, family, capturedAt und documents (design/guidelines/components) sind optional. Die Referenz ist sofort ready und trägt kein Analyseprofil; für den Import ganzer Ordner gibt es den CLI-Import.",
     route: "POST /api/references/manual",
+    routes: [
+      { method: "POST", path: "/api/references/manual" },
+    ],
     routeExample: "POST /api/references/manual",
     writes: true,
     parameters: [
@@ -1321,6 +1585,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Pflegt die Bibliotheksfelder einer Referenz: name, sourceUrl, collectionId, note, vocabulary, imageRecipe, heroUsage, family und documents. Nur die gesendeten Felder ändern sich; null leert ein Feld (collectionId löst die Zuordnung). Für ein einzelnes Dokument ist update_reference_doc der kürzere Weg.",
     route: "PATCH /api/references/:param",
+    routes: [
+      { method: "PATCH", path: "/api/references/:param" },
+    ],
     routeExample: "PATCH /api/references/{param}",
     writes: true,
     parameters: [
@@ -1342,8 +1609,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     scope: "write",
     group: "referenzen",
     description: "Löscht eine Referenz aus der Bibliothek. Ohne force nur, wenn sie keinem Projekt zugeordnet ist; force=true entfernt auch die Projekt-Zuordnungen. Snapshot-Dateien und Profil-Revisionen gehen mit.",
-    route: "DELETE /api/references/:param:param",
-    routeExample: "DELETE /api/references/{param}{param}",
+    route: "DELETE /api/references/:param",
+    routes: [
+      { method: "DELETE", path: "/api/references/:param" },
+    ],
+    routeExample: "DELETE /api/references/{param}",
     writes: true,
     parameters: [
       { name: "referenceId", type: "string", required: true },
@@ -1357,6 +1627,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Nachbearbeitung eines Referenz-Profils: vocabulary, families, rules (constants/never) und note überschreiben die Profilwerte, jede Änderung schreibt eine neue Profil-Revision (append-only, list_reference_revisions zeigt sie). Mindestens ein Feld senden.",
     route: "POST /api/references/:param/revisions",
+    routes: [
+      { method: "POST", path: "/api/references/:param/revisions" },
+    ],
     routeExample: "POST /api/references/{param}/revisions",
     writes: true,
     parameters: [
@@ -1374,6 +1647,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Listet die Profil-Revisionen einer Referenz (append-only, neueste zuerst) mit Autor, Zeitpunkt und den geänderten Feldern. Revision 1 ist der Import-/Analyse-Stand.",
     route: "GET /api/references/:param/revisions",
+    routes: [
+      { method: "GET", path: "/api/references/:param/revisions" },
+    ],
     routeExample: "GET /api/references/{param}/revisions",
     writes: false,
     parameters: [
@@ -1387,6 +1663,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Löst die Projekt-Zuordnung einer Referenz (die Referenz bleibt in der Bibliothek). Danach fehlt ihre Skala im abgeleiteten Theme-Entwurf; das aktive Release bleibt unberührt, bis ein Theme neu geschrieben wird.",
     route: "DELETE /api/sites/:param/references/:param",
+    routes: [
+      { method: "DELETE", path: "/api/sites/:param/references/:param" },
+    ],
     routeExample: "DELETE /api/sites/{param}/references/{param}",
     writes: true,
     parameters: [
@@ -1401,6 +1680,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Führt fällige Referenz-Jobs aus (Retry mit Backoff nach fehlgeschlagenen Captures, Fortschritt langer Läufe). limit begrenzt die Zahl der Jobs pro Aufruf (Default des Servers). Nicht idempotent: jeder Aufruf verarbeitet erneut fällige Jobs.",
     route: "POST /api/references/tick",
+    routes: [
+      { method: "POST", path: "/api/references/tick" },
+    ],
     routeExample: "POST /api/references/tick",
     writes: true,
     parameters: [
@@ -1414,6 +1696,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Ändert eine Sammlung der Referenz-Bibliothek: name, description, deployFor, vocabulary, risk, accent, imageStyle, recognize, examples, warning und position. Nur die gesendeten Felder ändern sich; warning null entfernt den Hinweis. kind und id sind fest.",
     route: "PATCH /api/reference-collections/:param",
+    routes: [
+      { method: "PATCH", path: "/api/reference-collections/:param" },
+    ],
     routeExample: "PATCH /api/reference-collections/{param}",
     writes: true,
     parameters: [
@@ -1438,6 +1723,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Löscht eine Sammlung; ihre Referenzen bleiben und fallen auf „ohne Sammlung“ zurück (affectedReferences nennt die Zahl). Der Stil-Katalog kann so ebenfalls gelöscht werden.",
     route: "DELETE /api/reference-collections/:param",
+    routes: [
+      { method: "DELETE", path: "/api/reference-collections/:param" },
+    ],
     routeExample: "DELETE /api/reference-collections/{param}",
     writes: true,
     parameters: [
@@ -1451,6 +1739,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Liest die Haus-DNA (name, description, constants, never) und die Brief-Präferenzen (includeDna, overrides) der Referenz-Bibliothek. Die DNA steht unter jedem Brief und ist die prüfbare Grundlage für Design-Entscheidungen.",
     route: "GET /api/settings",
+    routes: [
+      { method: "GET", path: "/api/settings" },
+    ],
     routeExample: "GET /api/settings",
     writes: false,
     parameters: [
@@ -1464,6 +1755,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Schreibt die Haus-DNA und/oder die Brief-Präferenzen: dna (name, description, constants, never) und preferences (includeDna, overrides). Nur die gesendeten Felder ändern sich; die DNA-Einträge werden getrimmt, dedupliziert und leere fallen weg.",
     route: "PUT /api/settings",
+    routes: [
+      { method: "PUT", path: "/api/settings" },
+    ],
     routeExample: "PUT /api/settings",
     writes: true,
     parameters: [
@@ -1478,6 +1772,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Liest die Design-DNA eines Projekts (constants/never/vocabulary, Quelle references|manual). Die never-Regeln sind im Schreibpfad hart für Agenten-Tokens und eine Warnung für Menschen — lies sie, bevor du in das Projekt schreibst.",
     route: "GET /api/sites/:param/design-contract",
+    routes: [
+      { method: "GET", path: "/api/sites/:param/design-contract" },
+    ],
     routeExample: "GET /api/sites/{param}/design-contract",
     writes: false,
     parameters: [
@@ -1491,6 +1788,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Setzt eine manuelle Design-DNA für das Projekt (constants/never/vocabulary); ein leerer Body löscht die DNA. Die never-Regeln gelten im Schreibpfad: Agenten-Schreibvorgänge, die sie verletzen, werden blockiert. Eine aus Referenzen abgeleitete DNA wird erst überschrieben, wenn du sie manuell setzt.",
     route: "PUT /api/sites/:param/design-contract",
+    routes: [
+      { method: "PUT", path: "/api/sites/:param/design-contract" },
+    ],
     routeExample: "PUT /api/sites/{param}/design-contract",
     writes: true,
     parameters: [
@@ -1507,6 +1807,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Lists reusable global component definitions with name, kind, version, fingerprint, tags, provenance, license and deprecation state.",
     route: "GET /api/library-components",
+    routes: [
+      { method: "GET", path: "/api/library-components" },
+    ],
     routeExample: "GET /api/library-components",
     writes: false,
     parameters: [
@@ -1520,6 +1823,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Reads one reusable component definition, including its NodeTree structure, variants through props, slots, fingerprint, provenance and license status.",
     route: "GET /api/library-components/:param",
+    routes: [
+      { method: "GET", path: "/api/library-components/:param" },
+    ],
     routeExample: "GET /api/library-components/{param}",
     writes: false,
     parameters: [
@@ -1533,6 +1839,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Promotes a normalized component candidate into the global reusable library. Fingerprints deduplicate; imported foreign code with an unknown license is rejected by the engine policy.",
     route: "POST /api/library-components",
+    routes: [
+      { method: "POST", path: "/api/library-components" },
+    ],
     routeExample: "POST /api/library-components",
     writes: true,
     parameters: [
@@ -1551,6 +1860,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Installs a reusable component into a site and optionally inserts a real component instance into a target page.",
     route: "POST /api/sites/:param/library-installs",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/library-installs" },
+    ],
     routeExample: "POST /api/sites/{param}/library-installs",
     writes: true,
     parameters: [
@@ -1568,6 +1880,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Detaches a site installation without data loss: installed instances become local definitions marked with their library provenance before the installation row is removed.",
     route: "DELETE /api/sites/:param/library-installs/:param",
+    routes: [
+      { method: "DELETE", path: "/api/sites/:param/library-installs/:param" },
+    ],
     routeExample: "DELETE /api/sites/{param}/library-installs/{param}",
     writes: true,
     parameters: [
@@ -1582,6 +1897,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Moves a site installation to the current global component version. Existing instance override bags remain addressed by stable part ids.",
     route: "POST /api/sites/:param/library-installs/:param/update",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/library-installs/:param/update" },
+    ],
     routeExample: "POST /api/sites/{param}/library-installs/{param}/update",
     writes: true,
     parameters: [
@@ -1596,6 +1914,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "referenzen",
     description: "Reads the global library audit trail: creates, updates, installs, version updates and detaches with author and timestamp.",
     route: "GET /api/library-components/audit",
+    routes: [
+      { method: "GET", path: "/api/library-components/audit" },
+    ],
     routeExample: "GET /api/library-components/audit",
     writes: false,
     parameters: [
@@ -1609,6 +1930,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Reads Framer page and component structure and all CMS items through the Unframer MCP connection, verifies the published source URL, and saves a local snapshot without the secret URL. The snapshot is an input for a future editable conversion, not a runtime-free website.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: true,
     parameters: [
@@ -1624,6 +1948,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Captures structured HTML export pages and downloads supported assets to a new local folder, including a site-ir.json and failure report. This is an import input, not a complete editable site or a verified runtime-free build. Flattened FramerExport subpages are flagged as unprocessed.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: true,
     parameters: [
@@ -1639,6 +1966,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Runs FramerExport on a published URL and saves a local mirror in a new output folder. The mirror can contain Framer runtime code; use import_framer_page with rootDir to begin conversion into editable Senify content.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: true,
     parameters: [
@@ -1652,8 +1982,11 @@ export const TOOL_MANIFEST: ToolFact[] = [
     title: "Import a multi-page Framer export",
     scope: "write",
     group: "seiten",
-    description: "Analyze all pages in a structured local export, or create them one at a time when write is true. Existing pages are never overwritten. A partial run is reported explicitly; CMS bindings, animation fidelity and runtime freedom remain unverified.",
+    description: "Analyze all pages in a structured local export, or create them one at a time when write is true. Flattened FramerExport subpages are expanded from the published sitemap through the live browser capture when sourceUrl is set. Existing pages are never overwritten. A partial run is reported explicitly; CMS bindings, animation fidelity and runtime freedom remain unverified.",
     route: null,
+    routes: [
+
+    ],
     routeExample: null,
     writes: true,
     parameters: [
@@ -1661,6 +1994,7 @@ export const TOOL_MANIFEST: ToolFact[] = [
       { name: "rootDir", type: "string", required: true },
       { name: "write", type: "boolean", required: false },
       { name: "assetCacheDir", type: "string", required: false },
+      { name: "sourceUrl", type: "string", required: false },
     ],
   },
   {
@@ -1670,6 +2004,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Imports a Framer page (published URL, local mirror folder or raw SSR-HTML) into a site: capture → normalize → map → report. Default is a dry run (report only); write: true creates the page (or writes into pageId) as ONE revision, appends the style rules with their framer-import origin and optionally applies the theme font patch (applyTheme). Fonts are fetched and self-hosted (DSGVO); unreachable files surface as findings, never as silent drops.",
     route: "POST /api/sites/:param/imports/framer",
+    routes: [
+      { method: "POST", path: "/api/sites/:param/imports/framer" },
+    ],
     routeExample: "POST /api/sites/{param}/imports/framer",
     writes: true,
     parameters: [
@@ -1697,6 +2034,9 @@ export const TOOL_MANIFEST: ToolFact[] = [
     group: "seiten",
     description: "Reads one import job: status (queued/running/succeeded/failed) plus the full report when the run finished — score, node and declaration counts, assets (downloaded/deduped/failed, fonts), findings with evidence and the marquee candidates. The report is stored on the job, so polling does not re-run the import.",
     route: "GET /api/imports/:param",
+    routes: [
+      { method: "GET", path: "/api/imports/:param" },
+    ],
     routeExample: "GET /api/imports/{param}",
     writes: false,
     parameters: [

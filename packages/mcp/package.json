@@ -23,6 +23,7 @@
     "framer-export": "5.0.2"
   },
   "devDependencies": {
-    "@senify/engine": "workspace:*"
+    "@senify/engine": "workspace:*",
+    "@senify/manifest": "workspace:*"
   }
 }

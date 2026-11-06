@@ -276,7 +276,7 @@ Versionierte Records werden bei Review und Publish gespeichert; Manifest und Re-
 
 **Tests:** `paging.test.ts` (9 Fälle), `manifest.test.ts` (6), zwei in `mcp/test/workflow.test.ts`, `docs-portal` vollständig grün ohne MCP-Server.
 
-**Noch offen:** strukturierte `outputSchema` für relevante Schreibwerkzeuge, `limit`/`offset` samt Metadaten an paginierten MCP-Werkzeugen sowie die gemeinsame Manifest-Quelle für MCP-Server und Routenmatrix. Diese Restpunkte werden jetzt umgesetzt, damit Schreibantworten programmatisch nutzbar sind und Generator-/Drift-Tests die Konsumenten synchron halten.
+**Erledigt 06.11.2026:** Paginierte MCP-Listen (`list_sites`, `list_pages`, `list_releases`, `list_bake_jobs`, `list_assets`, `list_entries`, `list_image_jobs`) führen `limit`/`offset` und liefern `page`/`total`/`exactTotal`/`hasMore` als strukturierte Ausgabe. Relevante Schreibwerkzeuge (`create_site`, `create_page`, `apply_mutations`, `update_theme`, `publish_release`, `delete_page`, `upload_asset`) deklarieren ein `outputSchema`; `structuredContent` wird nur bei passender Form gesendet. Die Routenmatrix liest ihre Werkzeug-Routen aus dem generierten `@senify/manifest`, und `packages/mcp/test/manifest-drift.test.ts` hält Server, Manifest und Generator zusammen. Der Einträge-Pfad paginiert jetzt korrekt mit Offset, statt die Liste vorher auf `limit` zu kürzen. Belege: `packages/mcp/test/workflow.test.ts`, `packages/engine/test/paging.test.ts`, `packages/manifest/test/manifest.test.ts`, `packages/engine/test/route-matrix.test.ts`.
 
 ### P3-4 · Release-Manifest (R7) — erledigt 28.09.2026
 
@@ -306,7 +306,7 @@ Neu erzeugte Uploads werden nach fehlgeschlagenem DB-Commit kompensiert; negativ
 | R5 | Legacy-Editor im Bundle | **geschlossen** | P3-1 |
 | R6 | Idempotency-Completion-Fehler | **geschlossen** | P0-3 |
 | R7 | Manifest ohne Snapshots | **geschlossen** | P3-4 |
-| R8 | MCP-Schemas, Pagination und Manifest-Konsumenten nicht durchgängig | **teilweise geschlossen**; Schreib-`outputSchema`, MCP-Page-Inputs/-Metadaten und Manifest-Nutzung durch Server/Routenmatrix offen | P3-3 |
+| R8 | MCP-Schemas, Pagination und Manifest-Konsumenten nicht durchgängig | **geschlossen 06.11.2026**: paginierte Listen mit Eingabe und Metadaten, `outputSchema` für relevante Schreibwerkzeuge, Routenmatrix aus dem Manifest, Server↔Manifest-Drift-Test | P3-3 |
 | R9 | Style-Registry-Klassen-Rename ohne Test | **geschlossen** | P3 (Mini-Schritt) |
 | R10 | Import-Asset-Kompensation unbelegt | **Kompensationsvertrag geschlossen**; eine gemeinsame Datei-/DB-Tx besteht nicht | P3-5 |
 | R11 | Kein PG-Service/Coverage/Fehlerpfade in CI | **Implementierung und aktuelle lokale Gates geschlossen**; CI-Jobs vorhanden | P1-1, P1-2 |

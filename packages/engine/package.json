@@ -22,6 +22,7 @@
     "sharp": "^0.35.4"
   },
   "devDependencies": {
+    "@senify/manifest": "workspace:*",
     "@senify/registry": "workspace:*",
     "playwright": "^1.63.0"
   }

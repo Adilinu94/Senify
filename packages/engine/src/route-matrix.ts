@@ -19,6 +19,14 @@ export type MatrixRow = MatrixRoute & {
   note: string;
 };
 
+/** The facts the generated `@senify/manifest` exposes. Structural on purpose:
+ *  the engine does not import the manifest package for a type, and a caller
+ *  can hand in any list that carries the same facts. */
+export type ManifestTool = {
+  name: string;
+  routes: { method: string; path: string }[];
+};
+
 // A path segment of a tool call: a string literal or a wildcard when the
 // segment comes from an interpolation (`${siteId}`) or a route `:param`.
 type PathSegment = { literal: string } | { wildcard: true };
@@ -253,11 +261,15 @@ const OVERRIDES: Record<string, Override> = {
 
 export function buildRouteMatrix(
   httpSource: string,
-  toolsSource: string,
+  manifest: readonly ManifestTool[],
   serverSource: string,
 ): MatrixRow[] {
   const routes = parseRoutes(httpSource);
-  const byTool = parseToolCalls(toolsSource);
+  // The manifest is the shared source: the same generated facts the server and
+  // the docs use. The old source-text parser stays exported for its unit test
+  // and for the generator, but the matrix no longer reads a second copy of the
+  // tool catalog.
+  const byTool = new Map(manifest.map((tool) => [tool.name, tool.routes]));
   const serverCalls = parseRequestCalls(serverSource);
   const callers = new Map<string, Set<string>>();
   const remember = (key: string, tool: string): void => {
@@ -271,7 +283,9 @@ export function buildRouteMatrix(
     for (const [tool, calls] of byTool) {
       for (const call of calls) {
         if (call.method !== route.method) continue;
-        if (matchPath(routeSegments, normalizeToolPath(call.path))) {
+        // Manifest paths are already normalized to `:param`, which
+        // `splitSegments` treats as a wildcard.
+        if (matchPath(routeSegments, splitSegments(call.path))) {
           remember(key, tool);
         }
       }
@@ -315,7 +329,7 @@ export function renderRouteMatrix(rows: MatrixRow[], stand: string): string {
   const lines = [
     "# MCP-Routen-Matrix",
     "",
-    `Stand: ${stand} — generiert mit \`pnpm route-matrix\` aus \`packages/engine/src/http.ts\` (ROUTES) und \`packages/mcp/src/tools.ts\` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; \`packages/engine/test/route-matrix.test.ts\` prüft Vollständigkeit.`,
+    `Stand: ${stand} — generiert mit \`pnpm route-matrix\` aus \`packages/engine/src/http.ts\` (ROUTES) und dem generierten \`@senify/manifest\` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; \`packages/engine/test/route-matrix.test.ts\` prüft Vollständigkeit.`,
     "",
     "**Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.",
     "",

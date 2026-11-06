@@ -17,7 +17,7 @@
 
 **R5 geschlossen:** `NodeTree` bleibt die Persistenzwahrheit; der Legacy-Editor `packages/editor/src/mount.ts` ist gelöscht. Der Canvas (`editor/src/canvas/`) ist aktiv. `FrameRenderer` liegt als gemeinsamer Typ in `packages/editor/src/frame-renderer.ts`; `?view=editor` wird sichtbar auf Canvas umgeleitet. Belege: `packages/app/test/server.test.ts`, `packages/app/test/canvas-view-browser.test.ts`.
 
-**MCP-Manifest und Paging:** `@senify/manifest` hält generierte Tool-Fakten und wird vom Docs-Portal importiert. `packages/engine/src/paging.ts` definiert das HTTP-Paging; mehrere Listenrouten in `http.ts` verwenden es. MCP-Tools und Routenmatrix lesen ihre Tool-Fakten derzeit noch direkt aus `packages/mcp/src/tools.ts`; MCP-Paging ist nicht durchgängig integriert (R8 teilweise offen).
+**MCP-Manifest und Paging:** `@senify/manifest` hält generierte Tool-Fakten einschließlich aller Routen und wird vom Docs-Portal, der Routenmatrix und dem Server-Drift-Test genutzt. `packages/engine/src/paging.ts` definiert das HTTP-Paging; die MCP-Listenwerkzeuge führen `limit`/`offset` und liefern den Paging-Block. Ein Drift-Test vergleicht Server und Manifest; neue Werkzeuge ohne Regeneration fallen dort auf (R8 geschlossen).
 
 ## Referenz-Redesign
 

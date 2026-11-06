@@ -96,6 +96,30 @@ describe("Tool-Manifest (Fahrplan P3-3 Punkt 4, R8)", () => {
     }
   });
 
+  it("trägt alle Routen für die Routenmatrix", () => {
+    const methoden = ["GET", "POST", "PATCH", "PUT", "DELETE"];
+    for (const fact of TOOL_MANIFEST) {
+      for (const route of fact.routes) {
+        expect(methoden, `${fact.name}: ${route.method}`).toContain(route.method);
+        expect(route.path.startsWith("/"), `${fact.name}: ${route.path}`).toBe(true);
+      }
+      if (fact.route === null) {
+        expect(fact.routes, fact.name).toEqual([]);
+      } else {
+        const [method, path] = fact.route.split(" ");
+        expect(fact.routes[0], fact.name).toEqual({ method, path });
+      }
+    }
+    // A workflow tool calls several routes; reducing it to the first would
+    // leave the other rows marked as "no tool" in the matrix.
+    expect(TOOLS_BY_NAME.get("set_styles")?.routes.map((route) => route.method)).toEqual([
+      "GET",
+      "POST",
+      "PATCH",
+    ]);
+    expect(TOOLS_BY_NAME.get("duplicate_site")?.routes.length).toBeGreaterThan(1);
+  });
+
   it("trägt die Parameter als Namen, Typ und Pflicht", () => {
     // A tool that takes a siteId says so, and says it is required: a client that
     // omits it should learn that from the table, not from a runtime error.

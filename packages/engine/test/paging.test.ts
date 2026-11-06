@@ -177,6 +177,48 @@ describe("Paging: über die API", () => {
     expect(response.body.pages.length).toBeGreaterThanOrEqual(3);
   });
 
+  it("paginiert Einträge mit Offset, ohne die Liste vorher zu kürzen", async () => {
+    const site = await createTestSite(env.api, "Entry Paging Studio");
+    const collection = await env.api.request<{ id: string }>({
+      method: "POST",
+      path: `/api/sites/${site.id}/collections`,
+      body: {
+        name: "Liste",
+        slug: "liste",
+        fields: [{ id: "c-note", key: "note", label: "Notiz", type: "text", description: "Notiz." }],
+      },
+    });
+    expect(collection.status, JSON.stringify(collection.body)).toBe(201);
+    for (let index = 1; index <= 5; index += 1) {
+      const created = await env.api.request({
+        method: "POST",
+        path: `/api/sites/${site.id}/entries`,
+        body: {
+          collectionId: collection.body.id,
+          cells: { title: `E${index}` },
+          author: { kind: "agent", id: "agent-test-1", label: "Test Agent" },
+        },
+      });
+      expect(created.status).toBe(201);
+    }
+    const response = await env.api.request<{
+      entries: { cells: { title?: string } }[];
+      page: { limit: number; offset: number };
+      total: number;
+      exactTotal: boolean;
+      hasMore: boolean;
+    }>({
+      method: "GET",
+      path: `/api/sites/${site.id}/entries?sort=title&dir=asc&limit=2&offset=2`,
+    });
+    expect(response.status).toBe(200);
+    expect(response.body.page).toEqual({ limit: 2, offset: 2 });
+    expect(response.body.entries.map((entry) => entry.cells.title)).toEqual(["E3", "E4"]);
+    expect(response.body.total).toBe(5);
+    expect(response.body.exactTotal).toBe(true);
+    expect(response.body.hasMore).toBe(true);
+  });
+
   it("trägt den aktiven Release außerhalb des Paging-Blocks", async () => {
     // The active release is a POINTER, not a list entry. A caller asking for
     // page 3 of the history still needs to know which one is live - otherwise it

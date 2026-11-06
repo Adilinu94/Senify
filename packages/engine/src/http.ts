@@ -3241,11 +3241,15 @@ const ROUTES: Route[] = [
       // Entries page like every other list. A collection with a few hundred
       // rows is normal, and an agent that has to hold all of them to find the
       // last one has no room left for the answer.
+      //
+      // `listEntries` sorts and truncates at its own `limit`, so it must see the
+      // whole list before paging. The store caps a scan at 500 rows; at that
+      // cap the total is "at least 500", not an invented exact number.
       const all = await listEntries(context.store, {
         siteId,
-        filters: parseEntryListFilters(url.searchParams),
+        filters: { ...parseEntryListFilters(url.searchParams), limit: 500 },
       });
-      const page = paginate(all, parsePaging(url.searchParams), all.length);
+      const page = paginate(all, parsePaging(url.searchParams), all.length < 500 ? all.length : null);
       return {
         status: 200,
         body: { entries: page.items, ...page, items: undefined },

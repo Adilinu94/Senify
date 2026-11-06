@@ -178,18 +178,128 @@ const OUTLINE_SCHEMA = {
   additionalProperties: true,
 } as const;
 
-// The list schemas. Each engine route names its own list field — `sites`,
-// `pages`, `assets` — so the key is a parameter rather than a guess. A generic
-// `items` would have been a schema the code does not keep, and the server would
-// (correctly) refuse to send the structure for every list tool.
-function listSchema(key: string, item: unknown): Record<string, unknown> {
+// Paging inputs and the block every paginated engine list returns (P3-3, R8).
+const PAGING_INPUT = {
+  limit: { type: "number" },
+  offset: { type: "number" },
+};
+
+const PAGING_SCHEMA = {
+  type: "object",
+  properties: { limit: { type: "number" }, offset: { type: "number" } },
+  required: ["limit", "offset"],
+  additionalProperties: false,
+} as const;
+
+function pagedListSchema(
+  key: string,
+  item: unknown,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     type: "object",
-    properties: { [key]: { type: "array", items: item } },
-    required: [key],
+    properties: {
+      [key]: { type: "array", items: item },
+      page: PAGING_SCHEMA,
+      total: { type: "number" },
+      exactTotal: { type: "boolean" },
+      hasMore: { type: "boolean" },
+      ...extra,
+    },
+    required: [key, "page", "total", "exactTotal", "hasMore"],
     additionalProperties: true,
   };
 }
+
+function appendPaging(params: URLSearchParams, args: Record<string, unknown>): void {
+  for (const key of ["limit", "offset"]) {
+    const value = optionalNumber(args, key);
+    if (value !== undefined) params.set(key, String(value));
+  }
+}
+
+const RELEASE_SCHEMA = {
+  type: "object",
+  properties: { id: { type: "string" }, siteId: { type: "string" }, note: { type: ["string", "null"] } },
+  required: ["id"],
+  additionalProperties: true,
+} as const;
+
+const BAKE_JOB_SCHEMA = {
+  type: "object",
+  properties: { id: { type: "string" }, siteId: { type: "string" }, status: { type: "string" } },
+  required: ["id"],
+  additionalProperties: true,
+} as const;
+
+const IMAGE_JOB_SCHEMA = {
+  type: "object",
+  properties: { id: { type: "string" }, siteId: { type: "string" }, status: { type: "string" } },
+  required: ["id"],
+  additionalProperties: true,
+} as const;
+
+const ENTRY_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    siteId: { type: "string" },
+    collectionId: { type: "string" },
+    slug: { type: "string" },
+    status: { type: "string" },
+  },
+  required: ["id"],
+  additionalProperties: true,
+} as const;
+
+const THEME_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    siteId: { type: "string" },
+    version: { type: "number" },
+    theme: { type: "object" },
+  },
+  required: ["id", "version", "theme"],
+  additionalProperties: true,
+} as const;
+
+const MUTATION_RESULT_SCHEMA = {
+  type: "object",
+  properties: {
+    newDraftVersion: { type: "number" },
+    undoBatchId: { type: ["string", "null"] },
+    warnings: { type: "array", items: { type: "object" } },
+    results: { type: "array", items: { type: "object" } },
+  },
+  required: ["newDraftVersion"],
+  additionalProperties: true,
+} as const;
+
+const RELEASE_PUBLISH_SCHEMA = {
+  type: "object",
+  properties: { release: RELEASE_SCHEMA, checks: { type: "object" } },
+  required: ["release", "checks"],
+  additionalProperties: true,
+} as const;
+
+const DELETE_RESULT_SCHEMA = {
+  type: "object",
+  properties: { deleted: { type: "string" } },
+  required: ["deleted"],
+  additionalProperties: false,
+} as const;
+
+const UPLOAD_RESULT_SCHEMA = {
+  type: "object",
+  properties: {
+    asset: ASSET_SCHEMA,
+    deduped: { type: "boolean" },
+    warnings: { type: "array", items: { type: "string" } },
+  },
+  required: ["asset", "deduped"],
+  additionalProperties: true,
+} as const;
 
 function requireString(args: Record<string, unknown>, key: string): string {
   const value = args[key];
@@ -650,9 +760,15 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Lists all website projects with id, name, slug and profile. Start here to discover the siteId other tools need.",
     scope: "read",
-    inputSchema: objectSchema({}),
-    outputSchema: listSchema("sites", SITE_SCHEMA),
-    handler: async (context) => context.client.request("GET", "/api/sites"),
+    inputSchema: objectSchema(PAGING_INPUT),
+    outputSchema: pagedListSchema("sites", SITE_SCHEMA),
+    handler: async (context, args) => {
+      const params = new URLSearchParams();
+      appendPaging(params, args);
+      const query = params.toString();
+      const suffix = query === "" ? "" : "?" + query;
+      return context.client.request("GET", "/api/sites" + suffix);
+    },
   },
   {
     name: "get_site",
@@ -680,6 +796,7 @@ export const TOOLS: ToolDefinition[] = [
       },
       ["name"],
     ),
+    outputSchema: SITE_SCHEMA,
     handler: async (context, args) => {
       const name = requireString(args, "name");
       const slug = optionalString(args, "slug");
@@ -727,14 +844,20 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Lists the pages of a site with path, title and draftVersion. Use it to find the pageId for get_page and apply_mutations.",
     scope: "read",
-    inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
-    outputSchema: listSchema("pages", PAGE_SCHEMA),
+    inputSchema: objectSchema({ siteId: { type: "string" }, ...PAGING_INPUT }, ["siteId"]),
+    outputSchema: pagedListSchema("pages", PAGE_SCHEMA),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
-    handler: async (context, args) =>
-      context.client.request(
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const params = new URLSearchParams();
+      appendPaging(params, args);
+      const query = params.toString();
+      const suffix = query === "" ? "" : "?" + query;
+      return context.client.request(
         "GET",
-        `/api/sites/${requireString(args, "siteId")}/pages`,
-      ),
+        `/api/sites/${siteId}/pages` + suffix,
+      );
+    },
   },
   {
     name: "get_page",
@@ -972,6 +1095,7 @@ export const TOOLS: ToolDefinition[] = [
       },
       ["pageId", "baseDraftVersion", "mutations"],
     ),
+    outputSchema: MUTATION_RESULT_SCHEMA,
     entity: (args) => `page:${String(args.pageId ?? "")}`,
     handler: async (context, args) => {
       const pageId = requireString(args, "pageId");
@@ -1564,6 +1688,7 @@ export const TOOLS: ToolDefinition[] = [
       path: { type: "string" },
       idempotencyKey: { type: "string" },
     }, ["siteId"]),
+    outputSchema: PAGE_SCHEMA,
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -1650,6 +1775,7 @@ export const TOOLS: ToolDefinition[] = [
       },
       ["siteId", "theme"],
     ),
+    outputSchema: THEME_SCHEMA,
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -1730,6 +1856,7 @@ export const TOOLS: ToolDefinition[] = [
       },
       ["siteId"],
     ),
+    outputSchema: RELEASE_PUBLISH_SCHEMA,
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -1774,13 +1901,22 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Lists a site's releases (newest first) with the active release id. Each release carries its manifest: renderer version, build hash and the style registry snapshot it was baked with (rollback restores it).",
     scope: "read",
-    inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    inputSchema: objectSchema({ siteId: { type: "string" }, ...PAGING_INPUT }, ["siteId"]),
+    outputSchema: pagedListSchema("releases", RELEASE_SCHEMA, {
+      activeReleaseId: { type: ["string", "null"] },
+    }),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
-    handler: async (context, args) =>
-      context.client.request(
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const params = new URLSearchParams();
+      appendPaging(params, args);
+      const query = params.toString();
+      const suffix = query === "" ? "" : "?" + query;
+      return context.client.request(
         "GET",
-        `/api/sites/${requireString(args, "siteId")}/releases`,
-      ),
+        `/api/sites/${siteId}/releases` + suffix,
+      );
+    },
   },
   {
     name: "get_release",
@@ -1802,13 +1938,20 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Lists the durable re-bake jobs of a site (newest first): content changes enqueue them, a worker re-bakes the active release and records done/failed with attempts, next attempt time and the last error. Use it to check why a published content change is not live yet.",
     scope: "read",
-    inputSchema: objectSchema({ siteId: { type: "string" } }, ["siteId"]),
+    inputSchema: objectSchema({ siteId: { type: "string" }, ...PAGING_INPUT }, ["siteId"]),
+    outputSchema: pagedListSchema("jobs", BAKE_JOB_SCHEMA),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
-    handler: async (context, args) =>
-      context.client.request(
+    handler: async (context, args) => {
+      const siteId = requireString(args, "siteId");
+      const params = new URLSearchParams();
+      appendPaging(params, args);
+      const query = params.toString();
+      const suffix = query === "" ? "" : "?" + query;
+      return context.client.request(
         "GET",
-        `/api/sites/${requireString(args, "siteId")}/bake-jobs`,
-      ),
+        `/api/sites/${siteId}/bake-jobs` + suffix,
+      );
+    },
   },
   {
     name: "deploy_site",
@@ -1939,6 +2082,7 @@ export const TOOLS: ToolDefinition[] = [
       "Deletes a page and its draft (destructive, audited). Needs the publish scope.",
     scope: "publish",
     inputSchema: objectSchema({ pageId: { type: "string" } }, ["pageId"]),
+    outputSchema: DELETE_RESULT_SCHEMA,
     entity: (args) => `page:${String(args.pageId ?? "")}`,
     handler: async (context, args) => {
       const pageId = requireString(args, "pageId");
@@ -1965,10 +2109,11 @@ export const TOOLS: ToolDefinition[] = [
           enum: ["createdAt", "name", "size", "replacedAt"],
         },
         status: { type: "string", enum: ["ready", "trashed", "all"] },
+        ...PAGING_INPUT,
       },
       ["siteId"],
     ),
-    outputSchema: listSchema("assets", ASSET_SCHEMA),
+    outputSchema: pagedListSchema("assets", ASSET_SCHEMA),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -1979,10 +2124,12 @@ export const TOOLS: ToolDefinition[] = [
       }
       const minBytes = optionalNumber(args, "minBytes");
       if (minBytes !== undefined) params.set("minBytes", String(minBytes));
+      appendPaging(params, args);
       const query = params.toString();
+      const suffix = query === "" ? "" : "?" + query;
       return context.client.request(
         "GET",
-        `/api/sites/${siteId}/assets${query === "" ? "" : `?${query}`}`,
+        `/api/sites/${siteId}/assets` + suffix,
       );
     },
   },
@@ -2004,6 +2151,7 @@ export const TOOLS: ToolDefinition[] = [
       },
       ["siteId", "filePath"],
     ),
+    outputSchema: UPLOAD_RESULT_SCHEMA,
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -2209,18 +2357,23 @@ export const TOOLS: ToolDefinition[] = [
           type: "string",
           enum: ["queued", "running", "succeeded", "failed", "canceled"],
         },
+        ...PAGING_INPUT,
       },
       ["siteId"],
     ),
+    outputSchema: pagedListSchema("jobs", IMAGE_JOB_SCHEMA),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
+      const params = new URLSearchParams();
       const status = optionalString(args, "status");
-      const query =
-        status === undefined ? "" : `?status=${encodeURIComponent(status)}`;
+      if (status !== undefined) params.set("status", status);
+      appendPaging(params, args);
+      const query = params.toString();
+      const suffix = query === "" ? "" : "?" + query;
       return context.client.request(
         "GET",
-        `/api/sites/${siteId}/images/jobs${query}`,
+        `/api/sites/${siteId}/images/jobs` + suffix,
       );
     },
   },
@@ -2286,9 +2439,11 @@ export const TOOLS: ToolDefinition[] = [
         },
         dir: { type: "string", enum: ["asc", "desc"] },
         limit: { type: "number" },
+        offset: { type: "number" },
       },
       ["siteId"],
     ),
+    outputSchema: pagedListSchema("entries", ENTRY_SCHEMA),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -2301,10 +2456,13 @@ export const TOOLS: ToolDefinition[] = [
       if (trashed !== undefined) params.set("trashed", String(trashed));
       const limit = optionalNumber(args, "limit");
       if (limit !== undefined) params.set("limit", String(limit));
+      const offset = optionalNumber(args, "offset");
+      if (offset !== undefined) params.set("offset", String(offset));
       const query = params.toString();
+      const suffix = query === "" ? "" : "?" + query;
       return context.client.request(
         "GET",
-        `/api/sites/${siteId}/entries${query === "" ? "" : `?${query}`}`,
+        `/api/sites/${siteId}/entries` + suffix,
       );
     },
   },

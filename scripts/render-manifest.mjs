@@ -203,32 +203,94 @@ function feld(block, schluessel) {
     .replace(/\\n/g, "\n");
 }
 
-/** The route from the handler's `request("GET", "/api/…")` call, and the same
- *  path with `:param` rewritten to `{param}` for a documentation example.
- *
- *  A tool whose path is built from a template (`` `/api/sites/${id}` ``) still
- *  yields a usable route: the `${…}` part becomes `:param`, because that is what
- *  it is. Guessing the parameter's NAME would be fiction - `get_page` calls
- *  `/api/pages/${requireString(args, "pageId")}`, and the name really is in the
- *  source, but a tool that interpolates a helper call would leave the reader
- *  with a bare `:param`. The name is a detail the route matrix already knows.
+/** All routes from the handler's `request("GET"|…, "…")` calls, normalized to
+ *  `:param`. The first one is the documentation route; the full list feeds the
+ *  route matrix so a workflow tool that calls three routes is not reduced to
+ *  one in the table.
  */
-function route(block) {
-  const treffer = block.match(/request\(\s*"(GET|POST|PATCH|PUT|DELETE)"\s*,\s*`([^`]*)`/);
-  const flach = block.match(/request\(\s*"(GET|POST|PATCH|PUT|DELETE)"\s*,\s*"([^"]*)"/);
-  const gewaehlt = treffer ?? flach;
-  if (gewaehlt === null) return { route: null, beispiel: null };
-  const [, methode, pfad] = gewaehlt;
-  const normalisiert = pfad
-    .replace(/\$\{[^}]*\}/g, ":param")
+function normaliseRoute(methode, pfad) {
+  // The query is not part of the route: `/entries?path=${…}` is still the
+  // entries route. Nested interpolations (a tern around a template literal)
+  // are walked brace-aware, not matched with a greedy regex.
+  const ohneQuery = pfad.split("?")[0];
+  let ersetzt = "";
+  let cursor = 0;
+  while (cursor < ohneQuery.length) {
+    const start = ohneQuery.indexOf("${", cursor);
+    if (start === -1) {
+      ersetzt += ohneQuery.slice(cursor);
+      break;
+    }
+    ersetzt += `${ohneQuery.slice(cursor, start)}:param`;
+    let depth = 1;
+    let scan = start + 2;
+    while (scan < ohneQuery.length && depth > 0) {
+      if (ohneQuery.startsWith("${", scan)) {
+        depth += 1;
+        scan += 2;
+      } else if (ohneQuery[scan] === "}") {
+        depth -= 1;
+        scan += 1;
+      } else {
+        scan += 1;
+      }
+    }
+    cursor = scan;
+  }
+  const normalisiert = ersetzt
     .replace(/:[A-Za-z_][A-Za-z0-9_]*/g, ":param")
     // A repeated parameter (`:param/pages/:param`) is not a useful example; the
     // first one carries the meaning, the rest are noise.
-    .replace(/(:param\/):param/g, "$1param");
-  return {
-    route: `${methode} ${normalisiert}`,
-    beispiel: `${methode} ${normalisiert.replace(/:param/g, "{param}")}`,
-  };
+    .replace(/(:param\/):param/g, "$1param")
+    // A query suffix is interpolated directly after the path (`/pages${suffix}`)
+    // and is not part of the route. Drop only a `:param` attached to a literal
+    // (not one that follows a slash).
+    .replace(/(?<!\/):param(?=$|\?)/g, "");
+  return { method: methode, path: normalisiert };
+}
+
+function routes(block) {
+  const gefunden = [];
+  // `request<{ rules: … }>("GET", …)` carries a type argument; the old regex
+  // stopped before the method and silently lost the route.
+  const head = /\.request(?:<[^()]*>)?\(\s*"(GET|POST|PATCH|PUT|DELETE)"\s*,\s*/g;
+  let treffer;
+  while ((treffer = head.exec(block)) !== null) {
+    let cursor = treffer.index + treffer[0].length;
+    const quote = block[cursor];
+    if (quote !== "`" && quote !== '"') continue;
+    cursor += 1;
+    let roh = "";
+    if (quote === '"') {
+      while (cursor < block.length && block[cursor] !== '"') {
+        roh += block[cursor];
+        cursor += 1;
+      }
+    } else {
+      let depth = 0;
+      while (cursor < block.length) {
+        if (block.startsWith("${", cursor)) {
+          depth += 1;
+          roh += "${";
+          cursor += 2;
+        } else if (block[cursor] === "}" && depth > 0) {
+          depth -= 1;
+          roh += "}";
+          cursor += 1;
+        } else if (block[cursor] === "`" && depth === 0) {
+          break;
+        } else {
+          roh += block[cursor];
+          cursor += 1;
+        }
+      }
+    }
+    const normalisiert = normaliseRoute(treffer[1], roh);
+    if (!gefunden.some((route) => route.method === normalisiert.method && route.path === normalisiert.path)) {
+      gefunden.push(normalisiert);
+    }
+  }
+  return gefunden;
 }
 
 /** The input parameters as plain data, read from the tool's schema.
@@ -357,7 +419,8 @@ const fehlendeGruppe = [];
 const faktoren = bloecke.map((block) => {
   const gruppe = GRUPPEN[block.name];
   if (gruppe === undefined) fehlendeGruppe.push(block.name);
-  const { route: pfad, beispiel } = route(block.text);
+  const gefunden = routes(block.text);
+  const erster = gefunden[0];
   const scope = feld(block.text, "scope");
   return {
     name: block.name,
@@ -365,8 +428,9 @@ const faktoren = bloecke.map((block) => {
     scope,
     group: gruppe ?? "katalog",
     description: feld(block.text, "description"),
-    route: pfad,
-    routeExample: beispiel,
+    route: erster === undefined ? null : `${erster.method} ${erster.path}`,
+    routes: gefunden,
+    routeExample: erster === undefined ? null : `${erster.method} ${erster.path.replace(/:param/g, "{param}")}`,
     writes: scope === "write" || scope === "publish",
     parameters: parameter(block),
   };
@@ -389,6 +453,9 @@ const koerper = faktoren
     group: ${JSON.stringify(fakt.group)},
     description: ${JSON.stringify(fakt.description)},
     route: ${fakt.route === null ? "null" : JSON.stringify(fakt.route)},
+    routes: [
+${fakt.routes.map((r) => `      { method: ${JSON.stringify(r.method)}, path: ${JSON.stringify(r.path)} },`).join("\n")}
+    ],
     routeExample: ${fakt.routeExample === null ? "null" : JSON.stringify(fakt.routeExample)},
     writes: ${fakt.writes},
     parameters: [

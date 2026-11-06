@@ -209,6 +209,9 @@ importers:
         specifier: ^0.35.4
         version: 0.35.4(@types/node@24.13.4)
     devDependencies:
+      '@senify/manifest':
+        specifier: workspace:*
+        version: link:../manifest
       '@senify/registry':
         specifier: workspace:*
         version: link:../registry
@@ -275,6 +278,9 @@ importers:
       '@senify/engine':
         specifier: workspace:*
         version: link:../engine
+      '@senify/manifest':
+        specifier: workspace:*
+        version: link:../manifest
 
   packages/registry:
     dependencies:

@@ -1,10 +1,10 @@
 # MCP-Routen-Matrix
 
-Stand: 2026-11-05 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und `packages/mcp/src/tools.ts` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
+Stand: 2026-11-06 — generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und dem generierten `@senify/manifest` (+ Server-Audit). Bei neuer Route die Matrix neu erzeugen; `packages/engine/test/route-matrix.test.ts` prüft Vollständigkeit.
 
 **Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.
 
-**Zahlen:** 179 Routen — 93 Tool, 1 Workflow-gebündelt, 85 Operator.
+**Zahlen:** 179 Routen — 91 Tool, 1 Workflow-gebündelt, 87 Operator.
 
 | Methode | Route | Scope | Status | MCP-Tool(s) / Anmerkung |
 |---|---|---|---|---|
@@ -92,7 +92,7 @@ Stand: 2026-11-05 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | GET | `/api/sites/:siteId/code-payloads` | read | Operator | Import-Bericht/Editor |
 | GET | `/api/code-payloads/:payloadId` | read | Operator | Import-Bericht/Editor |
 | DELETE | `/api/code-payloads/:payloadId` | write | Operator | CLI/Editor (destruktiv, mit Audit) |
-| GET | `/api/sites/:siteId/assets/:assetId` | read | Tool | `list_assets` |
+| GET | `/api/sites/:siteId/assets/:assetId` | read | Operator | UI/CLI |
 | PATCH | `/api/sites/:siteId/assets/:assetId` | write | Tool | `replace_asset`, `update_asset` |
 | DELETE | `/api/sites/:siteId/assets/:assetId` | write | Tool | `delete_asset` |
 | POST | `/api/sites/:siteId/assets/:assetId/restore` | write | Tool | `restore_asset` |
@@ -115,7 +115,7 @@ Stand: 2026-11-05 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/sites/:siteId/entries` | write | Tool | `create_entry` |
 | GET | `/api/sites/:siteId/entries` | read | Tool | `list_entries` |
 | POST | `/api/sites/:siteId/entries/search` | read | Tool | `search_entries` |
-| GET | `/api/sites/:siteId/entries/resolve` | read | Tool | `list_entries` |
+| GET | `/api/sites/:siteId/entries/resolve` | read | Operator | UI/CLI |
 | POST | `/api/entries/tick` | write | Operator | UI/CLI |
 | GET | `/api/entries/:entryId` | read | Tool | `get_entry` |
 | GET | `/api/entries/:entryId/preview` | read | Operator | UI/CLI |
@@ -140,13 +140,13 @@ Stand: 2026-11-05 — generiert mit `pnpm route-matrix` aus `packages/engine/src
 | POST | `/api/notifications/tick` | write | Operator | UI/CLI |
 | GET | `/api/sites/:siteId/notifications` | read | Operator | UI/CLI |
 | POST | `/api/references` | write | Tool | `analyze_reference` |
-| GET | `/api/references/search` | read | Tool | `get_reference`, `get_reference_docs`, `list_references`, `search_references` |
-| GET | `/api/references/duplicates` | read | Tool | `find_duplicate_references`, `get_reference`, `get_reference_docs`, `list_references` |
+| GET | `/api/references/search` | read | Tool | `get_reference`, `get_reference_docs`, `search_references` |
+| GET | `/api/references/duplicates` | read | Tool | `find_duplicate_references`, `get_reference`, `get_reference_docs` |
 | GET | `/api/references` | read | Tool | `get_reference`, `get_reference_docs`, `list_references` |
 | POST | `/api/references/manual` | write | Tool | `create_manual_reference` |
 | POST | `/api/references/brief` | read | Tool | `get_reference_brief` |
 | POST | `/api/references/tick` | write | Tool | `reference_tick` |
-| GET | `/api/references/:referenceId` | read | Tool | `find_duplicate_references`, `get_reference`, `get_reference_docs`, `list_references`, `search_references` |
+| GET | `/api/references/:referenceId` | read | Tool | `find_duplicate_references`, `get_reference`, `get_reference_docs`, `search_references` |
 | PATCH | `/api/references/:referenceId` | write | Tool | `assign_reference_to_collection`, `update_reference`, `update_reference_doc` |
 | GET | `/api/pages/:pageId/redesign-package` | read | Tool | `plan_redesign` |
 | GET | `/api/references/:referenceId/design-system` | read | Tool | `import_design_system` |
