@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEditorSession, type SaveRequest } from "@senify/editor/state";
+import { createEditorSession, type ExternalHistoryResult, type SaveRequest } from "@senify/editor/state";
 import { baseStore, classRule } from "./fixtures.ts";
 
 function harness() {
@@ -365,5 +365,66 @@ describe("serverbestätigte externe History", () => {
       expect(await session.redoAsync()).toBe(true);
       expect(replacementCalls).toBe(1);
     } finally { release(); session.dispose(); }
+  });
+});
+
+describe("restoreTo stepwise jumps", () => {
+  it("führt gemischten Sprung über registrierten externen Schritt aus", async () => {
+    const { session } = harness();
+    const store = session.store;
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
+    const first = store.history.top()!;
+    const ext = store.beginExternalAction({ label: "Token umbenennen", versionBefore: store.version, versionAfter: store.version + 1 });
+    store.commitExternalAction(ext.id);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "B" });
+    await session.flush();
+    let calls = 0;
+    session.registerExternalHistory(ext.id, async (request) => {
+      calls += 1;
+      return { status: "committed", pageVersion: request.versions.pageVersion + 1, themeVersion: (request.versions.themeVersion ?? 0) + 1, registryVersion: request.versions.registryVersion };
+    });
+    expect(session.canRestoreToAsync(first.id)).toBe(true);
+    const ok = await session.restoreToAsync(first.id);
+    expect({ ok, calls, state: session.externalHistoryState().status, cursor: store.history.cursor(), first: first.id }).toMatchObject({ ok: true, calls: 1 });
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("A");
+  });
+
+  it("stoppt bei unknown und erlaubt Retry", async () => {
+    const { session } = harness();
+    const store = session.store;
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
+    const first = store.history.top()!;
+    const ext = store.beginExternalAction({ label: "Token umbenennen", versionBefore: store.version, versionAfter: store.version + 1 });
+    store.commitExternalAction(ext.id);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "B" });
+    await session.flush();
+    let mode = "unknown"; let calls = 0;
+    session.registerExternalHistory(ext.id, async (request) => {
+      calls += 1;
+      if (mode === "unknown") return { status: "unknown", message: "x" };
+      return { status: "committed", pageVersion: request.versions.pageVersion + 1, themeVersion: (request.versions.themeVersion ?? 0) + 1, registryVersion: request.versions.registryVersion };
+    });
+    const ok = await session.restoreToAsync(first.id);
+    expect({ ok, calls, state: session.externalHistoryState().status }).toMatchObject({ ok: false, calls: 1, state: "unresolved" });
+    mode = "ok";
+    expect(await session.retryPendingExternalAsync()).toBe(true);
+    expect(calls).toBe(2);
+    expect(store.history.cursor()).toBe(first.id);
+  });
+
+  it("führt mehrere externe Schritte aus und stoppt beim ersten unknown", async () => {
+    const { session } = harness();
+    const store = session.store;
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
+    const first = store.history.top()!;
+    const ext1 = store.beginExternalAction({ label: "Eins", versionBefore: store.version, versionAfter: store.version + 1 }); store.commitExternalAction(ext1.id);
+    const ext2 = store.beginExternalAction({ label: "Zwei", versionBefore: store.version, versionAfter: store.version + 1 }); store.commitExternalAction(ext2.id);
+    await session.flush();
+    const calls = [];
+    session.registerExternalHistory(ext1.id, async (request) => { calls.push("ext1:" + request.direction); return { status: "committed", pageVersion: request.versions.pageVersion + 1, themeVersion: (request.versions.themeVersion ?? 0) + 1, registryVersion: request.versions.registryVersion }; });
+    session.registerExternalHistory(ext2.id, async (request) => { calls.push("ext2:" + request.direction); return { status: "unknown", message: "x" }; });
+    expect(session.canRestoreToAsync(first.id)).toBe(true);
+    const ok = await session.restoreToAsync(first.id);
+    expect({ ok, calls, pending: session.pendingExternalId, ext2: ext2.id }).toMatchObject({ ok: false, calls: ["ext2:undo"], pending: ext2.id });
   });
 });

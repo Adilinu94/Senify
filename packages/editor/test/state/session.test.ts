@@ -202,3 +202,19 @@ describe("ui state persistence", () => {
     expect(loadUiState(storage, "page1")).toEqual(state);
   });
 });
+
+  it("restoreToAsync über Session führt einen lokalen Sprung aus", async () => {
+    const { session } = harness();
+    session.store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
+    const first = session.store.history.top()!;
+    session.store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "B" });
+    expect(await session.restoreToAsync(first.id)).toBe(true);
+    expect(session.store.document.nodes["head000001"]?.props["text"]).toBe("A");
+  });
+
+  it("restoreToAsync lehnt unbekannte Ziele ohne Seiteneffekt ab", async () => {
+    const { session } = harness();
+    session.store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
+    expect(await session.restoreToAsync("missing")).toBe(false);
+    expect(session.store.document.nodes["head000001"]?.props["text"]).toBe("A");
+  });

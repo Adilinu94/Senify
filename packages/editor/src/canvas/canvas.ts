@@ -426,7 +426,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
   // The history sheet (ticket 03 point 5): time + action per row, a click
   // jumps to that state through the ordinary undo/redo gate.
-  const historyDialog = createHistoryDialog({ doc, store });
+  const historyDialog = createHistoryDialog({ doc, store, ...(session === undefined ? {} : { session }) });
   const historyButton = create(doc, "button", "senify-canvas__button", {
     type: "button",
     "data-action": "history",

@@ -355,6 +355,18 @@ export class EditorStore {
   // The history dialog (ticket 03 point 5): jump to the state right after
   // `entryId`. Runs through the ordinary undo/redo gate, so document, cursor
   // and save pipeline stay in step — no second restore path.
+  canRestoreToAsync(entryId: string): boolean {
+    return this.#history.canRestoreToAsync(entryId);
+  }
+
+  // Async jumps over external steps must run through a session with registered
+  // runners; the synchronous store path stays local-only.
+  async restoreToAsync(entryId: string): Promise<boolean> {
+    if (!this.#history.canRestoreToAsync(entryId)) return false;
+    if (this.#history.canRestoreTo(entryId)) return this.restoreTo(entryId);
+    throw new SenifyError("conflict", "Ein Verlaufssprung mit serverseitigen Schritten benötigt eine Editor-Session", { field: "history" });
+  }
+
   restoreTo(entryId: string): boolean {
     const index = this.#history.entries().findIndex((entry) => entry.id === entryId);
     if (index < 0 || this.pendingExternalId !== null) return false;

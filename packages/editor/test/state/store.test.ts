@@ -55,6 +55,16 @@ describe("store write gate", () => {
     ).toThrow(/Refusing an inconsistent change/);
   });
 
+  it("führt restoreToAsync ohne Session bei rein lokalen Routen aus", async () => {
+    const store = baseStore();
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
+    const first = store.history.top()!;
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "B" });
+    await expect(store.restoreToAsync(first.id)).resolves.toBe(true);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("A");
+    expect(store.history.future()).toHaveLength(1);
+  });
+
   it("jumps to a history entry through the ordinary undo/redo gate", () => {
     const store = baseStore();
     store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });

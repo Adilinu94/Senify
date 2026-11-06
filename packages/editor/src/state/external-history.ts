@@ -87,10 +87,22 @@ export class ExternalHistoryController {
     return !entry.external || (this.#runners.has(entry.id) && this.#clean() && this.#pipeline.externalVersions().themeVersion !== null);
   }
 
+  // A jump is possible when a route exists and no navigation is in flight. Each
+  // external step is still validated at execution time (runner, clean save
+  // state, versions, confirmation); a missing runner or a dirty save state stops
+  // the jump at the last confirmed step instead of partially applying it.
+  canRestoreTo(entryId: string): boolean {
+    this.reconcile();
+    if (this.#disposed || this.#navigation !== null || this.#state.status === "running") return false;
+    const route = this.#store.history.routeTo(entryId);
+    if (route === null) return false;
+    return route.every((step) => !step.entry.external || (this.#runners.has(step.entry.id) && this.#clean() && this.#pipeline.externalVersions().themeVersion !== null));
+  }
+
   async navigate(direction: HistoryDirection): Promise<boolean> {
     if (!this.canNavigate(direction)) return false;
     const entry = this.#store.history.navigationEntry(direction)!;
-    if (!entry.external) {
+    if (!(entry as any).external) {
       this.#state = { status: "idle" };
       return direction === "undo" ? this.#store.undo() : this.#store.redo();
     }
@@ -101,6 +113,25 @@ export class ExternalHistoryController {
     const pending = this.#store.beginExternalNavigation(direction);
     this.#navigation = { pendingId: pending.id, entryId: entry.id, direction, versions, document, runner, uncertain: false };
     return this.#run(this.#navigation);
+  }
+
+  // Stepwise jump through the ordinary navigation gate. Local steps move the
+  // cursor through store patches; external steps run their registered runner and
+  // adopt the confirmed server state before the next step starts. Stops at the
+  // last confirmed step on rejection, unknown/incomplete confirmation, or a
+  // route that becomes inapplicable.
+  async restoreTo(entryId: string): Promise<boolean> {
+    this.reconcile();
+    if (this.#disposed || this.#navigation !== null || this.#state.status === "running") return false;
+    const route = this.#store.history.routeTo(entryId);
+    if (route === null || route.length === 0) return false;
+    let changed = false;
+    for (const step of route) {
+      const ok = await this.navigate(step.direction);
+      if (!ok) return false; // stopped at last confirmed step
+      changed = true;
+    }
+    return changed;
   }
 
   async retry(): Promise<boolean> {

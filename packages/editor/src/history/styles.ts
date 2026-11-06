@@ -98,6 +98,21 @@ export const HISTORY_STYLES = `
   color: var(--ed-signal-select);
   font-size: var(--ed-text-11);
 }
+.senify-history__status:empty { display: none; }
+.senify-history__status {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ed-line-hairline);
+  color: var(--ed-ink-muted);
+  font-size: var(--ed-text-12);
+}
+.senify-history__status[data-status="unresolved"],
+.senify-history__status[data-status="rejected"] { color: var(--ed-signal-warning, #b45309); }
+.senify-history__row[data-external="true"] .senify-history__label::after {
+  content: " · Server";
+  color: var(--ed-ink-muted);
+  font-size: var(--ed-text-11);
+}
+.senify-history__row:disabled { opacity: 0.55; cursor: default; }
 .senify-history__empty {
   padding: 16px 8px;
   color: var(--ed-ink-muted);

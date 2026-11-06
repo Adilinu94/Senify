@@ -351,6 +351,48 @@ describe("restore as draft", () => {
   });
 });
 
+describe("routeTo and async restore planning", () => {
+  it("liefert eine lokale Route in Ausführungsreihenfolge und kennt den aktuellen Stand nicht als Sprung", () => {
+    const history = new HistoryStack();
+    const steps = recordRealSteps(history, [
+      [{ op: "updateNodeProps", id: "hero000001", patch: { headline: "A" } }],
+      [{ op: "deleteNode", id: "pricing00001" }],
+      [{ op: "updateNodeProps", id: "hero000001", patch: { headline: "C" } }],
+    ]);
+    const first = steps[0]!.entryId;
+    expect(history.routeTo(first)?.map((s) => [s.direction, s.entry.id])).toEqual([
+      ["undo", steps[2]!.entryId],
+      ["undo", steps[1]!.entryId],
+    ]);
+    expect(history.canRestoreTo(first)).toBe(true);
+    expect(history.canRestoreToAsync(first)).toBe(true);
+    history.undo();
+    expect(history.routeTo(steps[2]!.entryId)).toEqual([{ direction: "redo", entry: expect.objectContaining({ id: steps[2]!.entryId }) }]);
+    expect(history.routeTo(steps[1]!.entryId)).toBeNull();
+  });
+
+  it("plant eine Route über bestätigte externe Schritte, erlaubt aber keinen rein lokalen Sprung", () => {
+    const history = new HistoryStack();
+    const first = recordRealSteps(history, [[{ op: "updateNodeProps", id: "hero000001", patch: { headline: "A" } }]])[0]!.entryId;
+    const external = history.beginExternal({ label: "Variable umbenennen", versionBefore: 1, versionAfter: 2 });
+    history.commitExternal(external.id);
+    recordRealSteps(history, [[{ op: "updateNodeProps", id: "hero000001", patch: { headline: "C" } }]]);
+    const route = history.routeTo(first);
+    expect(route?.map((s) => [s.direction, s.entry.external === true])).toEqual([["undo", false], ["undo", true]]);
+    expect(history.canRestoreTo(first)).toBe(false);
+    expect(history.canRestoreToAsync(first)).toBe(true);
+    expect(history.routeTo("missing")).toBeNull();
+  });
+
+  it("gibt während eines laufenden externen Vorgangs keine Route frei", () => {
+    const history = new HistoryStack();
+    const first = recordRealSteps(history, [[{ op: "updateNodeProps", id: "hero000001", patch: { headline: "A" } }]])[0]!.entryId;
+    history.beginExternal({ label: "Läuft", versionBefore: 1, versionAfter: 2 });
+    expect(history.routeTo(first)).toBeNull();
+    expect(history.canRestoreToAsync(first)).toBe(false);
+  });
+});
+
 describe("rename token references in retained history", () => {
   it("rewrites structured references in forward and undo patches", () => {
     const history = new HistoryStack();

@@ -149,8 +149,10 @@ export class EditorSession {
 
   get canUndoAsync(): boolean { return this.#externalHistory.canNavigate("undo"); }
   get canRedoAsync(): boolean { return this.#externalHistory.canNavigate("redo"); }
+  canRestoreToAsync(entryId: string): boolean { return this.#externalHistory.canRestoreTo(entryId); }
   undoAsync(): Promise<boolean> { return this.#externalHistory.navigate("undo"); }
   redoAsync(): Promise<boolean> { return this.#externalHistory.navigate("redo"); }
+  restoreToAsync(entryId: string): Promise<boolean> { return this.#externalHistory.restoreTo(entryId); }
   registerExternalHistory(entryId: string, runner: ExternalHistoryRunner): void { this.#externalHistory.register(entryId, runner); }
   retryExternalHistory(): Promise<boolean> { return this.#externalHistory.retry(); }
   externalHistoryState(): ExternalHistoryState { return this.#externalHistory.state(); }
