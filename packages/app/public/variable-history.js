@@ -4,7 +4,9 @@ const sorted = (value) => Array.isArray(value) ? value.map(sorted) : value && ty
   ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, sorted(item)])) : value;
 const equal = (left, right) => JSON.stringify(sorted(left)) === JSON.stringify(sorted(right));
 const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-const validReceipt = (receipt) => record(receipt) && ["delete", "restore", "rename"].includes(receipt.kind) && ["color", "spacing"].includes(receipt.group) &&
+const VARIABLE_GROUPS = ["color", "spacing", "radius", "shadow"];
+const VARIABLE_CSS_PREFIX = { color: "color", spacing: "space", radius: "radius", shadow: "shadow" };
+const validReceipt = (receipt) => record(receipt) && ["delete", "restore", "rename"].includes(receipt.kind) && VARIABLE_GROUPS.includes(receipt.group) &&
   typeof receipt.name === "string" && /^[a-z][a-z0-9-]*$/.test(receipt.name) && !["constructor", "prototype"].includes(receipt.name) &&
   (receipt.kind !== "rename" || (typeof receipt.newName === "string" && /^[a-z][a-z0-9-]*$/.test(receipt.newName) && !["constructor", "prototype"].includes(receipt.newName))) &&
   typeof receipt.receiptId === "string" && /^[a-zA-Z0-9_-]+$/.test(receipt.receiptId) && typeof receipt.entryId === "string";
@@ -16,8 +18,8 @@ const actionFor = (receipt, direction) => receipt.kind === "rename" ? "rename" :
 const renameDocumentReferences = (document, group, fromName, toName) => {
   const fromRef = `${group}.${fromName}`;
   const toRef = `${group}.${toName}`;
-  const fromCss = `--${group === "color" ? "color" : "space"}-${fromName}`;
-  const toCss = `--${group === "color" ? "color" : "space"}-${toName}`;
+  const fromCss = `--${VARIABLE_CSS_PREFIX[group]}-${fromName}`;
+  const toCss = `--${VARIABLE_CSS_PREFIX[group]}-${toName}`;
   const cssReference = new RegExp(`([vV][aA][rR]\\(\\s*)${fromCss}(?=\\s|,|\\))`, "g");
   const visit = (value) => {
     if (typeof value === "string") return value.replace(cssReference, `$1${toCss}`);
@@ -332,7 +334,7 @@ export function createVariableHistory({ session, api, storage, editor, getTheme,
   };
   const savedPending = read(pendingKey);
   const legacyPending = record(savedPending) && savedPending.format !== 2 && ["rename", "delete", "restore"].includes(savedPending.action) &&
-    ["color", "spacing"].includes(savedPending.group) && typeof savedPending.name === "string" && typeof savedPending.body?.receiptId === "string" &&
+    VARIABLE_GROUPS.includes(savedPending.group) && typeof savedPending.name === "string" && typeof savedPending.body?.receiptId === "string" &&
     (savedPending.action !== "rename" || typeof savedPending.body?.newName === "string") && Number.isInteger(savedPending.body?.baseThemeVersion) &&
     savedPending.body?.pageContext?.pageId === pageId && Number.isInteger(savedPending.body.pageContext.baseDraftVersion);
   if (savedPending !== null && (!legacyPending || savedPending.action !== "rename")) {

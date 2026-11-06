@@ -6245,14 +6245,28 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   // Global tokens share the same versioned theme across every page.
   // The editor sends only the changed token, so other families stay intact.
   const variableDrafts = new Map();
-  const variableCreateDrafts = { color: { name: "", value: "" }, spacing: { name: "", value: "" } };
+  const VARIABLE_GROUPS = ["color", "spacing", "radius", "shadow"];
+  const VARIABLE_LABELS = { color: "Farbe", spacing: "Abstand", radius: "Radius", shadow: "Schatten" };
+  const VARIABLE_CREATE_COPY = {
+    color: { heading: "Farben", name: "Name der neuen Farbe", value: "Wert der neuen Farbe", add: "Farbe hinzufügen", exists: "Diese Farbe existiert bereits.", placeholder: "#000000" },
+    spacing: { heading: "Abstände", name: "Name des neuen Abstands", value: "Wert des neuen Abstands", add: "Abstand hinzufügen", exists: "Dieser Abstand existiert bereits.", placeholder: "16px" },
+    radius: { heading: "Radien", name: "Name des neuen Radius", value: "Wert des neuen Radius", add: "Radius hinzufügen", exists: "Dieser Radius existiert bereits.", placeholder: "8px" },
+    shadow: { heading: "Schatten", name: "Name des neuen Schattens", value: "Wert des neuen Schattens", add: "Schatten hinzufügen", exists: "Dieser Schatten existiert bereits.", placeholder: "0 1px 2px #00000033" },
+  };
+  const variableLabel = (group) => VARIABLE_LABELS[group] ?? group;
+  const variableCreateDrafts = {
+    color: { name: "", value: "" },
+    spacing: { name: "", value: "" },
+    radius: { name: "", value: "" },
+    shadow: { name: "", value: "" },
+  };
   let variableQuery = "";
   let variableSaving = false;
   let lastVariableDeletion = null;
   const variableHistoryKey = `senify:variable-history:${siteId}:${pageId}`;
   try {
     const saved = JSON.parse(window.sessionStorage.getItem(variableHistoryKey) ?? "null");
-    if (saved && ["color", "spacing"].includes(saved.group) && typeof saved.receiptId === "string") {
+    if (saved && VARIABLE_GROUPS.includes(saved.group) && typeof saved.receiptId === "string") {
       if (saved.kind === "delete" && typeof saved.name === "string" && typeof saved.restored === "boolean") {
         lastVariableDeletion = { group: saved.group, name: saved.name, receiptId: saved.receiptId, restored: saved.restored };
       }
@@ -6268,7 +6282,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
   let pendingVariableOperation = null;
   try {
     const saved = JSON.parse(window.sessionStorage.getItem(pendingVariableKey) ?? "null");
-    if (saved && saved.format !== 2 && saved.action === "rename" && ["color", "spacing"].includes(saved.group) &&
+    if (saved && saved.format !== 2 && saved.action === "rename" && VARIABLE_GROUPS.includes(saved.group) &&
         typeof saved.name === "string" && typeof saved.body?.receiptId === "string" &&
         (saved.action !== "rename" || typeof saved.body?.newName === "string") &&
         Number.isInteger(saved.body?.baseThemeVersion) && saved.body?.pageContext?.pageId === pageId &&
@@ -6309,8 +6323,11 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       variablesHost.append(el("p", { role: "alert", text: "Die Variablen konnten nicht geladen werden. Bitte lade den Editor erneut." }));
       return;
     }
-    const colors = siteTheme.tokens?.primitive?.color ?? {};
-    const spacings = siteTheme.tokens?.primitive?.spacing ?? {};
+    const variableBag = (group) => {
+      const bag = siteTheme.tokens?.primitive?.[group];
+      return bag && typeof bag === "object" && !Array.isArray(bag) ? bag : {};
+    };
+    const colors = variableBag("color");
     const variableRows = [];
     const search = el("input", { type: "search", class: "canvas-view__variables-search", value: variableQuery, placeholder: "Variablen suchen", "aria-label": "Variablen suchen" });
     const noMatches = el("p", { class: "canvas-view__variables-help", "aria-live": "polite" });
@@ -6335,13 +6352,13 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       const dot = key.indexOf(".");
       const group = key.slice(0, dot);
       const name = key.slice(dot + 1);
-      return !Object.hasOwn(group === "color" ? colors : spacings, name);
+      return !Object.hasOwn(variableBag(group), name);
     });
     if (missingDrafts.length > 0) {
       const drafts = el("div", { class: "canvas-view__variable-delete" }, el("p", { text: "Nicht gespeicherte Werte für nicht mehr vorhandene Variablen:" }));
       for (const [key, value] of missingDrafts) {
         const dot = key.indexOf(".");
-        const label = `${key.slice(0, dot) === "color" ? "Farbe" : "Abstand"} ${key.slice(dot + 1)}`;
+        const label = `${variableLabel(key.slice(0, dot))} ${key.slice(dot + 1)}`;
         const input = el("input", { type: "text", value, "aria-label": `Nicht gespeicherter Wert für ${label}` });
         const remove = el("button", { type: "button", text: "Entwurf entfernen", "aria-label": `Entwurf für ${label} entfernen` });
         input.addEventListener("input", () => variableDrafts.set(key, input.value));
@@ -6366,19 +6383,26 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
         reload.disabled = false;
       }
     });
+    const variableValueProblem = (group, value) => {
+      if (group === "spacing" && !window.CSS.supports("padding", value)) return "Bitte einen gültigen Abstand eingeben, zum Beispiel 16px oder 1rem.";
+      if (group === "radius" && !window.CSS.supports("border-radius", value)) return "Bitte einen gültigen Radius eingeben, zum Beispiel 8px oder 1rem.";
+      if (group === "shadow" && !window.CSS.supports("box-shadow", value)) return "Bitte einen gültigen Schatten eingeben, zum Beispiel 0 1px 2px #00000033.";
+      return null;
+    };
     const saveVariable = async (group, name, value, button) => {
       if (variableSaving) return;
       if (pendingVariableOperation || variableHistory.pending()) { status.textContent = "Bitte zuerst den ausstehenden Variablenvorgang prüfen."; return; }
       if (session.saveState().unsupported.length > 0) { status.textContent = "Bitte zuerst nicht speicherbare Editoränderungen klären."; return; }
-      if (group === "spacing" && !window.CSS.supports("padding", value)) {
-        status.textContent = "Bitte einen gültigen Abstand eingeben, zum Beispiel 16px oder 1rem.";
+      const problem = variableValueProblem(group, value);
+      if (problem) {
+        status.textContent = problem;
         return;
       }
       variableSaving = true;
       for (const item of variablesHost.querySelectorAll("button")) item.disabled = true;
       status.textContent = "Wird gespeichert …";
       try {
-        const isNew = !Object.hasOwn(group === "color" ? colors : spacings, name);
+        const isNew = !Object.hasOwn(variableBag(group), name);
         const updated = await api(`/api/sites/${siteId}/theme`, {
           method: "PUT",
           body: { baseVersion: siteThemeVersion, theme: { tokens: { primitive: { [group]: { [name]: value } } } }, author: AUTHOR },
@@ -6688,7 +6712,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       variablesHost.append(undo);
     }
     const appendUsage = (row, group, name) => {
-      const label = group === "color" ? "Farbe" : "Abstand";
+      const label = variableLabel(group);
       const button = el("button", { type: "button", text: "Verwendung", "aria-label": `Verwendung von ${label} ${name} anzeigen` });
       const result = el("div", { class: "canvas-view__variable-usage", "aria-live": "polite" });
       button.addEventListener("click", async () => {
@@ -6716,7 +6740,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       row.append(button, result);
     };
     const appendRename = (row, group, name) => {
-      const label = group === "color" ? "Farbe" : "Abstand";
+      const label = variableLabel(group);
       const button = el("button", { type: "button", text: "Umbenennen …", "aria-label": `${label} ${name} umbenennen` });
       const input = el("input", { type: "text", value: name, "aria-label": `Neuer Name für ${label} ${name}` });
       const confirm = el("button", { type: "button", text: "Umbenennen bestätigen", "aria-label": `${label} ${name} umbenennen bestätigen` });
@@ -6740,7 +6764,7 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
     };
     const appendDelete = (row, group, name) => {
       const panelKey = `${group}.${name}`;
-      const label = group === "color" ? "Farbe" : "Abstand";
+      const label = variableLabel(group);
       const button = el("button", { type: "button", text: "Löschen …", "aria-label": `${label} ${name} löschen` });
       const confirm = el("button", { type: "button", text: "Variable löschen", "aria-label": `${label} ${name} löschen bestätigen` });
       const cancel = el("button", { type: "button", text: "Abbrechen", "aria-label": `Löschen von ${label} ${name} abbrechen` });
@@ -6788,33 +6812,42 @@ async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pa
       if (Object.hasOwn(colors, key)) { status.textContent = "Diese Farbe existiert bereits."; return; }
       void saveVariable("color", key, value.value.trim(), add);
     });
-    const spacingList = el("div", { class: "canvas-view__variable-list" });
-    for (const [key, stored] of Object.entries(spacings)) {
-      if (typeof stored !== "string") continue;
-      const input = el("input", { type: "text", value: variableDrafts.get(`spacing.${key}`) ?? stored, "aria-label": `Abstand ${key}` });
-      input.addEventListener("input", () => variableDrafts.set(`spacing.${key}`, input.value));
-      const save = el("button", { type: "button", text: "Speichern", "aria-label": `Abstand ${key} speichern` });
-      save.addEventListener("click", () => void saveVariable("spacing", key, input.value.trim(), save));
-      input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); save.click(); } });
-      const row = el("div", { class: "canvas-view__variable-row canvas-view__variable-row--spacing" }, el("label", { text: key }), input, save);
-      appendUsage(row, "spacing", key);
-      appendRename(row, "spacing", key);
-      appendDelete(row, "spacing", key);
-      variableRows.push({ name: key, element: row });
-      spacingList.append(row);
-    }
-    const spacingName = el("input", { type: "text", value: variableCreateDrafts.spacing.name, placeholder: "Name", "aria-label": "Name des neuen Abstands" });
-    const spacingValue = el("input", { type: "text", value: variableCreateDrafts.spacing.value, placeholder: "16px", "aria-label": "Wert des neuen Abstands" });
-    spacingName.addEventListener("input", () => { variableCreateDrafts.spacing.name = spacingName.value; });
-    spacingValue.addEventListener("input", () => { variableCreateDrafts.spacing.value = spacingValue.value; });
-    const addSpacing = el("button", { type: "button", text: "Abstand hinzufügen" });
-    addSpacing.addEventListener("click", () => {
-      const key = spacingName.value.trim();
-      if (!/^[a-z][a-z0-9-]*$/.test(key)) { status.textContent = "Bitte einen Namen mit Kleinbuchstaben, Zahlen und Bindestrichen eingeben."; return; }
-      if (Object.hasOwn(spacings, key)) { status.textContent = "Dieser Abstand existiert bereits."; return; }
-      void saveVariable("spacing", key, spacingValue.value.trim(), addSpacing);
-    });
-    variablesHost.append(el("h3", { text: "Farben" }), list, el("div", { class: "canvas-view__variable-create" }, name, value, add), el("h3", { text: "Abstände" }), spacingList, el("div", { class: "canvas-view__variable-create" }, spacingName, spacingValue, addSpacing));
+    const appendPrimitiveGroup = (group) => {
+      const bag = variableBag(group);
+      const label = variableLabel(group);
+      const copy = VARIABLE_CREATE_COPY[group];
+      const groupList = el("div", { class: "canvas-view__variable-list" });
+      for (const [key, stored] of Object.entries(bag)) {
+        if (typeof stored !== "string") continue;
+        const input = el("input", { type: "text", value: variableDrafts.get(`${group}.${key}`) ?? stored, "aria-label": `${label} ${key}` });
+        input.addEventListener("input", () => variableDrafts.set(`${group}.${key}`, input.value));
+        const save = el("button", { type: "button", text: "Speichern", "aria-label": `${label} ${key} speichern` });
+        save.addEventListener("click", () => void saveVariable(group, key, input.value.trim(), save));
+        input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); save.click(); } });
+        const row = el("div", { class: "canvas-view__variable-row canvas-view__variable-row--spacing" }, el("label", { text: key }), input, save);
+        appendUsage(row, group, key);
+        appendRename(row, group, key);
+        appendDelete(row, group, key);
+        variableRows.push({ name: key, element: row });
+        groupList.append(row);
+      }
+      const groupName = el("input", { type: "text", value: variableCreateDrafts[group].name, placeholder: "Name", "aria-label": copy.name });
+      const groupValue = el("input", { type: "text", value: variableCreateDrafts[group].value, placeholder: copy.placeholder, "aria-label": copy.value });
+      groupName.addEventListener("input", () => { variableCreateDrafts[group].name = groupName.value; });
+      groupValue.addEventListener("input", () => { variableCreateDrafts[group].value = groupValue.value; });
+      const groupAdd = el("button", { type: "button", text: copy.add });
+      groupAdd.addEventListener("click", () => {
+        const key = groupName.value.trim();
+        if (!/^[a-z][a-z0-9-]*$/.test(key)) { status.textContent = "Bitte einen Namen mit Kleinbuchstaben, Zahlen und Bindestrichen eingeben."; return; }
+        if (Object.hasOwn(variableBag(group), key)) { status.textContent = copy.exists; return; }
+        void saveVariable(group, key, groupValue.value.trim(), groupAdd);
+      });
+      variablesHost.append(el("h3", { text: copy.heading }), groupList, el("div", { class: "canvas-view__variable-create" }, groupName, groupValue, groupAdd));
+    };
+    variablesHost.append(el("h3", { text: "Farben" }), list, el("div", { class: "canvas-view__variable-create" }, name, value, add));
+    appendPrimitiveGroup("spacing");
+    appendPrimitiveGroup("radius");
+    appendPrimitiveGroup("shadow");
     filterVariables();
     if (variableHistory.state().status === "running") for (const button of variablesHost.querySelectorAll("button")) button.disabled = true;
   }

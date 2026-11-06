@@ -29,4 +29,27 @@ describe("variable references", () => {
     expect(referencePaths(["VAR(--space-luft)", "var(--space-LUFT)", "var(--space-luftig)"], ref, cssVariable)).toEqual(["[0]"]);
     expect(renameVariableReferences("VAR(--space-luft, var(--space-luftig))", "spacing", "luft", "weit")).toBe("VAR(--space-weit, var(--space-luftig))");
   });
+
+  it("kennt Radius- und Schattenvariablen mit ihren CSS-Namen", () => {
+    expect(variableReference("radius", "karte")).toEqual({
+      group: "radius",
+      ref: "radius.karte",
+      cssVariable: "--radius-karte",
+    });
+    expect(variableReference("shadow", "laut")).toEqual({
+      group: "shadow",
+      ref: "shadow.laut",
+      cssVariable: "--shadow-laut",
+    });
+    const value = { card: { $token: "radius.karte" }, box: "0 1px 2px var(--shadow-laut)" };
+    const radius = variableReference("radius", "karte");
+    const shadow = variableReference("shadow", "laut");
+    expect(referencePaths(value, radius.ref, radius.cssVariable)).toEqual(["card.$token"]);
+    expect(referencePaths(value, shadow.ref, shadow.cssVariable)).toEqual(["box"]);
+    expect(renameVariableReferences(value, "shadow", "laut", "leise")).toEqual({
+      card: { $token: "radius.karte" },
+      box: "0 1px 2px var(--shadow-leise)",
+    });
+    expect(() => variableReference("fonts", "x")).toThrow(/Ungültige Variable/);
+  });
 });

@@ -711,6 +711,19 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("textbox", { name: "Abstand luft", exact: true }).waitFor();
       await tab.getByRole("button", { name: "Verwendung von Abstand luft anzeigen" }).click();
       await tab.getByText("Gespeicherte direkte Verweise: 1 Element auf 1 Seite", { exact: false }).last().waitFor();
+      await tab.getByRole("textbox", { name: "Name des neuen Radius" }).fill("karte");
+      await tab.getByRole("textbox", { name: "Wert des neuen Radius" }).fill("8px");
+      await tab.getByRole("button", { name: "Radius hinzufügen" }).click();
+      await tab.getByRole("textbox", { name: "Radius karte", exact: true }).waitFor();
+      await tab.getByRole("textbox", { name: "Name des neuen Schattens" }).fill("laut");
+      await tab.getByRole("textbox", { name: "Wert des neuen Schattens" }).fill("0 1px 2px #00000033");
+      await tab.getByRole("button", { name: "Schatten hinzufügen" }).click();
+      await tab.getByRole("textbox", { name: "Schatten laut", exact: true }).waitFor();
+      const extended = await (await fetch(`${running.dashboardUrl}/api/sites/${site.id}/theme`)).json() as {
+        theme: { tokens: { primitive: { radius: Record<string, string>; shadow: Record<string, string> } } };
+      };
+      expect(extended.theme.tokens.primitive.radius.karte).toBe("8px");
+      expect(extended.theme.tokens.primitive.shadow.laut).toBe("0 1px 2px #00000033");
       await search.fill("LUFT");
       expect(await tab.locator('input[aria-label="Farbe accent"]').isVisible()).toBe(false);
       expect(await tab.getByRole("textbox", { name: "Abstand luft", exact: true }).isVisible()).toBe(true);
@@ -750,6 +763,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       });
       expect(padding).toBe("24px");
       expect(await tab.getByRole("textbox", { name: "Farbe marke", exact: true }).inputValue()).toBe("#abcdef");
+      expect(await tab.getByRole("textbox", { name: "Radius karte", exact: true }).inputValue()).toBe("8px");
+      expect(await tab.getByRole("textbox", { name: "Schatten laut", exact: true }).inputValue()).toBe("0 1px 2px #00000033");
       const icon = tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="icon000001"]');
       await icon.click();
       await tab.locator('.senify-inspector__tab[data-tab="content"]').click();

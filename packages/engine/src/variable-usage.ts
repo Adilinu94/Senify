@@ -1,14 +1,21 @@
 import { SenifyError } from "@senify/core";
 import type { Store } from "./store.ts";
 
-type VariableFamily = "color" | "spacing";
+type VariableFamily = "color" | "spacing" | "radius" | "shadow";
+
+const VARIABLE_CSS_PREFIX: Record<VariableFamily, string> = {
+  color: "color",
+  spacing: "space",
+  radius: "radius",
+  shadow: "shadow",
+};
 
 export function variableReference(family: string, name: string): { group: VariableFamily; ref: string; cssVariable: string } {
-  if ((family !== "color" && family !== "spacing") || !/^[a-z][a-z0-9-]*$/.test(name)) {
+  if (!Object.hasOwn(VARIABLE_CSS_PREFIX, family) || !/^[a-z][a-z0-9-]*$/.test(name)) {
     throw new SenifyError("validation", "Ungültige Variable", { field: "variable" });
   }
   const group = family as VariableFamily;
-  return { group, ref: `${group}.${name}`, cssVariable: `--${group === "color" ? "color" : "space"}-${name}` };
+  return { group, ref: `${group}.${name}`, cssVariable: `--${VARIABLE_CSS_PREFIX[group]}-${name}` };
 }
 
 // These are direct, recognizable references in saved data, not a dependency
