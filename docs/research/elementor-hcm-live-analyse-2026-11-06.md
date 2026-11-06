@@ -133,30 +133,43 @@ Die Site ist eine echte lokale Tännig-Apotheke-Installation mit realen Seiten, 
 - Die bisherige Core-Referenz und die übrigen Elementor-Belege: `docs/research/elementor-v4-acceptance-2026-11-06.md` und `docs/research/elementor-captures-2026-11-06/`.
 - Arbeitsstand und Messwerte: `docs/current/stand.md`, `docs/current/qualitaet.md`, `docs/fahrplan.md`.
 
-## 9. Vertiefte Live-Daten (Nachtrag 06.11.2026)
+## 9. Vertiefte Live-Daten (Nachtrag 06.11.2026, DB/HTTP/HTML verifiziert)
+
+Verifiziert über die laufende LocalWP-Instanz (`http://hcm.local`, MySQL 8.0.35 auf 127.0.0.1:10167, Site-Run `VJ8E8xMcT`). Zugriff nur lesend; keine Site-Änderungen.
 
 ### Seiteninhalte
-- **home 824:** 81 Elemente, 41 Container, 40 Widgets; 18 Überschriften, 7 Text-Editor, 5 Icon-List, 4 Icon-Box, 2 Button, je 1 ElementsKit-Business-Hours, Shortcode, Qi-Bildergalerie und OriginKit-Button-Karussell; 1839 Tablet- und 1916 Mobile-Overrides; zwei Formularbezüge.
-- **Leistungen 1009:** 96 Elemente, 49 Container, 47 Widgets; 13 Überschriften, 18 Text-Editor, 10 Icon-List, 4 Icon-Box, je 1 Animated Headline und Button; 828 Tablet- und 894 Mobile-Overrides.
-- **Header 789:** 8 Elemente, 5 Container, 3 Widgets (Bild, Navigation, Button); 137 Tablet- und 130 Mobile-Overrides.
-- **Footer 860:** 39 KB; der JSON-Export ließ sich nicht parsen (Exportproblem, nicht zwingend ein Originalfehler). Der Footer muss erneut exportiert und geparst werden.
-- **WPGHR Testlab 1032:** 183 Elemente, 72 Container, 111 Widgets; 96 Überschriften, 8 Bilder und je ein WPGHR-Marquee/Split-Hero/Stacking-Cards/Odometer/Flip-Gallery/Scroll-Sequence; keine Tablet-/Mobile-Overrides.
-- **WPGHR Atomic Testlab 1200:** genau ein atomares `e-heading` in 311 Bytes.
-- Die echten Seiten verwenden **klassische Widgets und Plugin-Widgets**, kein `__dynamic__`, keine `globals/colors`, keine `e-gv`-, Klassen- oder `custom_css`-Referenzen in den Seitendaten.
-- Die sechs globalen Klassen und drei Variablen sind in den echten Seitendaten **nicht verwendet**; die `using_documents`-Metadaten der Klassen sind leer. Der Design-System-Bestand ist damit ein Atomic-/WPGHR-Testbestand, kein produktiver Bestand.
-- Die Kit-Globalfarben und die Kit-Typografie sind vorhanden, werden in den Seiten aber nicht über `globals`-Referenzen genutzt; die Seiten arbeiten mit lokalen Stilen.
+- **home 824:** 81 Elemente, 41 Container, 40 Widgets; 18 Überschriften, 7 Text-Editor, 5 Icon-List, 4 Icon-Box, 2 Button, je 1 ElementsKit-Business-Hours, Shortcode, Qi-Bildergalerie und OriginKit-Button-Karussell; viele Tablet-/Mobile-Overrides; zwei Formularbezüge.
+- **Leistungen 1009:** 96 Elemente, 49 Container, 47 Widgets; 13 Überschriften, 18 Text-Editor, 10 Icon-List, 4 Icon-Box, je 1 Animated Headline und Button; viele Tablet-/Mobile-Overrides.
+- **Header 789 (Theme Builder, global):** 8 Elemente; Widgets Bild, Navigation, Button. 6 Global-Refs, 1 `css_classes`-Feld, 137 Tablet-/130 Mobile-Setting-Schlüssel. Bedingungen: `include/general`.
+- **Footer 860 (Theme Builder, global):** `_elementor_data` erneut sauber exportiert und geparst (vorheriger Parsefehler war ein Exportartefakt). 32 Elemente; Widgets 5× Überschrift, 4× Icon-List, 3× MetForm, 2× Text-Editor, je 1 Animated Headline, Nested-Tabs, Bild, Social Icons. 20 Global-Refs, 1 dynamische Bindung, 2 `css_classes`-Felder, 120 Tablet-/150 Mobile-Setting-Schlüssel. Bedingungen: `include/general`. Enthält klassische `css_classes` wie `sticky-parent`/`ch-label` (keine Atomic-Global-Class-IDs).
+- **WPGHR Testlab 1032:** 183 Elemente, 72 Container, 111 Widgets; pluginlastig (WPGHR/GSAP-Widgets), keine Tablet-/Mobile-Overrides.
+- **WPGHR Atomic Testlab 1200:** genau ein atomares `e-heading` (311 Bytes) — einziger klar atomarer Seitentestbestand.
+- Die echten produktiven Seiten verwenden **klassische Widgets und Plugin-Widgets**. In veröffentlichten `_elementor_data`-Datensätzen fanden sich keine `e-gv-`/`global-color-variable`-Referenzen; `css_classes`/Global-Class-Muster tauchen in veröffentlichten Library-/Template-Seiten auf (Header/Footer/Container-Templates, Startseite/Leistungen je nach Abfragepfad), nicht als produktive Nutzung der sechs Atomic-Global-Klassen.
+- Die sechs globalen Atomic-Klassen und drei Variablen sind als Design-System-Bestand vorhanden, aber in den echten produktiven Inhalten nicht belegt genutzt; `using_documents` der Klassen ist leer. Der Bestand wirkt wie ein Atomic-/WPGHR-Testbestand, nicht wie produktiv eingesetztes Design System.
+- Die Kit-Globalfarben/-typografie sind vorhanden. Der Footer nutzt Global-Refs; andere geprüfte Bereiche arbeiten stärker lokal. Kit-Globals, Atomic-Variablen und lokale Elementstile sind getrennte Schichten.
 
 ### Klassendaten
-- Sechs `e_global_class`-Beiträge (IDs 306 bis 311) mit `_elementor_global_class_data`: Typ `class`, Varianten für Desktop/Tablet/Mobile und Zustände `hover`/`focus`, Props für Schriftfamilie, Schriftgröße, Farbe, Margin, Padding, Border-Radius und Hintergrund, dazu `custom_css` und eine stabile `g-...`-ID.
-- Die Klassen 306 und 307 referenzieren die Variablen `e-gv-279f32e` und `e-gv-bba5997`; die Live-Variablen heißen `accent`, `ueberschrift` und `hell`.
-- Eine eigene Tabelle für globale Klassen oder Variablen existiert nicht. Die Klassen liegen als `e_global_class`-Posttyp vor, die Klassen-Datenbankversion ist 4.
-- Die exakte Ablage der drei Variablen war in den offensichtlichen Optionen und Tabellen nicht auffindbar. Das Anlegen einer Testvariable und der Vergleich der Datenbank vor und nach dem Speichern soll diese Lücke schließen.
+- Sechs `e_global_class`-Beiträge (306–311) mit `_elementor_global_class_data` (serialisiert): Typ `class`, Varianten für Breakpoints/Zustände (`hover`/`focus`/`active` je nach Klasse), Props (Schriftfamilie/-größe, Farbe, Margin/Padding, Border-Radius, Hintergrund/Flex), teils `custom_css`, stabile `g-...`-IDs.
+- Klassen 306/307 referenzieren Atomic-Variablen `e-gv-279f32e` (`accent`, #103F92) und `e-gv-bba5997` (`ueberschrift`, #2a2a2a); `e-gv-96c9277` ist `hell` (#DEE3ED). Live-Variablen liegen im Kit 6 unter `_elementor_global_variables` (JSON mit `data`/`watermark`/`version`).
+- Kit 6 enthält zusätzlich das zentrale Registry-Abbild: `_elementor_global_classes` (items/order), `_elementor_global_classes_post_ids`, `_elementor_global_classes_order`, `_elementor_global_classes_labels` und Preview-/Sync-Meta. Klassen werden also sowohl als `e_global_class`-Posts als auch im Kit gespiegelt; Senify-Import/Export muss beide Quellen konsistent behandeln.
+- Keine eigene DB-Tabelle für Klassen/Variablen; Speicherung über `e_global_class`-Posttyp + Postmeta + Kit-Meta.
+
+### Theme Builder und Woo
+- Aktives Kit: 6. Theme-Builder-Bedingungen (Pro/`elementor_pro_theme_builder_conditions`): Header 789 und Footer 860 je `include/general`.
+- `elementor_library`-Typen: Kit, Header, Footer, Container, Page/Section-Templates. Keine veröffentlichten Popup/Single/Archive/Loop-Item/Produkt-Archiv/404/Suchergebnis/Landing-Page-Templates gefunden.
+- WooCommerce-Seiten: Shop 318, Warenkorb 319, Kasse 320, Mein Konto 321; Währung EUR, Land `DE:DE-NI`. Testdaten (2 Produkte, 1 Bestellung) bleiben von echten Inhalten zu trennen.
+
+### Qualität, Sicherheit, DSGVO, SEO
+- **Sicherheit/Risiken:** `elementor_unfiltered_files_upload=1`, `elementor_beta=yes`, Elementor-Connect-Schlüssel vorhanden, 6 Anwendungspasswörter am Admin Adrian. Nur 1 Admin-User in DB (temporärer Abnahme-Admin entfernt). `blog_public=0`, `users_can_register=0`, `default_role=subscriber`.
+- **SEO:** Yoast-Optionen/Reste vorhanden (`wpseo*`), Yoast ist nicht in `active_plugins` aktiv. `blog_public=0` (Staging). Keine aktive Indexierungs-/Sitemap-Entscheidung belegt.
+- **DSGVO/Inhalte:** Kit-Typografie Rubik/Inter; Schriftquellen (lokal/CDN) vor Veröffentlichung prüfen. 3 MetForm-Formulare (Footer + Startseitenbezüge) mit Einwilligungstexten — rechtlich zu prüfen, keine Rechtsberatung. Woo-Testdaten vorhanden. Plugins mit KI-/Feedback-/Tracking-Bezug (Novamira, Nick Feedback, KI-Kennzeichnung) als eigene Prüf-/Transparenzfelder behandeln.
+- **Performance/Komplexität:** 19 aktive Plugins (Elementor 4.2.3, pro-elements 4.2.2, WooCommerce 11.2.1, MetForm 4.3.0, ElementsKit Lite 4.0.2, Header Footer Elementor 2.9.4, WPGHR 4.0.0, WebP Uploads 2.7.1, All-in-One WP Migration + Unlimited etc.). Große Elementor-Daten (Startseite/Leistungen) und responsive Overrides erhöhen Render-/Wartungslast.
+- **Backup/Export:** All-in-One WP Migration aktiv; für weitere Eingriffe vorher Backup empfohlen.
 
 ### Konsequenzen für die weitere Arbeit
-- Die Design-System-Oberfläche ist live exponiert, aber die produktiven Seiten nutzen sie nicht. Ein Klassen-/Variablentest braucht die Testseite 1331 oder eine ausdrücklich markierte Testsektion.
-- Die Senify-Parität muss drei Schichten trennen: Kit-Globalfarben/-typografie, Design-System-Variablen und lokale Element-Stile.
-- Der Footer 860 braucht einen erneuten Export und Parse. Danach ist die Theme-Builder-Abnahme vollständig.
-- Die echten Seiten sind stark pluginabhängig (ElementsKit, Qi, OriginKit, WPGHR/GSAP, MetForm). Diese Widgets sind eigene Migrations- und Paritätsfelder.
+- Footer-Parse ist geklärt; offene Theme-Builder-Lücke ist nicht der Export, sondern die Senify-Abbildung von Header/Footer-Bedingungen, dynamischen Bindungen, Nested-Tabs, MetForm und klassischen `css_classes`.
+- Produktiver Design-System-Einsatz ist nicht belegt. Ein stabiler UI-Test (Anlegen/Anwenden/Priorität/Umbenennen/Löschen über Atomic-Elemente, mit Neuladen und Frontend) bleibt offen und braucht einen kontrollierten Editorlauf auf einer Testseite/Sektion ohne Änderung der echten sechs Klassen/drei Variablen.
+- Senify-Parität muss getrennt abbilden: Kit-Globals, Atomic-Variablen (`_elementor_global_variables`), Atomic-Klassen (`e_global_class` + Kit-Registry), lokale Elementstile, Theme-Builder-Templates/Bedingungen, Plugin-Widgets und Form-/Shop-Daten.
 
 ## 10. Klassen-/Variablen-Testlauf und Aufräumen (06.11.2026)
 
@@ -199,24 +212,35 @@ Die Site ist eine echte lokale Tännig-Apotheke-Installation mit realen Seiten, 
 
 ## 12. Senify-Abbildung und Export
 
-- **Kit:** Globalfarben, Typografie, Breakpoints (768/1025), Bildradius 25, Seitentitel-Selektor und Body-Hintergrund lassen sich auf Senify-Theme-Tokens abbilden.
-- **Design System:** Sechs globale Klassen mit Varianten/Zuständen und die drei Variablen sind als StyleRule-/Theme-Variablen-Kandidaten dokumentiert, aber in den produktiven Seiten ungenutzt. Der Klassen-Anlegepfad liegt in den Atomic-Elementen; der Klassen-Manager listet/cached.
-- **Seiten:** Startseite und Leistungen nutzen klassische Widgets und Plugin-Widgets; der Footer nutzt Globalfarben und MetForm. Die Theme-Builder-Templates Header 789/Footer 860 sind eigene Senify-Header-/Footer-Verträge.
-- **Gaps:** Plugin-Widgets (ElementsKit, Qi, OriginKit, WPGHR/GSAP), MetForm-Formulare, WooCommerce-Daten, dynamische Bindungen, Atomar-Elemente, Klassen-/Variablen-Speicher, Pro-Ersatz und die Staging-/Backup-Prozesse.
-- **Export:** All-in-One WP Migration, Elementor-Daten, Kit, Klassen, Variablen, Templates, Medien, Formulare und Shop-Daten müssen vor einer Migration gesichert und in einem eigenen Mapping dokumentiert werden.
+| Elementor-hcm | Senify-Ziel (vorläufig) | Status | Hinweis |
+|---|---|---|---|
+| Kit-Systemfarben/-typografie, Breakpoints 768/1025, Radius, Seitentitel, Body-Hintergrund | Theme-Tokens / Site-Theme | teilweise belegt | Kit-Globals sind nicht Atomic-Variablen. |
+| Atomic-Variablen (`_elementor_global_variables`, `e-gv-*`) | Theme-Variablen / globale Variablen | Datenmodell belegt | 3 echte Variablen; produktive Nutzung nicht belegt. |
+| Atomic-Klassen (`e_global_class`, `g-*`, Kit-Registry) | StyleRules / globale Klassen | Datenmodell belegt | 6 Klassen, Zustände/Breakpoints; produktive Nutzung nicht belegt. UI-Lebenszyklus (Anlegen/Priorität/Umbenennen/Löschen über Atomic-Element) offen. |
+| Lokale Elementstile, responsive Overrides | Node/Widget-Styles, Breakpoints | im Bestand dominant | Startseite/Leistungen arbeiten stark lokal. |
+| Header 789 / Footer 860 (`elementor_pro_theme_builder_conditions`) | Header-/Footer-Templates + Bedingungen | strukturell belegt | Nur `include/general`; keine weiteren Template-Typen publiziert. |
+| Klassische `css_classes` (`sticky-parent`, `ch-label` etc.) | freie Klassen/Selektoren | im Bestand vorhanden | Nicht mit Atomic-Global-Klassen verwechseln. |
+| Dynamische Bindungen, Nested-Tabs | Dynamic Tags / verschachtelte Widgets | vorhanden | Footer enthält 1 dynamische Bindung und Nested-Tabs. |
+| Plugin-Widgets (ElementsKit, Qi, OriginKit, WPGHR/GSAP, Navigation, MetForm, Social) | eigene Adapter oder Fallback-Import | offen | Größtes Paritätsrisiko der produktiven Seiten. |
+| MetForm-Formulare (3) | Formular-/Integration-Mapping | offen | Footer + Startseitenbezüge; Einwilligungstexte prüfen. |
+| WooCommerce (Shop/Cart/Checkout/Account, EUR, DE:DE-NI, 2 Testprodukte, 1 Testbestellung) | Shop-/Content-Mapping | offen | Testdaten trennen. |
+| Medien (135 Anhänge), WebP | Asset-Import | teilweise belegbar | Pfade/IDs/Alt-Texte gesondert prüfen. |
 
-## 13. Variablen- und Klassentest, zweiter Lauf (06.11.2026)
+- **Export vor Migration:** Kit, `_elementor_global_variables`, `_elementor_global_classes*`, `e_global_class`-Posts + `_elementor_global_class_data`, Template-`_elementor_data`/`_elementor_conditions`, Seiten-`_elementor_data`, Medien, Formulare und Shop-Daten konsistent sichern (All-in-One WP Migration und gezielte Exporte). Secrets/Anwendungspasswörter nicht in Exporte übernehmen.
 
-### Variablen
-- Mit einem frischen temporären Admin öffnete das Design-System-Panel zuverlässig. Das Plus öffnet die Typauswahl **Color/Font/Size**; **Color** legt eine Zeile `color-1` mit `#ffffff` an, die Live-Liste zeigte danach vier Variablen (accent, ueberschrift, hell, color-1).
-- **Speicherort:** Kit-Beitrag 6, Metaschlüssel `_elementor_global_variables`. Der Wert ist ein JSON mit `data` (Variable-ID, Label, Wert, Order, Zeitstempel), `watermark` und `version`. Die drei echten Variablen und die Testvariable lagen gemeinsam dort.
-- Der Umbenennungsversuch auf `senify-test-color` griff nicht; die Testvariable behielt den Namen `color-1`. Der Namensfeld-Pfad bleibt offen.
-- **Aufgeräumt:** Die Testvariable `color-1` wurde gezielt aus dem Kit-JSON entfernt; die drei echten Variablen (accent #103F92, ueberschrift #2a2a2a, hell #DEE3ED) sind unverändert und wieder allein vorhanden.
+## 13. Variablen- und Klassentest, zweiter Lauf + datenmodellbasierter Nachweis (06.11.2026)
 
-### Klassen
-- Das atomare Heading hat die Tabs **Allgemein, Stil, Interaktionen**. Im Allgemein-Tab ist keine Classes-Zeile sichtbar. Der Stil-Tab war im Testlauf nicht erreichbar (Editor-Timeout); die Atomic-Klassenzeile bleibt der offene UI-Punkt.
-- Die sechs echten Klassen liegen als `e_global_class`-Posts mit `_elementor_global_class_data` vor; der Klassen-Manager listet und cached sie. Eine datenmodellseitig angelegte Testklasse erschien nicht in der Live-Liste. Der Anlegepfad liegt damit in den Atomic-Elementen, nicht im Klassen-Manager.
+### Variablen (UI, vorheriger Lauf)
+- Mit einem frischen temporären Admin öffnete das Design-System-Panel zuverlässig. Das Plus öffnet die Typauswahl **Color/Font/Size**; **Color** legte `color-1` (`#ffffff`) an. **Speicherort bestätigt:** Kit 6, `_elementor_global_variables` (JSON `data/watermark/version`; `id`, `label`, `value`, `order`, Zeitstempel).
+- Umbenennen auf `senify-test-color` griff im UI nicht. Testvariable `color-1` wurde danach gezielt aus dem Kit-JSON entfernt. Die drei echten Variablen sind unverändert: `e-gv-279f32e` accent `#103F92`, `e-gv-bba5997` ueberschrift `#2a2a2a`, `e-gv-96c9277` hell `#DEE3ED`.
+
+### Klassen (UI + Datenmodell)
+- UI: atomarer Heading hat Tabs Allgemein/Stil/Interaktionen; die Atomic-Klassenzeile war im Testlauf nicht stabil erreichbar (Editor-Timeout). Eine datenmodellseitig angelegte Testklasse erschien nicht in der Live-Liste des Klassen-Managers.
+- Datenmodell (lesend verifiziert): 6 `e_global_class`-Posts (306–311) mit `_elementor_global_class_data` plus Kit-6-Registry `_elementor_global_classes*` (Items/IDs/Order/Labels/Preview/Sync/Usage-Meta). Klassen: 311 `leistungheading` `g-8601697`, 310 `leistungabsart` `g-c7b61c4`, 309 `leistung` `g-83a84b3`, 308 `absatz` `g-19b5a91`, 307 `headinghero` `g-82f3a8a`, 306 `Subheading` `g-8f65ea4`. Variable-Refs in Klassen: 306/307/309/311 referenzieren `e-gv-279f32e`/`e-gv-bba5997`/`e-gv-96c9277` je nach Klasse.
+- `using_documents` der Klassen ist leer; produktive Nutzung der Atomic-Global-Klassen/Variablen in veröffentlichten Seitendaten nicht belegt.
+
+### Offener Restpunkt (UI, kontrolliert)
+- Vollständiger stabiler Lifecycle über Atomic-Element auf einer markierten Testsektion/Seite: Klasse anlegen, anwenden, Priorität prüfen/ändern, Umbenennen, Löschen, Nutzungswarnung, Speichern, Neuladen, Frontend. Erfordert interaktiven Editorzugang (Login); dabei nur Testobjekte erzeugen und vollständig entfernen, echte 6 Klassen/3 Variablen nicht ändern.
 
 ### Aufräumen
-- Entfernt wurden: Testvariable `color-1`, Testseiten 1331/1335 und temporäre Admins 13/14.
-- Unverändert: sechs echte globale Klassen, drei echte Variablen, die echten Seiten und der Administrator Adrian.
+- Entfernt (vorherige Läufe): Testvariable `color-1`, Testklassen/Testseiten, temporäre Admins. Unverändert: sechs echte globale Klassen, drei echte Variablen, echte Seiten/Templates, Admin Adrian.
