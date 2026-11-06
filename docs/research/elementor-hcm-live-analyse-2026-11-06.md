@@ -204,3 +204,19 @@ Die Site ist eine echte lokale Tännig-Apotheke-Installation mit realen Seiten, 
 - **Seiten:** Startseite und Leistungen nutzen klassische Widgets und Plugin-Widgets; der Footer nutzt Globalfarben und MetForm. Die Theme-Builder-Templates Header 789/Footer 860 sind eigene Senify-Header-/Footer-Verträge.
 - **Gaps:** Plugin-Widgets (ElementsKit, Qi, OriginKit, WPGHR/GSAP), MetForm-Formulare, WooCommerce-Daten, dynamische Bindungen, Atomar-Elemente, Klassen-/Variablen-Speicher, Pro-Ersatz und die Staging-/Backup-Prozesse.
 - **Export:** All-in-One WP Migration, Elementor-Daten, Kit, Klassen, Variablen, Templates, Medien, Formulare und Shop-Daten müssen vor einer Migration gesichert und in einem eigenen Mapping dokumentiert werden.
+
+## 13. Variablen- und Klassentest, zweiter Lauf (06.11.2026)
+
+### Variablen
+- Mit einem frischen temporären Admin öffnete das Design-System-Panel zuverlässig. Das Plus öffnet die Typauswahl **Color/Font/Size**; **Color** legt eine Zeile `color-1` mit `#ffffff` an, die Live-Liste zeigte danach vier Variablen (accent, ueberschrift, hell, color-1).
+- **Speicherort:** Kit-Beitrag 6, Metaschlüssel `_elementor_global_variables`. Der Wert ist ein JSON mit `data` (Variable-ID, Label, Wert, Order, Zeitstempel), `watermark` und `version`. Die drei echten Variablen und die Testvariable lagen gemeinsam dort.
+- Der Umbenennungsversuch auf `senify-test-color` griff nicht; die Testvariable behielt den Namen `color-1`. Der Namensfeld-Pfad bleibt offen.
+- **Aufgeräumt:** Die Testvariable `color-1` wurde gezielt aus dem Kit-JSON entfernt; die drei echten Variablen (accent #103F92, ueberschrift #2a2a2a, hell #DEE3ED) sind unverändert und wieder allein vorhanden.
+
+### Klassen
+- Das atomare Heading hat die Tabs **Allgemein, Stil, Interaktionen**. Im Allgemein-Tab ist keine Classes-Zeile sichtbar. Der Stil-Tab war im Testlauf nicht erreichbar (Editor-Timeout); die Atomic-Klassenzeile bleibt der offene UI-Punkt.
+- Die sechs echten Klassen liegen als `e_global_class`-Posts mit `_elementor_global_class_data` vor; der Klassen-Manager listet und cached sie. Eine datenmodellseitig angelegte Testklasse erschien nicht in der Live-Liste. Der Anlegepfad liegt damit in den Atomic-Elementen, nicht im Klassen-Manager.
+
+### Aufräumen
+- Entfernt wurden: Testvariable `color-1`, Testseiten 1331/1335 und temporäre Admins 13/14.
+- Unverändert: sechs echte globale Klassen, drei echte Variablen, die echten Seiten und der Administrator Adrian.
