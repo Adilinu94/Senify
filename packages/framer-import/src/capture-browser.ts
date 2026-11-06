@@ -281,6 +281,31 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
       "JSON.parse(JSON.stringify(motionProbe()))",
     )) as Record<string, unknown>;
     const ssrHtml = await page.content();
+    // `page.content()` carries the inline `<style>` blocks, but Framer keeps
+    // most class/state rules in linked stylesheets. Read the same-origin
+    // sheets through the CSSOM and fetch cross-origin links when the CSSOM
+    // access is blocked; without this the static pass only sees the inline
+    // critical CSS and the browser import loses the real class styles.
+    const collectedCss = (await page.evaluate(`(async () => {
+      const chunks = [];
+      const failedLinks = [];
+      for (const sheet of Array.from(document.styleSheets)) {
+        const owner = sheet.ownerNode;
+        if (owner && owner.tagName === "STYLE") continue;
+        try {
+          for (const rule of Array.from(sheet.cssRules)) chunks.push(rule.cssText);
+        } catch {
+          if (owner && owner.tagName === "LINK" && owner.href) failedLinks.push(owner.href);
+        }
+      }
+      for (const href of failedLinks) {
+        try {
+          const response = await fetch(href);
+          if (response.ok) chunks.push(await response.text());
+        } catch {}
+      }
+      return chunks.join(String.fromCharCode(10));
+    })()`)) as string;
 
     const io = Array.isArray(probe.intersectionObservers)
       ? (probe.intersectionObservers as unknown[]).length
@@ -327,6 +352,7 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     const capture: CaptureHtmlInput = {
       html: ssrHtml,
       ...(input.rootDir !== undefined ? { rootDir: input.rootDir } : {}),
+      ...(collectedCss === "" ? {} : { css: collectedCss }),
       url: input.url,
       pagePath: input.pagePath ?? new URL(input.url).pathname,
     };

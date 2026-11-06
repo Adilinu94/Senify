@@ -832,18 +832,29 @@ export function themePatchOf(document: FramerIrDocument): ThemePatch {
 /* ------------------------------------------------------------------ rules */
 
 function styleRulesOf(normalized: NormalizedStyleRule[]): StyleRule[] {
+  const mapDeclarations = (declarations: Partial<Record<string, string>>): Record<string, string> =>
+    Object.fromEntries(
+      Object.entries(declarations)
+        .filter((entry): entry is [string, string] => entry[1] !== undefined)
+        .map(([name, value]) => {
+          const mapped = cssName(name);
+          return [mapped ?? name, value];
+        }),
+    );
   return normalized.map((rule, index) => ({
     id: rule.id,
     name: rule.name,
     kind: "class" as const,
     selector: `.${rule.name}`,
     order: index,
-    styles: Object.fromEntries(
-      Object.entries(rule.declarations).map(([name, value]) => {
-        const mapped = cssName(name);
-        return [mapped ?? name, value];
-      }),
-    ),
+    styles: mapDeclarations(rule.declarations),
+    ...(rule.states === undefined
+      ? {}
+      : {
+          states: Object.fromEntries(
+            Object.entries(rule.states).map(([state, bag]) => [state, mapDeclarations(bag)]),
+          ) as StyleRule["states"],
+        }),
     contextStyles: {},
     origin: { source: "framer-import", ordinal: index },
     authoredBy: "preset" as const,

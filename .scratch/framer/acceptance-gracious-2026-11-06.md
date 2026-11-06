@@ -63,13 +63,15 @@ Die vier nicht gespiegelten Routen sind damit per Manifest und Browser-Capture v
 - Client-gerenderte Unterseiten lassen sich über den Browser-Modus analysieren und schreiben; der Browser-Capture sieht 334 statt 1 Knoten auf `/contact`.
 - Sechs Routen erzeugen echte Senify-Seiten mit Asset-Übernahme; der CMS-Text der drei Blog-Routen ist enthalten.
 - Das Sitemap-Manifest erkennt alle 10 veröffentlichten Routen und wählt Mirror beziehungsweise Browser automatisch; die drei fehlenden CMS-Routen und `/404` sind im Browser mit 0 Blockern erfasst.
+- Pseudo-Zustände für Hover, Fokus, Aktiv und Deaktiviert werden im IR, in der Normalisierung und als Style-Rule-`states` übernommen; der Browser-Capture liest zusätzlich verlinkte Stylesheets über die CSSOM.
+- Auf `/contact` werden 6 Pseudo-Zustände übernommen; 66 Regelstellen bleiben als Pseudo-Elemente, Selektorlisten- und Attributanteile offen.
 
 ## Benannte Lücken
 
 1. Der Koordinator-Schreiblauf für `/404` und die drei nicht gespiegelten CMS-Routen ist durch den lokalen PostgreSQL-Ausfall blockiert (siehe oben), nicht durch den Code. Ein Lauf auf einer funktionsfähigen Datenbank bleibt offen.
 2. `runtimeFreeVerified` bleibt `false`; ein runtimefreier Zielbetrieb ist mit diesem Lauf nicht bewiesen.
 3. Die Startseite meldet 951 anfangs verborgene Elemente ohne Appear-Daten, mehrere generische SVG-Symbole, Lenis-Smooth-Scroll und nicht vollständig abgebildete Animationen.
-4. `/contact` meldet 12 verborgene Elemente. Die 93 Pseudo-Zustandsregeln werden erkannt, aber **0** in `contextStyles` übernommen; die 45 Font-Subsets stehen **1** Theme-Font gegenüber (DSGVO-Umschreibung ist Roadmap-Scheibe S2.3b); vier Framer-Interaktionen sind nicht als Senify-Motion-Preset abbildbar. Das sind geplante Roadmap-Scheiben, keine stillen Fehler.
+4. `/contact` meldet 12 verborgene Elemente. Sechs Pseudo-Zustände werden jetzt als Rule-`states` übernommen (die vier Engine-Zustände Hover, Fokus, Aktiv, Deaktiviert); 66 Regelstellen bleiben unübernommen. Eine Rohklassifizierung der 91 selektierten CSS-Regeln zeigt überwiegend Pseudo-Elemente, Selektorlisten mit Struktur- und Vorfahrenanteilen sowie einzelne Attribut- und Kombinationszustände. Verbleibend sind damit Pseudo-Elemente, Selektorlisten, Attribut-/Vorfahrenzustände und Gerätevarianten der Zustände. Die 45 Font-Subsets stehen weiterhin **1** Theme-Font gegenüber (DSGVO-Umschreibung S2.3b); vier Framer-Interaktionen sind nicht als Senify-Motion-Preset abbildbar.
 5. Ein vollständiger visueller und zeitlicher Vergleich Original gegen gebackene Senify-Ausgabe wurde in diesem Lauf nicht ausgeführt. Die Seiten sind geschrieben, aber Pixel-, Font-, Zustands- und Motion-Treue sind offen.
 6. Das isolierte Projekt lief auf dem lokalen Testcluster; es sind keine Produktions- oder Nutzerdaten betroffen.
 
@@ -87,4 +89,4 @@ $env:SITE_URL='https://gracious-balance-599544.framer.app/'
 # Manifest: senify import framer-site <mirror> --site <id> --source-url $env:SITE_URL --write
 ```
 
-Codeänderung dieser Abnahme: `RunImportInput.browser`, Browser-Zweig in `runImport`, `browser` im Engine-Importvertrag, `--browser` in der CLI, `packages/framer-import/src/route-manifest.ts` (Sitemap-Parser und Mirror/Browser-Auswahl), `--source-url` im Koordinator und im MCP-Tool sowie sieben neue Tests.
+Codeänderung dieser Abnahme: `RunImportInput.browser`, Browser-Zweig in `runImport`, `browser` im Engine-Importvertrag, `--browser` in der CLI, `packages/framer-import/src/route-manifest.ts` (Sitemap-Parser und Mirror/Browser-Auswahl), `--source-url` im Koordinator und im MCP-Tool, Pseudo-Zustände in `ir.ts`/`capture-html.ts`/`normalize.ts`/`mapper.ts` sowie das CSSOM-Sammeln in `capture-browser.ts`. Neue Tests: sieben für Manifest/Koordinator, je einer für Hover-Zustand, verlinkte Styles und Engine-Browser-Vertrag.

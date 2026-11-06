@@ -28,8 +28,10 @@ import {
   type IrFontFace,
   type IrLayout,
   type IrMotionSample,
+  type IrInteractive,
   type IrNode,
   type IrNodeKind,
+  type IrPseudoState,
   type IrState,
   type IrTextContent,
   type IrVisual,
@@ -797,14 +799,17 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   // import rather than an unstyled document.
   const cssText = `${readAllCss(html, input.rootDir)}\n${input.css ?? ""}`;
   const applied = applyClassRules(root, cssText);
-  if (applied.skippedPseudo > 0) {
+  if (applied.mappedPseudo > 0 || applied.skippedPseudo > 0) {
     findings.push({
       kind: "unsupported-declaration",
       nodeKey: null,
-      message: `${applied.skippedPseudo} Regeln mit Pseudo-Zustand (Hover, Fokus, ::before …) nicht übernommen.`,
-      evidence: ":hover / :focus / ::before",
+      message: `${applied.mappedPseudo} Pseudo-Zustände übernommen, ${applied.skippedPseudo} Pseudo-Elemente oder Strukturregeln nicht übernommen.`,
+      evidence: ":hover / :focus / :active / :disabled vs. ::before / :nth-child",
       severity: "info",
-      suggestion: "Zustände nach dem Import im Editor ergänzen; sie fließen nicht mehr in den Basisstil ein.",
+      suggestion:
+        applied.skippedPseudo > 0
+          ? "Verbleibende Pseudo-Elemente und strukturelle Regeln im Editor ergänzen; Gerätevarianten der Zustände getrennt prüfen."
+          : "Übernommene Zustände im Editor prüfen; Gerätevarianten der Zustände getrennt prüfen.",
     });
   }
 
@@ -1134,6 +1139,7 @@ type CompiledRule = {
   tag: string;
   classes: string[];
   ancestors: string[][];
+  state: IrPseudoState | null;
 };
 
 type RuleIndex = { byClass: Map<string, CompiledRule[]>; generic: CompiledRule[] };
@@ -1141,50 +1147,87 @@ type RuleIndex = { byClass: Map<string, CompiledRule[]>; generic: CompiledRule[]
 const classesIn = (compound: string): string[] =>
   [...compound.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((match) => match[1] ?? "");
 
-// Returns null for selectors that are not a plain structural match. State
-// selectors (`:hover`, `::before`, `:nth-child` …) set `pseudo`: applying them
-// to the base style would make a button permanently look hovered.
+// Only the four engine states are understood. `:focus-visible` folds into
+// `focus`; pseudo-elements and structural selectors stay out and are counted.
+const STATE_PSEUDO: Record<string, IrPseudoState> = {
+  hover: "hover",
+  focus: "focus",
+  "focus-visible": "focus",
+  active: "active",
+  disabled: "disabled",
+};
+
 function compileSelector(
   selector: string,
   order: number,
   values: Record<string, string>,
-): { rule: CompiledRule | null; pseudo: boolean } {
+): { rule: CompiledRule | null; pseudo: boolean; state: IrPseudoState | null } {
   if (/^(?:body|html|#main)$/.test(selector)) {
-    return { rule: { order, values, root: true, tag: "", classes: [], ancestors: [] }, pseudo: false };
+    return {
+      rule: { order, values, root: true, tag: "", classes: [], ancestors: [], state: null },
+      pseudo: false,
+      state: null,
+    };
   }
   const withoutNot = selector.replace(/:not\([^)]*\)/g, "");
-  if (/:/.test(withoutNot.replace(/\[[^\]]*\]/g, ""))) return { rule: null, pseudo: true };
   const compounds = withoutNot
     .split(/\s*[>+~]\s*|\s+/)
     .map((part) => part.trim())
     .filter(Boolean);
   const target = compounds.pop();
-  if (target === undefined) return { rule: null, pseudo: false };
+  if (target === undefined) return { rule: null, pseudo: false, state: null };
+  // A state only counts on the target compound. A state on an ancestor is a
+  // different interaction and must not become a style on the element itself.
+  const stateMatches = [...target.matchAll(/:(hover|focus-visible|focus|active|disabled)\b/g)];
+  const state = stateMatches.length === 1 ? (STATE_PSEUDO[stateMatches[0]?.[1] ?? ""] ?? null) : null;
+  const strippedTarget = stateMatches.length === 1
+    ? target.replace(/:(?:hover|focus-visible|focus|active|disabled)\b/g, "")
+    : target;
+  // Anything still carrying a colon is a pseudo-element, a structural selector
+  // or a second state and stays out of the base style.
+  if (
+    stateMatches.length > 1 ||
+    /:/.test(strippedTarget.replace(/\[[^\]]*\]/g, "")) ||
+    compounds.some((part) => /:/.test(part.replace(/\[[^\]]*\]/g, "")))
+  ) {
+    return { rule: null, pseudo: true, state: null };
+  }
   // Ancestor matching tracks class names only. Attribute and ID ancestors
   // cannot be checked and must not turn into an unrestricted ancestor match.
-  if (compounds.some((part) => /[[#]/.test(part))) return { rule: null, pseudo: false };
-  const tag = target.replace(/\.[A-Za-z0-9_-]+/g, "");
-  if (/[[#]/.test(tag)) return { rule: null, pseudo: false };
+  if (compounds.some((part) => /[[#]/.test(part))) return { rule: null, pseudo: false, state: null };
+  const tag = strippedTarget.replace(/\.[A-Za-z0-9_-]+/g, "");
+  if (/[[#]/.test(tag)) return { rule: null, pseudo: false, state: null };
+  const classes = classesIn(strippedTarget);
+  // A bare `:hover` applies to whatever is hovered; it cannot be anchored.
+  if (tag === "" && classes.length === 0) return { rule: null, pseudo: true, state: null };
   return {
     rule: {
       order,
       values,
       root: false,
       tag,
-      classes: classesIn(target),
+      classes,
       ancestors: compounds.map(classesIn),
+      state,
     },
     pseudo: false,
+    state,
   };
 }
 
-function buildIndex(rules: readonly ParsedCssRule[]): { index: RuleIndex; skippedPseudo: number } {
+function buildIndex(rules: readonly ParsedCssRule[]): {
+  index: RuleIndex;
+  skippedPseudo: number;
+  stateRules: number;
+} {
   const index: RuleIndex = { byClass: new Map(), generic: [] };
   let skippedPseudo = 0;
+  let stateRules = 0;
   rules.forEach((entry, order) => {
-    const { rule, pseudo } = compileSelector(entry.selector, order, entry.values);
+    const { rule, pseudo, state } = compileSelector(entry.selector, order, entry.values);
     if (pseudo) skippedPseudo += 1;
     if (rule === null) return;
+    if (state !== null) stateRules += 1;
     const first = rule.classes[0];
     if (first === undefined) {
       index.generic.push(rule);
@@ -1194,7 +1237,7 @@ function buildIndex(rules: readonly ParsedCssRule[]): { index: RuleIndex; skippe
     if (bucket === undefined) index.byClass.set(first, [rule]);
     else bucket.push(rule);
   });
-  return { index, skippedPseudo };
+  return { index, skippedPseudo, stateRules };
 }
 
 // Variant classes are excluded from the merge signature, but remain relevant
@@ -1240,15 +1283,22 @@ function matchingRules(index: RuleIndex, node: IrNode, ancestors: readonly Reado
 // `(min-width: 1440px)` reaches desktop only (see `devices.ts`).
 const devicesOf = devicesContaining;
 
-function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
+function applyClassRules(root: IrNode, css: string): { skippedPseudo: number; mappedPseudo: number } {
   const parsed = parseCssRules(css);
   const base = buildIndex(parsed.rules);
   const mediaIndexes = parsed.media.map((entry) => {
     const built = buildIndex(entry.rules);
-    return { devices: devicesOf(entry), index: built.index, skipped: built.skippedPseudo };
+    return {
+      devices: devicesOf(entry),
+      index: built.index,
+      skipped: built.skippedPseudo,
+      stateRules: built.stateRules,
+    };
   });
   const skippedPseudo =
     base.skippedPseudo + mediaIndexes.reduce((sum, entry) => sum + entry.skipped, 0);
+  const mappedPseudo =
+    base.stateRules + mediaIndexes.reduce((sum, entry) => sum + entry.stateRules, 0);
 
   const DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
   type VarsByDevice = Record<IrDevice, Vars>;
@@ -1257,12 +1307,15 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     const baseState = current.states[0];
     if (baseState === undefined) return;
     // The cascade: stylesheet rules first, the element's own inline style wins.
+    // State rules never enter this bag; they live under `interactive`.
     const inline = { ...baseState.visual };
     const baseline: Record<string, string> = {};
-    for (const rule of matchingRules(base.index, current, ancestors)) Object.assign(baseline, rule.values);
+    for (const rule of matchingRules(base.index, current, ancestors)) {
+      if (rule.state === null) Object.assign(baseline, rule.values);
+    }
     const byDevice = new Map<IrDevice, Record<string, string>>();
     for (const entry of mediaIndexes) {
-      const rules = matchingRules(entry.index, current, ancestors);
+      const rules = matchingRules(entry.index, current, ancestors).filter((rule) => rule.state === null);
       if (rules.length === 0) continue;
       for (const device of entry.devices) {
         const values = byDevice.get(device) ?? {};
@@ -1270,10 +1323,24 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         byDevice.set(device, values);
       }
     }
+    // State rules per device: the base sheet applies everywhere, a media rule
+    // only to the devices its query reaches. The state values are resolved
+    // against the same custom-property chain as the base, so `var()` works.
+    const stateRulesByDevice = new Map<IrDevice, CompiledRule[]>();
+    for (const device of DEVICES) {
+      const rules = [
+        ...matchingRules(base.index, current, ancestors).filter((rule) => rule.state !== null),
+        ...mediaIndexes
+          .filter((entry) => entry.devices.includes(device))
+          .flatMap((entry) => matchingRules(entry.index, current, ancestors).filter((rule) => rule.state !== null)),
+      ];
+      stateRulesByDevice.set(device, rules);
+    }
     // Custom properties inherit, so each device carries its own chain; the
     // values are resolved against the chain at THIS element.
     const varsByDevice = {} as VarsByDevice;
     const valuesByDevice = {} as Record<IrDevice, IrVisual>;
+    const interactiveByDevice = {} as Record<IrDevice, IrInteractive>;
     for (const device of DEVICES) {
       const own: Vars = {};
       const plain: IrVisual = {};
@@ -1287,11 +1354,22 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
       valuesByDevice[device] = Object.fromEntries(
         Object.entries(plain).flatMap(([key, value]) => (value === undefined ? [] : [[key, resolveVars(value, vars)]])),
       );
+      const interactive: IrInteractive = {};
+      for (const rule of stateRulesByDevice.get(device) ?? []) {
+        if (rule.state === null) continue;
+        const bag = interactive[rule.state] ?? {};
+        for (const [key, value] of Object.entries(rule.values)) bag[key] = resolveVars(value, vars);
+        interactive[rule.state] = bag;
+      }
+      interactiveByDevice[device] = interactive;
       if (current.kind === "link" && vars["--senify-current-link"] === "true" && vars["--framer-link-current-text-color"] !== undefined) {
         valuesByDevice[device]["color"] = resolveVars(vars["--framer-link-current-text-color"], vars);
       }
     }
     baseState.visual = valuesByDevice.desktop;
+    if (Object.keys(interactiveByDevice.desktop).length > 0) {
+      baseState.interactive = interactiveByDevice.desktop;
+    }
     // A device keeps its own state only where it differs from desktop. A device
     // the queries do not touch still needs one when desktop changed: it keeps
     // the values from before the query (a `min-width` rule never reaches mobile).
@@ -1307,13 +1385,16 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         hiddenAt: [],
         variantHash: null,
         visual: values,
+        ...(Object.keys(interactiveByDevice[device]).length === 0
+          ? {}
+          : { interactive: interactiveByDevice[device] }),
       });
     }
     const nextAncestors = [...ancestors, new Set(cssClassesOf(current))];
     for (const child of current.children) visit(child, nextAncestors, varsByDevice);
   };
   visit(root, [], { desktop: {}, tablet: {}, mobile: {} });
-  return { skippedPseudo };
+  return { skippedPseudo, mappedPseudo };
 }
 
 function readLinkedCss(html: string, rootDir: string | undefined): string {

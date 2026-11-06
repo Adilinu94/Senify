@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import http from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { captureBrowser, mapFramerMotion, runImport } from "@senify/framer-import";
+import { captureBrowser, mapFramerMotion, runImport, type IrNode } from "@senify/framer-import";
 
 // The browser capture (plan S2.1/S2.2) against local servers, so the whole
 // path runs offline and deterministic:
@@ -70,6 +70,11 @@ addEventListener('scroll', () => {
 });
 </script></body></html>`;
 
+// A page whose look lives exclusively in a linked stylesheet: the browser
+// capture must read the CSSOM, not only the inline critical CSS.
+const LINKED_PAGE = `<!doctype html><html><head><link rel="stylesheet" href="/linked.css"></head><body><div id="main"><div class="linked" data-framer-name="Linked">Linked</div></div></body></html>`;
+const LINKED_CSS = ".linked{color:#123456}.linked:hover{color:#654321}";
+
 let fixtureServer: import("node:http").Server;
 let fixtureOrigin: string;
 let motionServer: import("node:http").Server;
@@ -100,8 +105,13 @@ beforeAll(async () => {
   fixtureServer = fixture.server;
   fixtureOrigin = fixture.origin;
   const motion = await startServer((request, response) => {
+    if (request.url === "/linked.css") {
+      response.writeHead(200, { "content-type": "text/css; charset=utf-8" });
+      response.end(LINKED_CSS);
+      return;
+    }
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    response.end(request.url === "/scroll" ? SCROLL_PAGE : MOTION_PAGE);
+    response.end(request.url === "/scroll" ? SCROLL_PAGE : request.url === "/linked" ? LINKED_PAGE : MOTION_PAGE);
   });
   motionServer = motion.server;
   motionOrigin = motion.origin;
@@ -187,4 +197,22 @@ describe.skipIf(!browserAvailable)("captureBrowser", () => {
       captureBrowser({ url: "http://127.0.0.1:1/", settleMs: 10 }),
     ).rejects.toThrow();
   }, 30_000);
+
+  it("collects linked stylesheets and their hover state", async () => {
+    const result = await captureBrowser({ url: `${motionOrigin}/linked`, settleMs: 200 });
+    const find = (node: IrNode): IrNode | undefined => {
+      if (node.baseClasses.includes("linked")) return node;
+      for (const child of node.children) {
+        const hit = find(child);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    };
+    const page = result.document.pages[0];
+    expect(page).toBeDefined();
+    const linked = page === undefined ? undefined : find(page.root);
+    expect(linked).toBeDefined();
+    expect(linked?.states[0]?.visual["color"]).toBe("rgb(18, 52, 86)");
+    expect(linked?.states[0]?.interactive?.hover?.["color"]).toBe("rgb(101, 67, 33)");
+  }, 60_000);
 });

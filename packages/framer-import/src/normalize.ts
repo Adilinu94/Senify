@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import type {
   FramerIrDocument,
   IrFinding,
+  IrInteractive,
   IrNode,
   IrState,
   IrVisual,
@@ -30,6 +31,10 @@ export type NormalizedStyleRule = {
   id: string;
   name: string;
   declarations: Record<string, string>;
+  // Pseudo-state declarations from the node's hover/focus/active/disabled
+  // rules. They stay separate from the base declarations and become the
+  // rule's `states` in the mapper.
+  states?: IrInteractive;
   // How many nodes reference this rule after consolidation.
   uses: number;
   nodeKeys: string[];
@@ -275,11 +280,21 @@ function adjustState(state: IrState, node: IrNode, findings: IrFinding[]): IrSta
 
 // The declaration set is the identity: two rules with the same sorted
 // declarations collapse into one shared rule.
-function declarationKey(declarations: Record<string, string>): string {
+function declarationKey(declarations: Partial<Record<string, string>>): string {
   return Object.entries(declarations)
+    .filter((entry): entry is [string, string] => entry[1] !== undefined)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([property, value]) => `${property}:${value}`)
     .join(";");
+}
+
+// States belong to the rule identity: two nodes with the same base look but
+// different hover styles must not collapse into one shared rule.
+function statesKey(states: IrInteractive): string {
+  return Object.entries(states)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([state, bag]) => `${state}:${declarationKey(bag)}`)
+    .join("|");
 }
 
 export function normalize(document: FramerIrDocument, options: NormalizeOptions = {}): NormalizeResult {
@@ -351,7 +366,25 @@ export function normalize(document: FramerIrDocument, options: NormalizeOptions 
         }
       }
       if (Object.keys(merged).length === 0) continue;
-      const key = declarationKey(merged);
+      // Pseudo-state declarations are part of the rule identity. Drop the same
+      // legacy prefixes as the base and keep only states with declarations.
+      const interactive: Record<string, Record<string, string>> = {};
+      if (state.interactive !== undefined) {
+        for (const [name, bag] of Object.entries(state.interactive)) {
+          const values: Record<string, string> = {};
+          for (const [property, value] of Object.entries(bag)) {
+            if (value === undefined) continue;
+            if (property.startsWith("-webkit-") || property.startsWith("-moz-")) {
+              droppedDeclarations += 1;
+              continue;
+            }
+            values[property] = value;
+          }
+          if (Object.keys(values).length > 0) interactive[name] = values;
+        }
+      }
+      const states = Object.keys(interactive).length === 0 ? undefined : (interactive as IrInteractive);
+      const key = `${declarationKey(merged)}|${statesKey(states ?? {})}`;
       const existing = ruleBySet.get(key);
       if (existing !== undefined) {
         existing.uses += 1;
@@ -362,6 +395,7 @@ export function normalize(document: FramerIrDocument, options: NormalizeOptions 
         id: `fi-${scope}-${ruleBySet.size + 1}`,
         name: `framer-${scope}-${ruleBySet.size + 1}`,
         declarations: merged,
+        ...(states === undefined ? {} : { states }),
         uses: 1,
         nodeKeys: [node.key],
         device: state.device,

@@ -102,14 +102,25 @@ describe("capture fidelity", () => {
     expect(nodes.find((node) => node.props["anchorId"] === "kontakt")?.primitive).toBe("frame");
   });
 
-  it("does not let a hover rule leak into the base style", () => {
-    const { nodes, document } = run(
-      page('<div class="btn">Go</div>', ".btn{background-color:#111}.btn:hover{background-color:#f00}"),
+  it("keeps a hover rule out of the base style and maps it into the state bag", () => {
+    const { nodes, mapped, document } = run(
+      page(
+        '<div class="btn">Go</div>',
+        '.btn{background-color:#111}.btn:hover{background-color:#f00}.btn::before{content:"x"}',
+      ),
     );
     const colors = nodes.map((node) => String(node.props["backgroundColor"] ?? ""));
     expect(colors).toContain("#111");
     expect(colors).not.toContain("#f00");
-    expect(document.findings.some((finding) => finding.message.includes("Pseudo-Zustand"))).toBe(true);
+    const hoverRules = mapped.rules.filter((rule) => rule.states?.hover !== undefined);
+    expect(hoverRules.length).toBeGreaterThan(0);
+    expect(hoverRules.some((rule) => Object.values(rule.states?.hover ?? {}).includes("#f00"))).toBe(true);
+    expect(document.findings.some((finding) => finding.message.includes("Pseudo-Zustände"))).toBe(true);
+    expect(
+      document.findings.some((finding) =>
+        /1 Pseudo-Zustände übernommen, 1 Pseudo-Elemente oder Strukturregeln nicht übernommen/.test(finding.message),
+      ),
+    ).toBe(true);
   });
 
   it("applies class rules on a large stylesheet (no size limit)", () => {

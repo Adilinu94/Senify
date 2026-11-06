@@ -178,6 +178,11 @@ export type IrLink = {
   newTab: boolean;
 };
 
+// Pseudo states the capture understands and the engine can emit. Kept local so
+// the IR does not depend on the widget engine; the mapper maps them one-to-one.
+export type IrPseudoState = "hover" | "focus" | "active" | "disabled";
+export type IrInteractive = Partial<Record<IrPseudoState, IrVisual>>;
+
 export type IrState = {
   device: IrDevice;
   // Which Framer breakpoint hashes hide this variant (the `ssr-variant`
@@ -189,6 +194,10 @@ export type IrState = {
   layout: IrLayout | null;
   box: IrBox | null;
   text: IrTextContent | null;
+  // Declarations from `:hover` / `:focus` / `:active` / `:disabled` rules for
+  // this device. They stay out of `visual` so the base look never inherits a
+  // state, and the mapper turns them into the rule's `states`.
+  interactive?: IrInteractive;
 };
 
 // One logical element. Per-device differences (B2/§4 point 5) arrive as
@@ -482,6 +491,21 @@ function asIrText(value: unknown): IrTextContent | null {
   };
 }
 
+const IR_PSEUDO_STATES: readonly IrPseudoState[] = ["hover", "focus", "active", "disabled"];
+
+function asIrInteractive(value: unknown): IrInteractive | undefined {
+  if (!isRecord(value)) return undefined;
+  const out: IrInteractive = {};
+  for (const state of IR_PSEUDO_STATES) {
+    const bag = value[state];
+    if (!isRecord(bag)) continue;
+    const visual: IrVisual = {};
+    for (const [key, entry] of Object.entries(bag)) if (typeof entry === "string") visual[key] = entry;
+    if (Object.keys(visual).length > 0) out[state] = visual;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function asIrState(value: unknown): IrState | undefined {
   if (!isRecord(value)) return undefined;
   const device = asString(value.device);
@@ -489,6 +513,7 @@ function asIrState(value: unknown): IrState | undefined {
   const hiddenAt = Array.isArray(value.hiddenAt)
     ? value.hiddenAt.filter((entry): entry is string => typeof entry === "string")
     : [];
+  const interactive = asIrInteractive(value.interactive);
   return {
     device,
     hiddenAt,
@@ -497,6 +522,7 @@ function asIrState(value: unknown): IrState | undefined {
     layout: asIrLayout(value.layout),
     box: asIrBox(value.box),
     text: asIrText(value.text),
+    ...(interactive === undefined ? {} : { interactive }),
   };
 }
 
