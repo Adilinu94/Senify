@@ -292,6 +292,14 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "publish_release",
       "delete_page",
       "upload_asset",
+      "create_style_rule",
+      "set_styles",
+      "update_asset",
+      "delete_asset",
+      "restore_asset",
+      "create_entry",
+      "update_entry",
+      "undo_batch",
     ]) {
       const schema = byName.get(name)?.outputSchema as
         | { type?: string; required?: string[] }

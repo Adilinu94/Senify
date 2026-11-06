@@ -290,6 +290,25 @@ const DELETE_RESULT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+const TRASH_RESULT_SCHEMA = {
+  type: "object",
+  properties: { trashed: { type: "string" } },
+  required: ["trashed"],
+  additionalProperties: false,
+} as const;
+
+const STYLE_RULE_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    name: { type: "string" },
+    kind: { type: "string" },
+    styles: { type: "object" },
+  },
+  required: ["id", "name", "kind", "styles"],
+  additionalProperties: true,
+} as const;
+
 const UPLOAD_RESULT_SCHEMA = {
   type: "object",
   properties: {
@@ -1123,6 +1142,7 @@ export const TOOLS: ToolDefinition[] = [
       },
       ["pageId", "baseDraftVersion"],
     ),
+    outputSchema: MUTATION_RESULT_SCHEMA,
     entity: (args) => `page:${String(args.pageId ?? "")}`,
     handler: async (context, args) => {
       const pageId = requireString(args, "pageId");
@@ -1577,6 +1597,7 @@ export const TOOLS: ToolDefinition[] = [
       },
       ["siteId", "pageId", "nodeId", "styles"],
     ),
+    outputSchema: STYLE_RULE_SCHEMA,
     entity: (args) => `page:${String(args.pageId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -1644,6 +1665,7 @@ export const TOOLS: ToolDefinition[] = [
       },
       ["siteId", "styles"],
     ),
+    outputSchema: STYLE_RULE_SCHEMA,
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -2187,6 +2209,7 @@ export const TOOLS: ToolDefinition[] = [
       },
       ["siteId", "assetId"],
     ),
+    outputSchema: ASSET_SCHEMA,
     entity: (args) => `asset:${String(args.assetId ?? "")}`,
     handler: async (context, args) => {
       const assetId = requireString(args, "assetId");
@@ -2251,6 +2274,7 @@ export const TOOLS: ToolDefinition[] = [
       "siteId",
       "assetId",
     ]),
+    outputSchema: TRASH_RESULT_SCHEMA,
     entity: (args) => `asset:${String(args.assetId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -2269,6 +2293,7 @@ export const TOOLS: ToolDefinition[] = [
       "siteId",
       "assetId",
     ]),
+    outputSchema: ASSET_SCHEMA,
     entity: (args) => `asset:${String(args.assetId ?? "")}`,
     handler: async (context, args) =>
       context.client.request(
@@ -2496,6 +2521,7 @@ export const TOOLS: ToolDefinition[] = [
       },
       ["siteId", "collectionId"],
     ),
+    outputSchema: ENTRY_SCHEMA,
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -2530,6 +2556,7 @@ export const TOOLS: ToolDefinition[] = [
       },
       ["entryId", "baseVersion"],
     ),
+    outputSchema: ENTRY_SCHEMA,
     entity: (args) => `entry:${String(args.entryId ?? "")}`,
     handler: async (context, args) => {
       const entryId = requireString(args, "entryId");
