@@ -96,13 +96,16 @@ export class ExternalHistoryController {
     if (this.#disposed || this.#navigation !== null || this.#state.status === "running") return false;
     const route = this.#store.history.routeTo(entryId);
     if (route === null) return false;
-    return route.every((step) => !step.entry.external || (this.#runners.has(step.entry.id) && this.#clean() && this.#pipeline.externalVersions().themeVersion !== null));
+    const save = this.#pipeline.state();
+    if (["conflict", "error"].includes(save.status) || save.unsupported.length > 0) return false;
+    return route.every((step) => !step.entry.external ||
+      (this.#runners.has(step.entry.id) && this.#pipeline.externalVersions().themeVersion !== null));
   }
 
   async navigate(direction: HistoryDirection): Promise<boolean> {
     if (!this.canNavigate(direction)) return false;
     const entry = this.#store.history.navigationEntry(direction)!;
-    if (!(entry as any).external) {
+    if (!entry.external) {
       this.#state = { status: "idle" };
       return direction === "undo" ? this.#store.undo() : this.#store.redo();
     }
@@ -115,23 +118,31 @@ export class ExternalHistoryController {
     return this.#run(this.#navigation);
   }
 
-  // Stepwise jump through the ordinary navigation gate. Local steps move the
-  // cursor through store patches; external steps run their registered runner and
-  // adopt the confirmed server state before the next step starts. Stops at the
-  // last confirmed step on rejection, unknown/incomplete confirmation, or a
-  // route that becomes inapplicable.
+  // Stepwise jump through the ordinary navigation gate. Pending local saves are
+  // flushed before an external step so the server call starts from a clean base;
+  // a route that changed meanwhile (new input, another observer) stops before
+  // any unconfirmed step. Stops at the last confirmed step on rejection,
+  // unknown/incomplete confirmation, or a route that becomes inapplicable.
   async restoreTo(entryId: string): Promise<boolean> {
     this.reconcile();
     if (this.#disposed || this.#navigation !== null || this.#state.status === "running") return false;
     const route = this.#store.history.routeTo(entryId);
     if (route === null || route.length === 0) return false;
-    let changed = false;
     for (const step of route) {
-      const ok = await this.navigate(step.direction);
-      if (!ok) return false; // stopped at last confirmed step
-      changed = true;
+      if (this.#disposed || this.#navigation !== null) return false;
+      if (this.#store.history.navigationEntry(step.direction)?.id !== step.entry.id) return false;
+      if (step.entry.external && !this.#clean()) {
+        try {
+          await this.#pipeline.flush();
+        } catch {
+          return false;
+        }
+        if (this.#disposed || this.#navigation !== null || !this.#clean() ||
+            this.#store.history.navigationEntry(step.direction)?.id !== step.entry.id) return false;
+      }
+      if (!(await this.navigate(step.direction))) return false;
     }
-    return changed;
+    return true;
   }
 
   async retry(): Promise<boolean> {

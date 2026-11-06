@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEditorSession, type ExternalHistoryResult, type SaveRequest } from "@senify/editor/state";
+import { createEditorSession, type SaveRequest } from "@senify/editor/state";
 import { baseStore, classRule } from "./fixtures.ts";
 
 function harness() {
@@ -370,7 +370,7 @@ describe("serverbestätigte externe History", () => {
 
 describe("restoreTo stepwise jumps", () => {
   it("führt gemischten Sprung über registrierten externen Schritt aus", async () => {
-    const { session } = harness();
+    const { session, marker } = harness();
     const store = session.store;
     store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
     const first = store.history.top()!;
@@ -381,16 +381,18 @@ describe("restoreTo stepwise jumps", () => {
     let calls = 0;
     session.registerExternalHistory(ext.id, async (request) => {
       calls += 1;
-      return { status: "committed", pageVersion: request.versions.pageVersion + 1, themeVersion: (request.versions.themeVersion ?? 0) + 1, registryVersion: request.versions.registryVersion };
+      return { status: "committed", pageVersion: request.versions.pageVersion + 1, themeVersion: (request.versions.themeVersion ?? 0) + 1, registryVersion: request.versions.registryVersion ?? undefined };
     });
     expect(session.canRestoreToAsync(first.id)).toBe(true);
-    const ok = await session.restoreToAsync(first.id);
-    expect({ ok, calls, state: session.externalHistoryState().status, cursor: store.history.cursor(), first: first.id }).toMatchObject({ ok: true, calls: 1 });
+    expect(await session.restoreToAsync(first.id)).toBe(true);
+    expect(calls).toBe(1);
+    expect(session.externalHistoryState().status).toBe("idle");
+    expect(store.history.applied().map((entry) => entry.id)).toEqual([marker.id, first.id]);
     expect(store.document.nodes["head000001"]?.props["text"]).toBe("A");
   });
 
   it("stoppt bei unknown und erlaubt Retry", async () => {
-    const { session } = harness();
+    const { session, marker } = harness();
     const store = session.store;
     store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
     const first = store.history.top()!;
@@ -402,29 +404,89 @@ describe("restoreTo stepwise jumps", () => {
     session.registerExternalHistory(ext.id, async (request) => {
       calls += 1;
       if (mode === "unknown") return { status: "unknown", message: "x" };
-      return { status: "committed", pageVersion: request.versions.pageVersion + 1, themeVersion: (request.versions.themeVersion ?? 0) + 1, registryVersion: request.versions.registryVersion };
+      return { status: "committed", pageVersion: request.versions.pageVersion + 1, themeVersion: (request.versions.themeVersion ?? 0) + 1, registryVersion: request.versions.registryVersion ?? undefined };
     });
-    const ok = await session.restoreToAsync(first.id);
-    expect({ ok, calls, state: session.externalHistoryState().status }).toMatchObject({ ok: false, calls: 1, state: "unresolved" });
+    expect(await session.restoreToAsync(first.id)).toBe(false);
+    expect(calls).toBe(1);
+    expect(session.externalHistoryState().status).toBe("unresolved");
+    expect(session.pendingExternalId).not.toBeNull();
+    expect(store.history.applied().map((entry) => entry.id)).toEqual([marker.id, first.id, ext.id]);
+    expect(store.document.nodes["head000001"]?.props["text"]).toBe("A");
     mode = "ok";
-    expect(await session.retryPendingExternalAsync()).toBe(true);
+    expect(await session.retryExternalHistory()).toBe(true);
     expect(calls).toBe(2);
-    expect(store.history.cursor()).toBe(first.id);
+    expect(store.history.applied().map((entry) => entry.id)).toEqual([marker.id, first.id]);
+    expect(session.externalHistoryState().status).toBe("idle");
   });
 
   it("führt mehrere externe Schritte aus und stoppt beim ersten unknown", async () => {
-    const { session } = harness();
+    const { session, marker } = harness();
     const store = session.store;
     store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
     const first = store.history.top()!;
     const ext1 = store.beginExternalAction({ label: "Eins", versionBefore: store.version, versionAfter: store.version + 1 }); store.commitExternalAction(ext1.id);
     const ext2 = store.beginExternalAction({ label: "Zwei", versionBefore: store.version, versionAfter: store.version + 1 }); store.commitExternalAction(ext2.id);
     await session.flush();
-    const calls = [];
-    session.registerExternalHistory(ext1.id, async (request) => { calls.push("ext1:" + request.direction); return { status: "committed", pageVersion: request.versions.pageVersion + 1, themeVersion: (request.versions.themeVersion ?? 0) + 1, registryVersion: request.versions.registryVersion }; });
+    const calls: string[] = [];
+    session.registerExternalHistory(ext1.id, async (request) => { calls.push("ext1:" + request.direction); return { status: "committed", pageVersion: request.versions.pageVersion + 1, themeVersion: (request.versions.themeVersion ?? 0) + 1, registryVersion: request.versions.registryVersion ?? undefined }; });
     session.registerExternalHistory(ext2.id, async (request) => { calls.push("ext2:" + request.direction); return { status: "unknown", message: "x" }; });
     expect(session.canRestoreToAsync(first.id)).toBe(true);
-    const ok = await session.restoreToAsync(first.id);
-    expect({ ok, calls, pending: session.pendingExternalId, ext2: ext2.id }).toMatchObject({ ok: false, calls: ["ext2:undo"], pending: ext2.id });
+    expect(await session.restoreToAsync(first.id)).toBe(false);
+    expect(calls).toEqual(["ext2:undo"]);
+    expect(session.externalHistoryState().status).toBe("unresolved");
+    expect(store.history.applied().map((entry) => entry.id)).toEqual([marker.id, first.id, ext1.id, ext2.id]);
+    expect(session.pendingExternalId).not.toBeNull();
+  });
+
+  it("stoppt vor einem externen Schritt ohne Runner und setzt nach Registrierung fort", async () => {
+    const { session, marker } = harness();
+    const store = session.store;
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
+    const first = store.history.top()!;
+    const ext = store.beginExternalAction({ label: "Token umbenennen", versionBefore: store.version, versionAfter: store.version + 1 });
+    store.commitExternalAction(ext.id);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "B" });
+    await session.flush();
+    expect(session.canRestoreToAsync(first.id)).toBe(false);
+    expect(await session.restoreToAsync(first.id)).toBe(false);
+    expect(store.history.applied().map((entry) => entry.id)).toEqual([marker.id, first.id, ext.id]);
+    let calls = 0;
+    session.registerExternalHistory(ext.id, async (request) => {
+      calls += 1;
+      return { status: "committed", pageVersion: request.versions.pageVersion + 1, themeVersion: (request.versions.themeVersion ?? 0) + 1, registryVersion: request.versions.registryVersion ?? undefined };
+    });
+    expect(session.canRestoreToAsync(first.id)).toBe(true);
+    expect(await session.restoreToAsync(first.id)).toBe(true);
+    expect(calls).toBe(1);
+    expect(store.history.applied().map((entry) => entry.id)).toEqual([marker.id, first.id]);
+  });
+
+  it("stoppt, wenn eine neue lokale Eingabe die Route während des Flushs ungültig macht", async () => {
+    const { session } = harness();
+    const store = session.store;
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
+    const first = store.history.top()!;
+    const ext = store.beginExternalAction({ label: "Token umbenennen", versionBefore: store.version, versionAfter: store.version + 1 });
+    store.commitExternalAction(ext.id);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "B" });
+    await session.flush();
+    let calls = 0;
+    session.registerExternalHistory(ext.id, async (request) => {
+      calls += 1;
+      return { status: "committed", pageVersion: request.versions.pageVersion + 1, themeVersion: (request.versions.themeVersion ?? 0) + 1, registryVersion: request.versions.registryVersion ?? undefined };
+    });
+    let inserted = false;
+    const unsubscribe = session.subscribe(() => {
+      if (inserted || session.saveState().status !== "saving") return;
+      inserted = true;
+      session.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "C" });
+    });
+    try {
+      expect(await session.restoreToAsync(first.id)).toBe(false);
+      expect(inserted).toBe(true);
+      expect(calls).toBe(0);
+      expect(store.document.nodes["head000001"]?.props["text"]).toBe("C");
+      expect(store.history.future()).toEqual([]);
+    } finally { unsubscribe(); }
   });
 });

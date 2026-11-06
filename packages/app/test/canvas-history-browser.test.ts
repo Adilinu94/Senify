@@ -14,6 +14,8 @@ type HarnessScope = {
   __calls: ExternalHistoryRequest[];
   __release(result: ExternalHistoryResult): void;
   __register(): void;
+  __registerId(id: string): void;
+  __makeExternal(label: string): string;
   __writes: number;
   __messages: number;
   __mismatch(): string;
@@ -41,6 +43,15 @@ const HARNESS = `<!doctype html><html lang="de"><head><meta charset="utf-8"><tit
     globalThis.__calls.push(request);
     return new Promise((resolve) => { globalThis.__release = resolve; });
   });
+  globalThis.__registerId = (id) => session.registerExternalHistory(id, (request) => {
+    globalThis.__calls.push(request);
+    return new Promise((resolve) => { globalThis.__release = resolve; });
+  });
+  globalThis.__makeExternal = (label) => {
+    const created = session.beginExternalAction({ label, versionBefore: session.version, versionAfter: session.version + 1 });
+    session.commitExternalAction(created.id);
+    return created.id;
+  };
   globalThis.__session = session;
   globalThis.__messages = 0;
   globalThis.__mismatch = () => {
@@ -175,6 +186,34 @@ describe.skipIf(!browserAvailable)("serverbestätigte Canvas-Navigation im Brows
       expect((await probe(tab)).cursor).toBe(2);
       expect(await tab.evaluate(() => (globalThis as unknown as HarnessScope).__canvas.undo())).toBe(true);
       expect(await tab.evaluate(() => (globalThis as unknown as HarnessScope).__canvas.redo())).toBe(true);
+      expect(errors).toEqual([]);
+    } finally { await tab.close(); }
+  }, 120000);
+
+  it("springt im Verlauf über einen externen Schritt und bestätigt erst nach Runner-Antwort", async () => {
+    const { tab, errors } = await open();
+    try {
+      const first = await tab.evaluate(() => {
+        const scope = globalThis as unknown as HarnessScope;
+        scope.__session.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
+        return scope.__session.store.history.top()!.id;
+      });
+      await tab.evaluate(() => (globalThis as unknown as HarnessScope).__session.flush());
+      const external = await tab.evaluate(() => (globalThis as unknown as HarnessScope).__makeExternal("Token umbenennen"));
+      await tab.evaluate(() => (globalThis as unknown as HarnessScope).__session.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "B" }));
+      await tab.evaluate(() => (globalThis as unknown as HarnessScope).__session.flush());
+      await tab.evaluate((id) => (globalThis as unknown as HarnessScope).__registerId(id), external);
+      await tab.locator('[data-action="history"]').click();
+      await tab.locator(`[data-entry-id="${first}"]`).click();
+      await expect.poll(async () => (await probe(tab)).calls.length).toBe(1);
+      expect((await probe(tab)).calls[0]).toMatchObject({ entryId: external, direction: "undo" });
+      expect((await probe(tab)).text).toBe("A");
+      expect((await probe(tab)).cursor).toBe(3);
+      expect(await tab.locator(".senify-history__row").first().isDisabled()).toBe(true);
+      await confirm(tab);
+      await expect.poll(async () => (await probe(tab)).cursor).toBe(2);
+      expect((await probe(tab)).text).toBe("A");
+      expect((await probe(tab)).versions.themeVersion).toBe(2);
       expect(errors).toEqual([]);
     } finally { await tab.close(); }
   }, 120000);
