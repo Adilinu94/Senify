@@ -370,13 +370,14 @@ function diffValues(
 
 type Ids = { next: number };
 
-function newId(ids: Ids): string {
+function newId(ids: Ids, prefix: string): string {
   ids.next += 1;
-  return `fi${ids.next}`;
+  return `${prefix}${ids.next}`;
 }
 
 type MapContext = {
   ids: Ids;
+  idPrefix: string;
   nodes: Record<string, EditorNode>;
   classByNode: Map<string, string>;
   nodeIdByIrKey: Record<string, string>;
@@ -393,7 +394,7 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
   const siblings = mergeSiblingVariants(node.children, context.breakpoints, foldStats);
   context.stats.mergedVariants += foldStats.merged;
   const merged = mergeStates(node.states);
-  const id = newId(context.ids);
+  const id = newId(context.ids, context.idPrefix);
   // The primitive decision runs AFTER the sibling merge: the merged children
   // decide whether a `list` stays a list or degrades to a frame.
   let primitive = primitiveFor(node, siblings);
@@ -866,9 +867,11 @@ function styleRulesOf(normalized: NormalizedStyleRule[]): StyleRule[] {
 export function mapDocument(
   document: FramerIrDocument,
   normalized: NormalizedStyleRule[],
+  options: { nodeIdPrefix?: string } = {},
 ): MapperResult {
   const context: MapContext = {
     ids: { next: 0 },
+    idPrefix: options.nodeIdPrefix ?? "fi",
     nodes: {},
     classByNode: new Map(normalized.flatMap((rule) => rule.device === "desktop" ? rule.nodeKeys.map((key) => [key, rule.name] as const) : [])),
     breakpoints: new Map(

@@ -24,6 +24,18 @@ describe("mapDocument", () => {
     }
   });
 
+  it("scopes node ids per page so the site-wide CSS cannot collide", () => {
+    const document = captureFixture(join(FIXTURES, "framer-stupendous-football-158496"));
+    const normalized = normalize(document);
+    const first = mapDocument(document, normalized.rules, { nodeIdPrefix: "fi-aaaaaa-" });
+    const second = mapDocument(document, normalized.rules, { nodeIdPrefix: "fi-bbbbbb-" });
+    const firstIds = Object.keys(first.document.nodes).filter((id) => id !== "root");
+    const secondIds = new Set(Object.keys(second.document.nodes).filter((id) => id !== "root"));
+    expect(firstIds.length).toBeGreaterThan(0);
+    expect(firstIds.every((id) => id.startsWith("fi-aaaaaa-"))).toBe(true);
+    expect(firstIds.some((id) => secondIds.has(id))).toBe(false);
+  });
+
   it("keeps structurally different header variants, each visible on its own device only", () => {
     const document = captureFixture(join(FIXTURES, "framer-fluffy-rectangle-418998"));
     const normalized = normalize(document);

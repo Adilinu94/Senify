@@ -13,7 +13,7 @@ import type { StyleRule } from "@senify/widget-engine";
 import { captureFixture, captureHtml, type CaptureHtmlInput } from "./capture-html.ts";
 import { captureBrowser } from "./capture-browser.ts";
 import type { FramerIrDocument, IrFinding, IrNode } from "./ir.ts";
-import { normalize, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
+import { normalize, ruleScopeOf, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
 import { mapDocument, type MapperResult, type ThemePatch } from "./mapper.ts";
 import { buildFidelityReport, type FidelityReport } from "./fidelity.ts";
 import { importAssets, type AssetReport, type AssetUploader } from "./assets.ts";
@@ -163,7 +163,11 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
 
   const payloads = input.source.kind === "mirror" ? extractPayloads({ document, rootDir: input.source.rootDir }) : [];
   const normalized = normalize(document, { mode: input.mode ?? "dna" });
-  const mapped = mapDocument(document, normalized.rules);
+  // Framer reuses node ids like `fi27` on every page. The bake compiles one
+  // site-wide stylesheet keyed by data-node-id, so imported pages must not
+  // share them; scope the mapped ids by the same page hash as the style rules.
+  const nodeIdPrefix = `fi-${ruleScopeOf(document.pages[0]?.path ?? "/")}-`;
+  const mapped = mapDocument(document, normalized.rules, { nodeIdPrefix });
   const motion = mapFramerMotion(document);
   for (const mapping of motion.mappings) {
     const editorNodeId = mapping.nodeKey === null ? undefined : mapped.nodeIdByIrKey[mapping.nodeKey];

@@ -103,7 +103,9 @@ export async function importFramerSite(
         mode: "fidelity",
         write: true,
         createOnly: true,
-        expectedIrHash: hashes.get(page.path),
+        // Browser captures depend on hydration timing and the live page. The
+        // dry-run hash is a preview, not a stable contract for a second render.
+        ...(route?.browser === true ? {} : { expectedIrHash: hashes.get(page.path) }),
       });
       page.pageId = answer.report.pageId;
       if (answer.job.status !== "succeeded" || answer.report.assets.failed > 0) {

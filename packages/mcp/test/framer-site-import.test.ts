@@ -82,6 +82,40 @@ describe("importFramerSite", () => {
     }
   });
 
+  it("schreibt Browser-Routen ohne den Dry-Run-Hash, weil die Live-Aufnahme schwanken kann", async () => {
+    const rootDir = flattenedFixture();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      `<urlset><url><loc>https://site.test/</loc></url><url><loc>https://site.test/contact</loc></url><url><loc>https://site.test/blogs/a-post</loc></url></urlset>`,
+      { status: 200 },
+    )));
+    try {
+      const request = vi.fn().mockImplementation(async (_method, _path, body) => ({
+        job: { status: "succeeded" },
+        report: {
+          irHash: body.write ? `write${body.pagePath}` : `dry${body.pagePath}`,
+          pageId: body.write ? `id${body.pagePath}` : null,
+          findings: [],
+          assets: { failed: 0 },
+        },
+      }));
+      const result = await importFramerSite({ request } as unknown as EngineClient, {
+        siteId: "s1",
+        rootDir,
+        write: true,
+        sourceUrl: "https://site.test/",
+      });
+      expect(result.status).toBe("imported");
+      const writes = request.mock.calls.filter((call) => call[2].write === true);
+      expect(writes).toHaveLength(3);
+      expect(writes[0]?.[2]).toMatchObject({ expectedIrHash: "dry/" });
+      expect(writes[1]?.[2].expectedIrHash).toBeUndefined();
+      expect(writes[2]?.[2].expectedIrHash).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps the mirror block when the sitemap is unavailable", async () => {
     const rootDir = flattenedFixture();
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
