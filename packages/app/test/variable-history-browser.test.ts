@@ -56,6 +56,16 @@ async function fixture(exposeSession = false) {
     await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
   };
   const navigate = (direction: "undo" | "redo") => tab.locator(`.senify-canvas__button[data-action="${direction}"]`).click();
+  const openHistory = () => tab.getByRole("button", { name: "Verlauf", exact: true }).click();
+  const historyRows = () => tab.locator(".senify-history__row").evaluateAll((rows) => rows.map((row) => {
+    const element = row as unknown as { getAttribute(name: string): string | null; textContent: string | null; hasAttribute(name: string): boolean };
+    return {
+      id: element.getAttribute("data-entry-id") ?? "",
+      text: element.textContent ?? "",
+      disabled: element.hasAttribute("disabled"),
+    };
+  }));
+  const jumpTo = (id: string) => tab.locator(`.senify-history__row[data-entry-id="${id}"]`).click();
   const deleteClass = async () => {
     await tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="frame00001"]').click();
     await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
@@ -69,7 +79,7 @@ async function fixture(exposeSession = false) {
     const saved = JSON.parse(sessionStorage.getItem(`senify:editor-history:${siteId}:${pageId}`) ?? "null");
     return sessionStorage.getItem(`senify:pending-variable:${siteId}:${pageId}`) === null && saved?.checkpoint.history.cursor === cursor;
   }, { siteId: site.id, pageId: page.id, cursor })).toBe(true);
-  return { tab, site, page, request, ready, saved, getPage, getTheme, getRules, rawRules, history, addHeading, deleteVariable, deleteClass, checkpointAt, navigate, async close() {
+  return { tab, site, page, request, ready, saved, getPage, getTheme, getRules, rawRules, history, addHeading, deleteVariable, deleteClass, checkpointAt, navigate, openHistory, historyRows, jumpTo, async close() {
     await browser.close();
     await running.close();
     await database.close();
@@ -505,6 +515,47 @@ describe.skipIf(!browserAvailable)("gemeinsame Variablen-History in der App", ()
       await f.tab.reload();
       await f.ready();
       expect(await f.tab.locator('.senify-canvas__button[data-action="redo"]').isDisabled()).toBe(true);
+    } finally { await f.close(); }
+  }, 120_000);
+
+  it("springt im Verlauf über einen externen Delete-Schritt und führt lokale und externe Schritte in Reihenfolge aus", async () => {
+    const f = await fixture(true);
+    const settle = async () => {
+      await expect.poll(() => f.tab.evaluate("window.__historyTestSession.externalHistoryState().status"), { timeout: 20000 }).toBe("idle");
+      await f.saved();
+    };
+    try {
+      await f.addHeading();
+      await f.deleteVariable();
+      await f.tab.getByRole("status").getByText("Variable gelöscht.").waitFor();
+      await f.tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="frame00001"]').click();
+      await f.tab.locator('.senify-inspector__tab[data-tab="style"]').click();
+      await f.tab.getByRole("combobox", { name: "Vorhandene Klasse hinzufügen" }).selectOption({ label: "gemeinsam" });
+      await f.saved();
+      const background = f.tab.locator('.senify-inspector__field[data-key="background"] input[data-control="color-text"]');
+      await background.fill("#abcdef");
+      await background.dispatchEvent("change");
+      await f.saved();
+      await f.openHistory();
+      const rows = await f.historyRows();
+      const deleteIndex = rows.findIndex((row) => row.text.includes("Variable color.marker gelöscht"));
+      expect(deleteIndex).toBeGreaterThan(0);
+      const target = rows[deleteIndex + 1];
+      expect(target?.disabled).toBe(false);
+      await f.jumpTo(target!.id);
+      await expect.poll(async () => (await f.getTheme()).theme.tokens.primitive.color.marker).toBe("#123456");
+      await settle();
+      expect((await f.getRules()).rules.find((rule) => rule.name === "gemeinsam")?.styles.background).toBe("#ffffff");
+      expect(Object.values((await f.getPage()).draft.nodes).filter((node) => node.type === "heading")).toHaveLength(1);
+      const afterUndo = await f.historyRows();
+      const newest = afterUndo[0]!;
+      expect(newest.disabled).toBe(false);
+      await f.jumpTo(newest.id);
+      await expect.poll(async () => (await f.getTheme()).theme.tokens.primitive.color.marker).toBeUndefined();
+      await settle();
+      expect((await f.getRules()).rules.find((rule) => rule.name === "gemeinsam")?.styles.background).toBe("#abcdef");
+      expect(Object.values((await f.getPage()).draft.nodes).filter((node) => node.type === "heading")).toHaveLength(1);
+      await f.tab.getByRole("button", { name: "Verlauf schließen" }).click();
     } finally { await f.close(); }
   }, 120_000);
 
