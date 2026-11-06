@@ -1,6 +1,6 @@
 # Elementor-V4-Abnahme, 06.11.2026
 
-Status: **Interaktive Referenzaufnahme des Core-Editors abgeschlossen, Senify-Parität offen.** Kein Paritätsnachweis, keine Pro-Abnahme. Die Aufnahme ergänzt die Recherche in `elementor-v4-editor.md` um tatsächlich ausgeführte Zustände und eine bestätigte Speicherung.
+Status: **Interaktive Referenzaufnahme des Core-Editors und Variablen-Anlage belegt; globale Klassenverwaltung in dieser Core-Version nicht exponiert; Senify-Parität offen.** Kein Paritätsnachweis, keine Pro-Abnahme. Die Aufnahme ergänzt die Recherche in `elementor-v4-editor.md` um tatsächlich ausgeführte Zustände, eine bestätigte Speicherung und die Grenzen der Klassen-/Variablenabläufe.
 
 ## Umgebung
 
@@ -61,15 +61,33 @@ Der Live-Vergleich mit dem Senify-Editor war in dieser Umgebung nicht möglich, 
 | Tablet/Mobile über Topbar | Drei Geräte-Frames | Umschaltung, Breiten und Zustandsdarstellung vergleichen |
 | Pro-Markierungen an Atomic Form, Custom Widget, Pro-Widgets und Custom CSS | keine Pro-Funktionen | Pro-Referenz und Entscheidung nötig; mit Core nicht prüfbar |
 
-Die Klassenpriorität bleibt wie in der Recherche beschrieben: lokal vor global; in der globalen Liste steht oben die stärkere Klasse. Senify speichert stärkere Regeln weiterhin am Ende; der Compiler weicht bei der Reihenfolge von lokalen und Klassenwerten ab. Das ist keine Parität und braucht eine eigene Migrations- und Kaskadenabnahme.
+Die Klassenpriorität aus der Recherche konnte in der installierten Core-Version nicht live geprüft werden, weil die globale Klassenverwaltung nicht exponiert ist: Variablen lassen sich anlegen und speichern, Klassen dagegen nicht global anlegen oder bearbeiten. Die frühere Annahme (lokal vor global, obere Klassen stärker) bleibt damit Dokumentationsstand. Senify speichert stärkere Regeln weiterhin am Ende; der Compiler weicht bei der Reihenfolge von lokalen und Klassenwerten ab. Das ist keine Parität und braucht eine eigene Migrations- und Kaskadenabnahme.
 
 ## Grenzen
 
 - Nur Elementor Core 4.3.6; Atomic Form, Custom Widget, Pro-Widgets und Custom CSS sind Upgrade-/Pro-Flächen und wurden nicht ausgeführt.
-- Die **Anlege-, Such-, Umbenenn- und Löschabläufe** für Variablen und Klassen wurden nicht ausgeführt; aufgenommen sind die leeren Zustände und die Class-Manager-Einführung.
-- Die klassischen Widgets mit `General/Style` wurden nicht separat live geöffnet; die früheren Referenzbilder decken diese Oberfläche nur als Dokumentation ab.
+- Die **Variablen-Anlage, das Speichern und die Persistenz** sind belegt; der Farbwert-Picker, die Font-Variable sowie Nutzung, Umbenennen und Löschen von Variablen bleiben offen. Die **globale Klassenverwaltung** ist in dieser Core-Installation nicht exponiert: Die Classes-Liste bleibt leer, die lokale CSS-Klasse erscheint auch nach dem Publish nicht, und die Element-Style-Panels haben keine Classes-Zeile. Ein Pro-/Experiment-/Versionsvergleich ist dafür nötig.
+- Der klassische Text Editor wurde live geöffnet; er nutzt in 4.3.6 ebenfalls `Content/Style/Advanced` ohne Classes-Zeile. Die früheren Referenzbilder mit `General/Style` sind nicht die live installierte Ansicht; sie stammen aus einer anderen Dokumentationsversion.
 - Die KI-Aktionen (Angie, Write with AI) und die Ally-Installation wurden nicht ausgeführt.
 - Der Senify-Live-Vergleich und die Pixel-/Interaktionsparität sind offen (lokale Datenbank nicht startfähig).
+
+## Klassen- und Variablenabläufe, 06.11.2026
+
+**Variablen (Core):**
+- Der `+` in **Design System → Variables** öffnet das Typ-Menü **Color, Font, Size**; Size trägt die Pro-Krone und wurde nicht angelegt.
+- **Color** legt eine Zeile mit Name/Wert an (Standard `color-1`/`#ffffff`), inklusive Drag-Griff, Referenz-Icon, Namensfeld und Kebab-Menü.
+- Umbenannt in `abnahme-farbe`; **Save changes**; nach einem neuen Login ist die Zeile weiterhin vorhanden.
+- Der Farbwert blieb `#ffffff`: Ein Klick auf den Wert öffnete keinen bearbeitbaren Hex-Editor; die anschließende Tastatureingabe selektierte die Seite. Der Farbwert-Picker ist noch nicht abgenommen. Font-Variable, Nutzung, Umbenennen und Löschen mit Nutzungswarnung bleiben offen.
+- Belege: [variable-type-menu](elementor-captures-2026-11-06/variable-type-menu.png), [variable-color-row](elementor-captures-2026-11-06/variable-color-row.png), [variable-saved](elementor-captures-2026-11-06/variable-saved.png), [variable-persisted](elementor-captures-2026-11-06/variable-persisted.png).
+
+**Klassen (Core 4.3.6):**
+- Der Tab **Classes** zeigt Filter, Zähler 0 und die Meldung „There are no global classes yet. CSS classes created in the editor panel will appear here…“; ein Anlege-Element oder eine Klassenzeile fehlt. Der Intro-Dialog beschreibt Priorität, Umbenennen, Löschen und die Wirkung über alle Elemente der Klasse.
+- Das **Advanced → CSS Classes**-Feld des atomaren Headings nimmt `abnahme-text` an (Publish wird aktiv). Nach dem Publish bleibt die globale Klassenliste weiterhin bei 0. Die lokale CSS-Klasse ist kein globaler Klassenbeleg.
+- Weder das atomare Heading (`Content/Style/Advanced`), noch der Container (`Layout/Style/Advanced`), noch der klassische Text Editor (`Content/Style/Advanced`) zeigen eine **Classes**-Zeile im Style. Die vorhandenen Referenzbilder mit `General/Style` und `Classes/Layout/Spacing/Size/Position/Typography/Background/Border/Effects` sind **nicht** die live installierte Core-4.3.6-Ansicht.
+- Die globale Klassenverwaltung (Priorität, Umbenennen, Löschen) ist in dieser Core-Installation daher nicht ausführbar. Die Oberfläche und der Intro-Text sind vorhanden, der Anlege-/Bearbeitungsweg fehlt. Das ist ein Feature-/Versionsblocker, kein Testfehler; eine Pro-/Experiment-Referenz oder eine andere Elementor-Version ist für diesen Punkt nötig.
+- Belege: [classes-after-publish](elementor-captures-2026-11-06/classes-after-publish.png), [class-local-field](elementor-captures-2026-11-06/class-local-field.png), [container-style](elementor-captures-2026-11-06/container-style.png), [classic-text-editor-style](elementor-captures-2026-11-06/classic-text-editor-style.png).
+
+**Bewertung:** Variablen-Anlage, Speichern und Persistenz sind belegt; die Klassenverwaltung ist in der installierten Core-Version nicht exponiert. Die frühere Annahme, die Referenzbilder zeigten den live installierten Editor, ist damit korrigiert.
 
 ## Belege
 
