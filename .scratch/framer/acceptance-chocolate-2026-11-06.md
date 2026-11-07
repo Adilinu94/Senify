@@ -23,6 +23,13 @@ Framer vergibt auf jeder Seite dieselben Knoten-IDs (`fi27` usw.). Der site-weit
 - Eine veröffentlichte Seite unter `/404` ersetzt jetzt den statischen Astro-Fallback. Die Preview liefert die importierte 404-Seite mit 1448 px (Original 1418 px) und 0,800 Textüberlappung. Der Framer-Originallauf meldet auf `/404` selbst einen Konsolenfehler; die Senify-Preview bleibt fehlerfrei.
 - Grenze: Die SVGs sind statische Bilder, keine einzeln editierbaren Pfade. `data:`-Bilder mit CSS-Variablen in Füllungen können auf ihren Fallback zurückfallen.
 
+## Farbtoken, Theme-Patch und Farbschema (07.11.2026)
+
+- `--apply-theme` ist im Seitenkoordinator und im CLI verfügbar; der Font-Patch wird nur mit der ersten geschriebenen Seite angewendet, damit ein Mehrseitenimport nicht pro Seite eine neue Theme-Version erzeugt.
+- Framer-Rohvariablen (`--token-<uuid>`) werden in Regeln und Knoten-Props zu konkreten Farbwerten aufgelöst. Unbekannte Variablen behalten ihren CSS-Fallback. Tests: `import-fidelity.test.ts`.
+- Der Browser-Capture pinnt jetzt das helle Farbschema (`colorScheme: "light"`), damit ein geerbtes OS-Dunkelschema nicht die andere Palette ins IR schreibt. Test: `capture-browser.test.ts`.
+- **Offen bleibt der Moduswechsel:** Die Originalseite invertiert ihre Palette unter `prefers-color-scheme` (helles Schema: dunkler Hintergrund; dunkles Schema: heller Hintergrund). Die Preview bleibt trotz Token-Auflösung und Theme-Patch hell, während der Vergleich das dunkle Original zeigt. Ein zusätzlicher dunkler Body-Hintergrund änderte den Pixel-Diff nicht, weil die Abschnitts-/Klassenflächen selbst hell bleiben. Die Farbmodus-Regeln müssen künftig modusbewusst aufgelöst werden.
+
 Messung Original gegen Senify-Preview, 1440 px, vollflächig (Wortmengen-Überlappung; die früheren 1,000-Werte stammten aus einer anderen Textzählung):
 
 | Route | Textüberlappung vorher | Textüberlappung nachher | Höhe Original | Höhe vorher | Höhe nachher |
@@ -50,7 +57,7 @@ Der Pixelvergleich bleibt bei 81–97 % Abweichung (`/about` 0,896). Die Text- u
 
 1. **Dekorative Pseudo-Elemente und Hintergrundtexturen:** 31–39 Struktur-/Pseudo-Regeln werden nicht übernommen; dadurch fehlen Flächen, Muster und einzelne Rahmen.
 2. **SVG-Bearbeitbarkeit:** Icons liegen als statische, inerte Bilder vor. Einzelne Pfade, Farbvarianten und Symbolbibliotheken sind nicht editierbar.
-3. **Pixel-/Font-/Motion-Parität:** Der visuelle Diff bleibt hoch; Schriftglättung, Gewichte, Abstände und Bilder unterscheiden sich. Eine zeitliche Motion-Gegenprobe wurde nicht ausgeführt.
+3. **Farbmodus und Pixel-/Font-/Motion-Parität:** Der helle/dunkle Modus der Originalseite wird nicht durchgängig übernommen; die Preview bleibt hell, das Original dunkel. Zusätzlich unterscheiden sich Schriftglättung, Gewichte, Abstände und Bilder. Eine zeitliche Motion-Gegenprobe wurde nicht ausgeführt.
 4. **`/blog/pto…`:** Höhe 2515 statt 3053; Text ist vollständig, aber mindestens ein dekorativer/visueller Abschnitt fehlt.
 5. **Framer-Interaktionen:** Nicht alle Hover-/Scroll-/In-View-Interaktionen sind als Senify-Motion abgebildet; die bekannten Grenzen aus der vorherigen Relay-Abnahme gelten weiter.
 6. **RuntimeFreeVerified:** Der statische Scan und der fehlerfreie Browserlauf belegen keine vollständige Netzwerk- und Zeitverhaltensfreiheit.
