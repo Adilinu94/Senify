@@ -1,6 +1,6 @@
 # Framer-Echtabnahme: Chocolate (`chocolate-attributes-385353.framer.app`)
 
-Stand: 07.11.2026 · Status: **teilweise, mit behobenem Layoutblocker, SVG-Icons und eigener 404-Seite** · Quelle: veröffentlichte Framer-Site und Unframer-MCP-Zugang (Zugang nur über Umgebungsvariablen, keine Secrets in dieser Datei).
+Stand: 07.11.2026 · Status: **teilweise, mit behobenem Layoutblocker, SVG-Icons, eigener 404-Seite und erhaltener Body-/Farbschema-Palette** · Quelle: veröffentlichte Framer-Site und Unframer-MCP-Zugang (Zugang nur über Umgebungsvariablen, keine Secrets in dieser Datei).
 
 ## Inventar
 
@@ -28,9 +28,11 @@ Framer vergibt auf jeder Seite dieselben Knoten-IDs (`fi27` usw.). Der site-weit
 - `--apply-theme` ist im Seitenkoordinator und im CLI verfügbar; der Font-Patch wird nur mit der ersten geschriebenen Seite angewendet, damit ein Mehrseitenimport nicht pro Seite eine neue Theme-Version erzeugt.
 - Framer-Rohvariablen (`--token-<uuid>`) werden in Regeln und Knoten-Props zu konkreten Farbwerten aufgelöst. Unbekannte Variablen behalten ihren CSS-Fallback. Tests: `import-fidelity.test.ts`.
 - Der Browser-Capture pinnt jetzt das helle Farbschema (`colorScheme: "light"`), damit ein geerbtes OS-Dunkelschema nicht die andere Palette ins IR schreibt. Test: `capture-browser.test.ts`.
-- **Offen bleibt der Moduswechsel:** Die Originalseite invertiert ihre Palette unter `prefers-color-scheme` (helles Schema: dunkler Hintergrund; dunkles Schema: heller Hintergrund). Die Preview bleibt trotz Token-Auflösung und Theme-Patch hell, während der Vergleich das dunkle Original zeigt. Ein zusätzlicher dunkler Body-Hintergrund änderte den Pixel-Diff nicht, weil die Abschnitts-/Klassenflächen selbst hell bleiben. Die Farbmodus-Regeln müssen künftig modusbewusst aufgelöst werden.
+- **Behoben (07.11.2026):** Der statische Parser hat keine Media-Auswertung. `prefers-color-scheme`-Blöcke werden jetzt für das gepinnte helle Schema aufgelöst: Der helle Block wird entpackt, der dunkle verworfen. Framer-Rohfarben (`--token-*`) werden in Regeln, Knoten-Props und inerten SVG-Daten-URIs konkretisiert. Die berechnete Body-Palette wird vom `body`-Regelsatz auf den Root-Knoten übernommen und im Page-Layout auf `<body>` gesetzt.
+- **Nachmessung `/about` (1440 px):** Body `rgb(15, 14, 13)`, Überschrift `rgb(250, 250, 249)`, Höhe 5557 px (Original 5537 px), Pixel-Diff 8,3 % (vorher 89,6 %). Die übrigen Routen wurden in diesem Lauf nicht neu gemessen; die Tabellenwerte unten sind der Stand vor dem Farbmodus-Fix.
+- **Grenze:** Der Import bildet das aktive helle Farbschema ab. Ein echter Dual-Modus mit separaten Light-/Dark-Varianten wird nicht als zwei Zustände gespeichert.
 
-Messung Original gegen Senify-Preview, 1440 px, vollflächig (Wortmengen-Überlappung; die früheren 1,000-Werte stammten aus einer anderen Textzählung):
+Messung vor dem Farbmodus-Fix, Original gegen Senify-Preview, 1440 px, vollflächig (Wortmengen-Überlappung; die früheren 1,000-Werte stammten aus einer anderen Textzählung):
 
 | Route | Textüberlappung vorher | Textüberlappung nachher | Höhe Original | Höhe vorher | Höhe nachher |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -57,7 +59,7 @@ Der Pixelvergleich bleibt bei 81–97 % Abweichung (`/about` 0,896). Die Text- u
 
 1. **Dekorative Pseudo-Elemente und Hintergrundtexturen:** 31–39 Struktur-/Pseudo-Regeln werden nicht übernommen; dadurch fehlen Flächen, Muster und einzelne Rahmen.
 2. **SVG-Bearbeitbarkeit:** Icons liegen als statische, inerte Bilder vor. Einzelne Pfade, Farbvarianten und Symbolbibliotheken sind nicht editierbar.
-3. **Farbmodus und Pixel-/Font-/Motion-Parität:** Der helle/dunkle Modus der Originalseite wird nicht durchgängig übernommen; die Preview bleibt hell, das Original dunkel. Zusätzlich unterscheiden sich Schriftglättung, Gewichte, Abstände und Bilder. Eine zeitliche Motion-Gegenprobe wurde nicht ausgeführt.
+3. **Pixel-/Font-/Motion-Parität und Sicherheits-Hintergrundbilder:** `/about` liegt nach dem Farbmodus-Fix bei 8,3 % Pixel-Diff; die übrigen Routen wurden nicht neu gemessen. Die Security-Zeile zeigt noch gebrochene Hintergrundbilder; Schriftglättung, Gewichte, Abstände und Bilder unterscheiden sich. Eine zeitliche Motion-Gegenprobe fehlt. Ein echter Dual-Modus mit separaten Light-/Dark-Varianten bleibt offen.
 4. **`/blog/pto…`:** Höhe 2515 statt 3053; Text ist vollständig, aber mindestens ein dekorativer/visueller Abschnitt fehlt.
 5. **Framer-Interaktionen:** Nicht alle Hover-/Scroll-/In-View-Interaktionen sind als Senify-Motion abgebildet; die bekannten Grenzen aus der vorherigen Relay-Abnahme gelten weiter.
 6. **RuntimeFreeVerified:** Der statische Scan und der fehlerfreie Browserlauf belegen keine vollständige Netzwerk- und Zeitverhaltensfreiheit.
