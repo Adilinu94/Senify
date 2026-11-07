@@ -91,6 +91,7 @@ describe("capture fidelity", () => {
     const decoded = decodeURIComponent(src.split(",").slice(1).join(","));
     expect(decoded).toContain("<circle");
     expect(decoded).toContain("color:rgb(1,2,3)");
+    expect(decoded).toContain('xmlns="http://www.w3.org/2000/svg"');
   });
 
   it("rejects executable SVG markup instead of embedding it", () => {

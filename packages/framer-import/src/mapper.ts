@@ -128,8 +128,13 @@ function safeSvgMarkup(svg: string | null, color: string | undefined): string | 
   if (tags.some((tag) => !SVG_TAGS.has(tag))) return null;
   const hrefs = [...markup.matchAll(/(?:xlink:href|href)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi)];
   if (hrefs.some((match) => !(match[2] ?? match[3] ?? match[4] ?? "").startsWith("#"))) return null;
-  const safeColor = color !== undefined && /^[#a-zA-Z0-9(),.%\s-]+$/.test(color) ? color : undefined;
   let result = markup;
+  // An inline SVG inherits the page namespace; a standalone data-URI image
+  // needs its own declaration or browsers refuse to parse it.
+  if (!/^<svg\b[^>]*\sxmlns\s*=/i.test(result)) {
+    result = result.replace(/^<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+  }
+  const safeColor = color !== undefined && /^[#a-zA-Z0-9(),.%\s-]+$/.test(color) ? color : undefined;
   if (safeColor !== undefined) {
     if (/^<svg\b[^>]*\sstyle\s*=/i.test(result)) {
       result = result.replace(
