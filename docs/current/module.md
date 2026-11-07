@@ -181,7 +181,7 @@ er laeuft selbst durch `packages` und meldet jede Datei ueber der Schwelle, die 
 | `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
 | `packages/editor/src/inspector/model.ts` | 1536 | das Modell des Inspektors |
 | `packages/engine/src/types.ts` | 1487 | die öffentlichen Typen der Engine; keine Logik |
-| `packages/editor/src/canvas/canvas.ts` | 1422 | die Bühne des Editors |
+| `packages/editor/src/canvas/canvas.ts` | 1421 | die Bühne des Editors |
 | `packages/engine/src/forms.ts` | 1285 | Formulare, Einsendungen und die Einsendungs-Ansicht. Der CSV-Export ist am 31.10.2026 als reine Formatierung nach `forms-csv.ts` gewandert (die Regeln einer Tabellenkalkulation: Trenner, RFC 4180, BOM, Formelanfang); was bleibt, ist das Fachgebiet - Snapshot, Token, Spam-Schutz, Benachrichtigungen, Sammlung aus dem Formular |
 | `packages/editor/src/state/operations.ts` | 1251 | die Editor-Operationen: ein Dispatcher (`applyEditorMutation`) und je eine Funktion pro Operation, dazu die gemeinsamen Pruefer fuer Katalog, Props, Styles und Motion. Die Pruefer teilen den Katalog und die Fehlerform - sie zu trennen hiesse, den Katalog zweimal zu lesen. Geteilt wird ueber `applyEditorMutation`, geprueft ueber `EditorStore` (`mutations.test.ts`, `history.test.ts`, `save-pipeline.test.ts`) |
 | `packages/engine/src/lifecycle.ts` | 1190 | der Release-Lebenszyklus in einem Fachgebiet: Revision, Re-Bake, Veroeffentlichung, Preview und Review gehoeren zusammen, weil ein Release ohne die anderen drei nicht entsteht; ein Schnitt muesste die gemeinsame Transaktion teilen |
