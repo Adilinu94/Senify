@@ -458,8 +458,9 @@ export function createProgram(): Command {
     .option("--write", "Seiten neu anlegen; vorhandene Seiten werden nicht überschrieben")
     .option("--source-url <url>", "Veröffentlichte URL für Sitemap und Browser-Capture flacher Unterseiten")
     .option("--asset-cache-dir <dir>", "Lokaler Asset-Cache aus `mirror prepare`")
+    .option("--apply-theme", "Theme-Patch des ersten geschriebenen Seite übernehmen")
     .option("--api <url>", "API-Basis-URL")
-    .action(async (quelle: string, options: { site: string; write?: boolean; api?: string; assetCacheDir?: string; sourceUrl?: string }) => {
+    .action(async (quelle: string, options: { site: string; write?: boolean; api?: string; assetCacheDir?: string; sourceUrl?: string; applyTheme?: boolean }) => {
       const secret = programTokenSecret();
       if (secret === undefined) throw new SenifyError("validation", "Kein Programm-Token gefunden");
       const client = new EngineClient({ apiUrl: resolveApiUrl(options), token: secret });
@@ -469,6 +470,7 @@ export function createProgram(): Command {
         write: options.write === true,
         ...(options.assetCacheDir === undefined ? {} : { assetCacheDir: options.assetCacheDir }),
         ...(options.sourceUrl === undefined ? {} : { sourceUrl: options.sourceUrl }),
+        ...(options.applyTheme === true ? { applyTheme: true } : {}),
       });
       console.log(JSON.stringify(result, null, 2));
       if (result.status === "blocked" || result.status === "partial") process.exitCode = 1;

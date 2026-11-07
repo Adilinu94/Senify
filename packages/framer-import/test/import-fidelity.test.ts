@@ -100,6 +100,30 @@ describe("capture fidelity", () => {
     expect(mapped.findings.some((finding) => finding.message.includes("SVG-Form nicht übernommen"))).toBe(true);
   });
 
+  it("resolves captured Framer color tokens in rules and props", () => {
+    const token = "11111111-1111-1111-1111-111111111111";
+    const html = page(
+      `<div class="x" style="color:var(--token-${token}, rgb(9,9,9))">Hallo</div>`,
+      `:root{--token-${token}: rgb(1, 2, 3)}.x{background-color:var(--token-${token})}`,
+    );
+    const { mapped, nodes } = run(html);
+    const values = `${mapped.document.styleRules.flatMap((rule) => Object.values(rule.styles)).join("|")}|${nodes.map((node) => JSON.stringify(node.props)).join("|")}`;
+    expect(values).toContain("rgb(1, 2, 3)");
+    expect(values).not.toContain(`var(--token-${token}`);
+    expect(nodes.find((node) => node.props["color"] !== undefined)?.props["color"]).toBe("rgb(1, 2, 3)");
+  });
+
+  it("keeps unknown Framer tokens with their fallback", () => {
+    const { mapped } = run(
+      page(
+        '<div class="x">Hallo</div>',
+        '.x{background-color:var(--token-22222222-2222-2222-2222-222222222222, rgb(4, 5, 6))}',
+      ),
+    );
+    const values = mapped.document.styleRules.flatMap((rule) => Object.values(rule.styles)).join("|");
+    expect(values).toContain("var(--token-22222222-2222-2222-2222-222222222222, rgb(4, 5, 6))");
+  });
+
   it("keeps the text between inline elements", () => {
     const { nodes } = run(page('<div data-framer-component-type="RichTextContainer"><p>Hallo <strong>fett</strong> Welt</p></div>'));
     const html = nodes.map((node) => String(node.props["html"] ?? "")).join("|");

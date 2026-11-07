@@ -39,7 +39,14 @@ function reportedSource(rootDir: string): string | undefined {
 // browser capture; structured exports keep using their local directory pages.
 export async function importFramerSite(
   client: EngineClient,
-  input: { siteId: string; rootDir: string; write: boolean; assetCacheDir?: string; sourceUrl?: string },
+  input: {
+    siteId: string;
+    rootDir: string;
+    write: boolean;
+    assetCacheDir?: string;
+    sourceUrl?: string;
+    applyTheme?: boolean;
+  },
 ): Promise<{
   status: "analyzed" | "blocked" | "partial" | "imported";
   pages: { path: string; state: string; pageId?: string | null; reason?: string; warnings?: string[] }[];
@@ -91,6 +98,9 @@ export async function importFramerSite(
   }
   if (blocked) return { status: "blocked", pages, ignoredFlattenedPages, routeSource, runtimeFreeVerified: false };
   if (!input.write) return { status: "analyzed", pages, ignoredFlattenedPages, routeSource, runtimeFreeVerified: false };
+  // The theme patch is site-wide. Apply it with the first written page only,
+  // so a multi-page import does not create one theme version per page.
+  let themeApplied = false;
   for (const page of pages) {
     const route = routes?.find((entry) => entry.pagePath === page.path);
     const base = route?.source ?? { rootDir: input.rootDir, sourcePagePath: page.path };
@@ -103,6 +113,7 @@ export async function importFramerSite(
         mode: "fidelity",
         write: true,
         createOnly: true,
+        applyTheme: input.applyTheme === true && !themeApplied,
         // Browser captures depend on hydration timing and the live page. The
         // dry-run hash is a preview, not a stable contract for a second render.
         ...(route?.browser === true ? {} : { expectedIrHash: hashes.get(page.path) }),
@@ -114,6 +125,7 @@ export async function importFramerSite(
         return { status: "partial", pages, ignoredFlattenedPages, routeSource, runtimeFreeVerified: false };
       }
       page.state = "imported";
+      if (input.applyTheme === true) themeApplied = true;
     } catch (error) {
       page.state = "failed";
       page.reason = error instanceof Error ? error.message : "Import fehlgeschlagen";

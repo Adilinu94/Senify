@@ -75,6 +75,13 @@ addEventListener('scroll', () => {
 const LINKED_PAGE = `<!doctype html><html><head><link rel="stylesheet" href="/linked.css"></head><body><div id="main"><div class="linked" data-framer-name="Linked">Linked</div></div></body></html>`;
 const LINKED_CSS = ".linked{color:#123456}.linked:hover{color:#654321}";
 
+// The capture pins the light scheme; a Framer-style palette swap must not leak
+// the dark variant into the IR.
+const SCHEME_PAGE = `<!doctype html><html><head><style>
+.probe { color: rgb(9, 9, 9); }
+@media (prefers-color-scheme: dark) { .probe { color: rgb(1, 2, 3); } }
+</style></head><body><div id="main"><div class="probe" data-framer-name="Scheme">Scheme</div></div></body></html>`;
+
 let fixtureServer: import("node:http").Server;
 let fixtureOrigin: string;
 let motionServer: import("node:http").Server;
@@ -111,7 +118,15 @@ beforeAll(async () => {
       return;
     }
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    response.end(request.url === "/scroll" ? SCROLL_PAGE : request.url === "/linked" ? LINKED_PAGE : MOTION_PAGE);
+    response.end(
+      request.url === "/scroll"
+        ? SCROLL_PAGE
+        : request.url === "/linked"
+          ? LINKED_PAGE
+          : request.url === "/scheme"
+            ? SCHEME_PAGE
+            : MOTION_PAGE,
+    );
   });
   motionServer = motion.server;
   motionOrigin = motion.origin;
@@ -214,5 +229,22 @@ describe.skipIf(!browserAvailable)("captureBrowser", () => {
     expect(linked).toBeDefined();
     expect(linked?.states[0]?.visual["color"]).toBe("rgb(18, 52, 86)");
     expect(linked?.states[0]?.interactive?.hover?.["color"]).toBe("rgb(101, 67, 33)");
+  }, 60_000);
+
+  it("pins the light color scheme for deterministic captures", async () => {
+    const result = await captureBrowser({ url: `${motionOrigin}/scheme`, settleMs: 200 });
+    const page = result.document.pages[0];
+    expect(page).toBeDefined();
+    const find = (node: IrNode): IrNode | undefined => {
+      if (node.name === "Scheme") return node;
+      for (const child of node.children) {
+        const hit = find(child);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    };
+    const probe = page === undefined ? undefined : find(page.root);
+    expect(probe).toBeDefined();
+    expect(probe?.states[0]?.visual["color"]).toBe("rgb(9, 9, 9)");
   }, 60_000);
 });

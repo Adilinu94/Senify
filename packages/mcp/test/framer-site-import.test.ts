@@ -27,12 +27,13 @@ describe("importFramerSite", () => {
     const rootDir = fixture();
     try {
       const request = vi.fn().mockImplementation(async (_method, _path, body) => ({ job: { status: "succeeded" }, report: { irHash: `hash${body.pagePath}`, pageId: body.write ? `id${body.pagePath}` : null, findings: [], assets: { failed: 0 } } }));
-      const result = await importFramerSite({ request } as unknown as EngineClient, { siteId: "s1", rootDir, assetCacheDir: "cache", write: true });
+      const result = await importFramerSite({ request } as unknown as EngineClient, { siteId: "s1", rootDir, assetCacheDir: "cache", write: true, applyTheme: true });
       expect(result.status).toBe("imported");
       expect(result.runtimeFreeVerified).toBe(false);
       expect(result.pages.map((page) => page.state)).toEqual(["imported", "imported"]);
       expect(request).toHaveBeenCalledTimes(4);
-      expect(request.mock.calls[2]?.[2]).toMatchObject({ createOnly: true, expectedIrHash: "hash/", source: { sourcePagePath: "/", assetCacheDir: "cache" } });
+      expect(request.mock.calls[2]?.[2]).toMatchObject({ createOnly: true, applyTheme: true, expectedIrHash: "hash/", source: { sourcePagePath: "/", assetCacheDir: "cache" } });
+      expect(request.mock.calls[3]?.[2].applyTheme).toBe(false);
     } finally { rmSync(rootDir, { recursive: true, force: true }); }
   });
 

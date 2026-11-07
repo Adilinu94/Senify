@@ -217,7 +217,14 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
 
   const browser = await chromium.launch({ headless: true });
   try {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    // The capture is the deterministic reference for the comparison. Pin the
+    // light scheme: Framer sites often swap their palette under
+    // `prefers-color-scheme`, and an inherited OS dark mode would bake the
+    // other variant into the IR.
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      colorScheme: "light",
+    });
     await context.addInitScript({
       content:
         `${motionSource}\n${tokensSource}\n${SCROLL_SENSOR}\n;` +

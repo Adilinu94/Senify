@@ -835,6 +835,80 @@ function isTextOnlyLink(node: IrNode): boolean {
 
 /* ------------------------------------------------------------ theme patch */
 
+function topLevelComma(text: string): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote !== null) {
+      if (char === quote && text[index - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") quote = char;
+    else if (char === "(") depth += 1;
+    else if (char === ")") depth -= 1;
+    else if (char === "," && depth === 0) return index;
+  }
+  return -1;
+}
+
+// Framer keeps its palette in raw CSS variables (`--token-<uuid>`). Senify's
+// theme has no raw-variable channel, so the captured values are inlined into
+// the imported rules and props. Unknown variables keep their fallback.
+function replaceTokenVars(text: string, tokens: ReadonlyMap<string, string>): string {
+  let result = "";
+  let index = 0;
+  for (;;) {
+    const start = text.indexOf("var(", index);
+    if (start < 0) {
+      result += text.slice(index);
+      break;
+    }
+    result += text.slice(index, start);
+    let cursor = start + 4;
+    let depth = 1;
+    let quote: string | null = null;
+    while (cursor < text.length && depth > 0) {
+      const char = text[cursor];
+      if (quote !== null) {
+        if (char === quote && text[cursor - 1] !== "\\") quote = null;
+      } else if (char === '"' || char === "'") quote = char;
+      else if (char === "(") depth += 1;
+      else if (char === ")") depth -= 1;
+      cursor += 1;
+    }
+    if (depth !== 0) {
+      result += text.slice(start);
+      break;
+    }
+    const inner = text.slice(start + 4, cursor - 1);
+    const comma = topLevelComma(inner);
+    const name = (comma < 0 ? inner : inner.slice(0, comma)).trim();
+    const match = /^--token-([0-9a-fA-F-]+)$/.exec(name);
+    const value = match === null ? undefined : tokens.get((match[1] ?? "").toLowerCase());
+    result += value ?? text.slice(start, cursor);
+    index = cursor;
+  }
+  return result;
+}
+
+function resolveTokenValues(value: unknown, tokens: ReadonlyMap<string, string>): unknown {
+  if (typeof value === "string") return replaceTokenVars(value, tokens);
+  if (Array.isArray(value)) return value.map((entry) => resolveTokenValues(entry, tokens));
+  if (value === null || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  if (typeof record["$token"] === "string") {
+    const resolved = replaceTokenVars(record["$token"], tokens);
+    if (resolved !== record["$token"]) {
+      if (Object.keys(record).length === 1) return resolved;
+      return { ...record, $token: resolved };
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(record).map(([key, entry]) => [key, resolveTokenValues(entry, tokens)]),
+  );
+}
+
 export function themePatchOf(document: FramerIrDocument): ThemePatch {
   // The dominant font family of the `@font-face` list becomes the body font;
   // the heaviest weight family becomes the display font. This is a *patch* —
@@ -977,14 +1051,40 @@ export function mapDocument(
     });
   }
 
+  const styleRules = styleRulesOf(normalized);
+  const tokenValues = new Map(
+    document.styles.colors.map((token) => [token.id.toLowerCase(), token.value]),
+  );
+  for (const rule of styleRules) {
+    rule.styles = resolveTokenValues(rule.styles, tokenValues) as typeof rule.styles;
+    if (rule.states !== undefined) {
+      for (const state of Object.keys(rule.states) as (keyof typeof rule.states)[]) {
+        rule.states[state] = resolveTokenValues(rule.states[state], tokenValues) as (typeof rule.states)[typeof state];
+      }
+    }
+    if (rule.contextStyles !== undefined) {
+      for (const context of Object.keys(rule.contextStyles) as (keyof typeof rule.contextStyles)[]) {
+        rule.contextStyles[context] = resolveTokenValues(
+          rule.contextStyles[context],
+          tokenValues,
+        ) as (typeof rule.contextStyles)[typeof context];
+      }
+    }
+  }
+  for (const node of Object.values(context.nodes)) {
+    node.props = resolveTokenValues(node.props, tokenValues) as typeof node.props;
+    if (node.states !== undefined) {
+      node.states = resolveTokenValues(node.states, tokenValues) as typeof node.states;
+    }
+  }
   return {
     document: {
       version: 2,
       rootNodeId: "root",
       nodes: context.nodes,
-      styleRules: styleRulesOf(normalized),
+      styleRules,
     },
-    rules: styleRulesOf(normalized),
+    rules: styleRules,
     themePatch: themePatchOf(document),
     findings: context.findings,
     stats: context.stats,
