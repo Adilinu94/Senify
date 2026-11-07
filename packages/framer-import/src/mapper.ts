@@ -893,7 +893,21 @@ function replaceTokenVars(text: string, tokens: ReadonlyMap<string, string>): st
 }
 
 function resolveTokenValues(value: unknown, tokens: ReadonlyMap<string, string>): unknown {
-  if (typeof value === "string") return replaceTokenVars(value, tokens);
+  if (typeof value === "string") {
+    if (value.startsWith("data:image/svg+xml")) {
+      const comma = value.indexOf(",");
+      if (comma >= 0) {
+        try {
+          const decoded = decodeURIComponent(value.slice(comma + 1));
+          const replaced = replaceTokenVars(decoded, tokens);
+          return `${value.slice(0, comma + 1)}${encodeURIComponent(replaced)}`;
+        } catch {
+          return value;
+        }
+      }
+    }
+    return replaceTokenVars(value, tokens);
+  }
   if (Array.isArray(value)) return value.map((entry) => resolveTokenValues(entry, tokens));
   if (value === null || typeof value !== "object") return value;
   const record = value as Record<string, unknown>;
@@ -1017,6 +1031,10 @@ export function mapDocument(
       ...(page === undefined
         ? {}
         : cssToStyle(page.root.states[0]?.visual ?? {})),
+      ...(document.styles.body?.background === undefined
+        ? {}
+        : { backgroundColor: document.styles.body.background }),
+      ...(document.styles.body?.color === undefined ? {} : { color: document.styles.body.color }),
     },
     children: [],
   };

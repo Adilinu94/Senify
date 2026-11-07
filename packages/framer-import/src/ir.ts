@@ -263,6 +263,10 @@ export type FramerIrDocument = {
     colors: IrColorToken[];
     textPresets: IrTextPreset[];
     fonts: IrFontFace[];
+    // Computed page chrome. Framer sites often paint the palette on <body>,
+    // not on a node; without this the imported page inherits Senify's light
+    // base even though all node text colours are dark-mode values.
+    body?: { background?: string; color?: string };
   };
   assets: IrAsset[];
   motion: IrMotionSample[];

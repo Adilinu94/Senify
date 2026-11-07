@@ -53,6 +53,11 @@ export type CaptureHtmlInput = {
   // tags. A URL import has no export folder, so without it every class-based
   // style (most of a Framer page) would be missing.
   css?: string;
+  // Framer often swaps its palette under `prefers-color-scheme`. The static
+  // CSS parser has no media evaluator, so resolve the requested scheme here.
+  // The browser capture pins light for deterministic IRs; dark remains an
+  // explicit opt-in for callers that know the source is dark-first.
+  colorScheme?: "light" | "dark";
 };
 
 /* ---------------------------------------------------------------- scanner */
@@ -561,8 +566,125 @@ function countNodes(node: IrNode): number {
   return 1 + node.children.reduce((sum, child) => sum + countNodes(child), 0);
 }
 
+function matchingBrace(text: string, open: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let index = open; index < text.length; index += 1) {
+    const char = text[index]!;
+    if (quote !== null) {
+      if (char === "\\") {
+        index += 1;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+// The static channel has no media-query evaluator. Framer writes the active
+// light/dark overrides as pure `prefers-color-scheme` media blocks; unwrap the
+// selected one and drop the other so tokens, class rules and inline styles all
+// see the same palette. Regular width/support media queries keep their wrapper.
+function applyColorSchemeToStyleBlocks(html: string, scheme: "light" | "dark"): string {
+  return html.replace(
+    /<style([^>]*)>([\s\S]*?)<\/style>/gi,
+    (_match, attributes: string, css: string) => `<style${attributes}>${applyColorScheme(css, scheme)}</style>`,
+  );
+}
+
+function applyColorScheme(css: string, scheme: "light" | "dark"): string {
+  let output = "";
+  let index = 0;
+  while (index < css.length) {
+    const start = css.indexOf("@media", index);
+    if (start < 0) {
+      output += css.slice(index);
+      break;
+    }
+    const open = css.indexOf("{", start);
+    if (open < 0) {
+      output += css.slice(index);
+      break;
+    }
+    const close = matchingBrace(css, open);
+    if (close < 0) {
+      output += css.slice(index);
+      break;
+    }
+    output += css.slice(index, start);
+    const condition = css.slice(start + 6, open).trim();
+    const inner = css.slice(open + 1, close);
+    const terms = condition
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .split(/\s+and\s+/)
+      .map((term) => term.trim().replace(/^\(|\)$/g, ""));
+    const colorTerm = terms.find((term) => term.startsWith("prefers-color-scheme"));
+    if (colorTerm !== undefined) {
+      const others = terms.filter((term) => !term.startsWith("prefers-color-scheme"));
+      if (colorTerm.includes(scheme)) {
+        const resolved = applyColorScheme(inner, scheme);
+        const wrapper = others.map((term) => `(${term})`).join(" and ");
+        output += wrapper === "" ? resolved : `@media ${wrapper} {${resolved}}`;
+      }
+    } else {
+      output += `@media ${condition} {${applyColorScheme(inner, scheme)}}`;
+    }
+    index = close + 1;
+  }
+  return output;
+}
+
+function bodyStyleOf(
+  cssText: string,
+  colors: readonly { id: string; value: string }[],
+): { background?: string; color?: string } | undefined {
+  const vars: Vars = {};
+  for (const token of colors) vars[`--token-${token.id}`] = token.value;
+  // resolveVars deliberately keeps token variables with their fallback so the
+  // theme mapping can see them. Page chrome needs the concrete paint value,
+  // because the body has no theme token of its own.
+  const concrete = (value: string): string => {
+    const match = /^var\(\s*--token-([a-z0-9_-]+)\s*(?:,[\s\S]*)?\)$/i.exec(value.trim());
+    if (match !== null) {
+      const found = colors.find((token) => token.id === match[1]);
+      if (found !== undefined) return found.value;
+    }
+    return resolveVars(value.trim(), vars);
+  };
+  let body: { background?: string; color?: string } | undefined;
+  for (const match of cssText.matchAll(/(?:^|[}\s])(?:html|body)\s*\{([^}]*)\}/gi)) {
+    const declarations = parseDeclarations(match[1] ?? "");
+    const background = declarations["background-color"] ?? declarations["background"];
+    if (background !== undefined) {
+      const resolved = concrete(background);
+      if (!/(?:url|gradient|image)\(/i.test(resolved)) {
+        body ??= {};
+        body.background = resolved;
+      }
+    }
+    if (declarations["color"] !== undefined) {
+      body ??= {};
+      body.color = concrete(declarations["color"]);
+    }
+  }
+  return body;
+}
+
 export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   const html = input.html;
+  const scheme = input.colorScheme ?? "light";
+  const styleHtml = applyColorSchemeToStyleBlocks(html, scheme);
   const findings: IrFinding[] = [];
   const assets: IrAsset[] = [];
   const contentHash = createHash("sha256").update(html).digest("hex").slice(0, 32);
@@ -710,11 +832,17 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
 
   // --- styles: tokens, font faces, hidden rules
   const colors: { id: string; name: string | null; value: string }[] = [];
-  for (const match of html.matchAll(/--token-([a-z0-9_-]+):\s*([^;}]+)/gi)) {
+  for (const match of styleHtml.matchAll(/--token-([a-z0-9_-]+):\s*([^;}]+)/gi)) {
     const id = match[1] ?? "";
     const value = (match[2] ?? "").trim();
     if (id === "" || value === "") continue;
-    if (colors.some((entry) => entry.id === id)) continue;
+    const existing = colors.find((entry) => entry.id === id);
+    // The unwrapped color-scheme override sits after the base token; the
+    // cascade's last declaration wins.
+    if (existing !== undefined) {
+      existing.value = value;
+      continue;
+    }
     colors.push({ id, name: null, value });
   }
 
@@ -797,8 +925,12 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   // while the existing inline path only sees the style attribute. Read the
   // simple class rules before mapping so the browser gate measures the real
   // import rather than an unstyled document.
-  const cssText = `${readAllCss(html, input.rootDir)}\n${input.css ?? ""}`;
+  const cssText = applyColorScheme(
+    `${readAllCss(styleHtml, input.rootDir)}\n${input.css ?? ""}`,
+    scheme,
+  );
   const applied = applyClassRules(root, cssText);
+  const bodyStyle = bodyStyleOf(cssText, colors);
   if (applied.mappedPseudo > 0 || applied.skippedPseudo > 0) {
     findings.push({
       kind: "unsupported-declaration",
@@ -849,6 +981,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
       colors,
       textPresets: readTextPresets(html, linkedCss),
       fonts,
+      ...(bodyStyle === undefined ? {} : { body: bodyStyle }),
     },
     assets,
     motion: readAppearMotion(html, root),

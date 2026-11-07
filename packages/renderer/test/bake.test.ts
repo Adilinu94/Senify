@@ -198,6 +198,12 @@ describe("bake (Prüfstelle 2)", () => {
 
   it("lets a published /404 page replace the static not-found fallback", async () => {
     const outDir = join(mkdtempSync(join(tmpdir(), "senify-bake-404-")), "dist");
+    const tree = buildTree(["hero"]);
+    tree.nodes["root"]!.props = {
+      ...tree.nodes["root"]!.props,
+      backgroundColor: "rgb(15, 14, 13)",
+      color: "rgb(250, 250, 249)",
+    };
     const input: BakeInput = {
       siteName: "Musterstudio",
       baseUrl: BASE_URL,
@@ -206,7 +212,7 @@ describe("bake (Prüfstelle 2)", () => {
           id: "page-404",
           path: "/404",
           title: "Eigene 404",
-          tree: buildTree(["hero"]),
+          tree,
         },
       ],
       themeCss: emitCss(resolved),
@@ -223,6 +229,7 @@ describe("bake (Prüfstelle 2)", () => {
       const html = await site.read("404.html");
       expect(html).toContain("<title>Eigene 404 | Musterstudio</title>");
       expect(html).toContain('data-section="hero"');
+      expect(html).toContain('style="background-color:rgb(15, 14, 13);color:rgb(250, 250, 249)"');
       expect(html).not.toContain("Seite nicht gefunden");
     } finally {
       rmSync(result.outDir, { recursive: true, force: true });

@@ -307,6 +307,46 @@ describe("typography through custom properties", () => {
     expect(nodes.find((node) => node.props["text"] === "Marke")?.props["color"]).toBe("var(--token-L6DGm0xys, #fff)");
   });
 
+  it("carries the Framer body palette onto the root node", () => {
+    const token = "11111111-1111-1111-1111-111111111111";
+    const html = page(
+      '<div data-framer-name="Hero">Hallo</div>',
+      `body{background:var(--token-${token}, #fff);color:var(--token-${token}, #000)}@media (prefers-color-scheme: light){body{--token-${token}: #0f0e0d}}`,
+    );
+    const { document, mapped } = run(html);
+    expect(document.styles.body).toEqual({ background: "#0f0e0d", color: "#0f0e0d" });
+    const root = mapped.document.nodes["root"];
+    expect(root?.props["backgroundColor"]).toBe("#0f0e0d");
+    expect(root?.props["color"]).toBe("#0f0e0d");
+  });
+
+  it("resolves token colours inside inert SVG data URIs", () => {
+    const token = "11111111-1111-1111-1111-111111111111";
+    const html = page(
+      `<svg viewBox="0 0 24 24"><path d="M0 0" fill="var(--token-${token}, #000)"></path></svg>`,
+      `:root{--token-${token}: rgb(250, 250, 249)}`,
+    );
+    const { nodes } = run(html);
+    const image = nodes.find((node) => node.primitive === "image");
+    const src = String(image?.props["src"] ?? "");
+    expect(src.startsWith("data:image/svg+xml")).toBe(true);
+    expect(src).not.toContain(" ");
+    const decoded = decodeURIComponent(src.slice(src.indexOf(",") + 1));
+    expect(decoded).toContain("rgb(250, 250, 249)");
+    expect(decoded).not.toContain("var(--token-");
+  });
+
+  it("resolves Framer color tokens with the light color scheme", () => {
+    const token = "11111111-1111-1111-1111-111111111111";
+    const html = page(
+      '<p class="fx">Marke</p>',
+      `:root{--token-${token}: #ffffff}.fx{color:var(--token-${token}, #000)}@media (prefers-color-scheme: light){:root{--token-${token}: #0f0e0d}}@media (prefers-color-scheme: dark){:root{--token-${token}: #ffffff}}`,
+    );
+    const { document, nodes } = run(html);
+    expect(document.styles.colors).toContainEqual({ id: token, name: null, value: "#0f0e0d" });
+    expect(nodes.find((node) => node.props["text"] === "Marke")?.props["color"]).toBe("#0f0e0d");
+  });
+
   it("applies a Framer mobile media query with unitless zero", () => {
     const { nodes } = run(page('<p class="fx">Mobil</p>', '.fx{font-size:68px}@media (max-width:809px) and (min-width:0){.fx{font-size:38px}}'));
     const text = nodes.find((node) => node.props["text"] === "Mobil");

@@ -55,6 +55,19 @@ const {
   vendor,
 } = Astro.props;
 const lang = site.lang ?? "de";
+// Framer paints its palette on <body>, not on the first section. The import
+// carries that computed chrome on the root node; apply it here so a dark-mode
+// page does not inherit Senify's light body behind white text.
+const rootNode = page.tree.nodes[page.tree.rootNodeId] as
+  | { props?: Record<string, unknown> }
+  | undefined;
+const rootProps = rootNode?.props ?? {};
+const bodyStyle = [
+  typeof rootProps.backgroundColor === "string" ? `background-color:${rootProps.backgroundColor}` : "",
+  typeof rootProps.color === "string" ? `color:${rootProps.color}` : "",
+]
+  .filter((entry) => entry !== "")
+  .join(";");
 
 // FOUC guard (payload-spec.md §3): the render paths stamp
 // `data-motion-pending` on nodes whose preset hides them until the page script
@@ -123,7 +136,7 @@ const PRELOADER_SCRIPT =
     {page.flags.islands.length > 0 && <script src="/assets/islands.js" defer />}
     {page.flags.hasForm && <script src="/assets/forms.js" defer />}
   </head>
-  <body>
+  <body style={bodyStyle === "" ? undefined : bodyStyle}>
     {page.hasPreloader && (
       <>
         <div class="senify-preloader" data-preloader aria-hidden="true"></div>
