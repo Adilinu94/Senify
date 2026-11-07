@@ -578,6 +578,12 @@ export async function bakeSite(
     input.themeCss,
   );
   try {
+    // A published page at /404 is the site's own not-found page. Astro's
+    // static 404.astro would overwrite it in the output, so the generic
+    // fallback steps aside (the dynamic route still emits 404.html).
+    if (expandedPages.some((page) => page.path === "/404")) {
+      rmSync(join(stageDir, "src", "pages", "404.astro"), { force: true });
+    }
     const outDir = options.outDir ?? join(tmpdir(), `senify-bake-${Date.now()}`);
     runAstroBuild(stageDir, outDir);
     mkdirSync(join(outDir, "assets"), { recursive: true });

@@ -105,6 +105,44 @@ function cssName(name: string): string | undefined {
   return undefined;
 }
 
+// Framer ships most icons as inline SVG. The `icon` primitive only knows
+// registry names, so unknown geometry is carried as a static image instead of
+// a generic circle. The markup stays inert: scripts, foreignObject, event
+// handlers and non-local URLs are rejected.
+const SVG_TAGS = new Set([
+  "svg", "g", "path", "circle", "rect", "line", "polyline", "polygon",
+  "ellipse", "defs", "lineargradient", "radialgradient", "stop", "clippath",
+  "mask", "use", "title", "desc",
+]);
+
+function safeSvgMarkup(svg: string | null, color: string | undefined): string | null {
+  if (svg === null) return null;
+  const markup = svg.trim();
+  if (markup === "" || markup.length > 128000) return null;
+  if (/<\s*(script|foreignobject|iframe|object|embed|audio|video|animate|set|image|a)\b/i.test(markup)) return null;
+  if (/\son[a-z]+\s*=/i.test(markup)) return null;
+  if (/(?:href|src)\s*=\s*["']?\s*(?:javascript:|data:)/i.test(markup)) return null;
+  if (/url\(\s*['"]?(?!#)/i.test(markup)) return null;
+  const tags = [...markup.matchAll(/<\/?\s*([A-Za-z][A-Za-z0-9:-]*)\b/g)]
+    .map((match) => (match[1] ?? "").toLowerCase());
+  if (tags.some((tag) => !SVG_TAGS.has(tag))) return null;
+  const hrefs = [...markup.matchAll(/(?:xlink:href|href)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi)];
+  if (hrefs.some((match) => !(match[2] ?? match[3] ?? match[4] ?? "").startsWith("#"))) return null;
+  const safeColor = color !== undefined && /^[#a-zA-Z0-9(),.%\s-]+$/.test(color) ? color : undefined;
+  let result = markup;
+  if (safeColor !== undefined) {
+    if (/^<svg\b[^>]*\sstyle\s*=/i.test(result)) {
+      result = result.replace(
+        /^(<svg\b[^>]*\sstyle\s*=\s*["'])([^"']*)(["'])/i,
+        `$1color:${safeColor};$2$3`,
+      );
+    } else {
+      result = result.replace(/^<svg\b/i, `<svg style="color:${safeColor}"`);
+    }
+  }
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(result)}`;
+}
+
 // Recognize the common Framer 24x24 plus template only when its geometry and
 // invisible background match. No untrusted SVG markup is rendered or executed.
 function recognizedPlus(svg: string | null): { color: string; strokeWidth: number } | null {
@@ -419,7 +457,15 @@ function mapNode(node: IrNode, context: MapContext): EditorNode | null {
       props["strokeWidth"] = plus.strokeWidth;
       props["color"] = plus.color;
     } else {
-      context.findings.push({ kind: "unknown-node", nodeKey: node.key, message: "SVG-Form nicht übernommen; generisches Symbol wird angezeigt.", evidence: node.name ?? "svg", severity: "warn", suggestion: "SVG als unterstütztes bearbeitbares Symbol ergänzen." });
+      const source = safeSvgMarkup(node.svg, merged.base.visual.color);
+      if (source !== null) {
+        primitive = "image";
+        props["src"] = source;
+        props["alt"] = node.name ?? "SVG";
+        context.findings.push({ kind: "unknown-node", nodeKey: node.key, message: "SVG als statisches Bild übernommen; Pfade sind nicht einzeln editierbar.", evidence: node.name ?? "svg", severity: "info", suggestion: "Für vollständig editierbare Symbole eine SVG-Primitive ergänzen." });
+      } else {
+        context.findings.push({ kind: "unknown-node", nodeKey: node.key, message: "SVG-Form nicht übernommen; generisches Symbol wird angezeigt.", evidence: node.name ?? "svg", severity: "warn", suggestion: "SVG als unterstütztes bearbeitbares Symbol ergänzen." });
+      }
     }
   }
   if (node.kind === "placeholder") {

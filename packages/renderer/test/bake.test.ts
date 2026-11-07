@@ -188,6 +188,47 @@ describe("bake (Prüfstelle 2)", () => {
     expect(await site.exists("generated/manifest.json")).toBe(false);
   }, 180000);
 
+  it("keeps the static not-found fallback without a /404 page", async () => {
+    if (!baked) throw new Error("bake missing");
+    const site = loadBakedSite(baked.outDir);
+    const html = await site.read("404.html");
+    expect(html).toContain("Seite nicht gefunden");
+    expect(html).not.toContain('data-section="hero"');
+  }, 180000);
+
+  it("lets a published /404 page replace the static not-found fallback", async () => {
+    const outDir = join(mkdtempSync(join(tmpdir(), "senify-bake-404-")), "dist");
+    const input: BakeInput = {
+      siteName: "Musterstudio",
+      baseUrl: BASE_URL,
+      pages: [
+        {
+          id: "page-404",
+          path: "/404",
+          title: "Eigene 404",
+          tree: buildTree(["hero"]),
+        },
+      ],
+      themeCss: emitCss(resolved),
+      motionTokens: {
+        ease: resolved.motion.ease,
+        baseDurationMs: 300,
+        baseStaggerMs: 80,
+      },
+      profile: "standard",
+    };
+    const result = await bakeSite(input, { outDir });
+    try {
+      const site = loadBakedSite(result.outDir);
+      const html = await site.read("404.html");
+      expect(html).toContain("<title>Eigene 404 | Musterstudio</title>");
+      expect(html).toContain('data-section="hero"');
+      expect(html).not.toContain("Seite nicht gefunden");
+    } finally {
+      rmSync(result.outDir, { recursive: true, force: true });
+    }
+  }, 180000);
+
   it("renders semantic html without draft leaks", async () => {
     if (!baked) throw new Error("bake missing");
     const site = loadBakedSite(baked.outDir);

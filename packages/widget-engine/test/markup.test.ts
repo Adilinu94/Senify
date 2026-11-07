@@ -143,6 +143,11 @@ describe("widget markup", () => {
       src: "/assets/img2",
       "data-asset": "img2",
     });
+    expect(spec("image", { src: "data:image/svg+xml,%3Csvg/%3E", alt: "Icon" }).attrs).toMatchObject({
+      src: "data:image/svg+xml,%3Csvg/%3E",
+      alt: "Icon",
+    });
+    expect(spec("image", { src: "data:image/svg+xml,%3Csvg/%3E" }).attrs?.["data-asset"]).toBeUndefined();
     expect(spec("payload", { poster: { assetId: "poster1" } }).children?.[0]?.attrs?.["data-asset"]).toBe("poster1");
     expect(spec("video", { url: "https://x/y.mp4", muted: true }).tag).toBe("video");
     expect(spec("video", { provider: "youtube", url: "https://y/x" }).tag).toBe("iframe");

@@ -77,8 +77,26 @@ describe("capture fidelity", () => {
     const { nodes } = run(source);
     expect(nodes.find(node => node.primitive === "icon")?.props).toMatchObject({ name: "plus", color: "rgb(255, 255, 255)", strokeWidth: 2 });
     const altered = run(source.replace('L 16.5 0', 'L 12 0'));
-    expect(altered.nodes.find(node => node.primitive === "icon")?.props["name"]).not.toBe("plus");
-    expect(altered.mapped.findings.some(finding => finding.message.includes("SVG-Form nicht übernommen"))).toBe(true);
+    const image = altered.nodes.find((node) => node.primitive === "image");
+    expect(image?.props["src"]).toMatch(/^data:image\/svg\+xml/);
+    expect(altered.mapped.findings.some((finding) => finding.message.includes("statisches Bild"))).toBe(true);
+  });
+
+  it("keeps an unknown Framer SVG as inert image data", () => {
+    const { nodes } = run(page('<svg viewBox="0 0 24 24" fill="none" style="color:rgb(1,2,3)"><circle cx="12" cy="12" r="9" stroke="currentColor"></circle></svg>'));
+    const image = nodes.find((node) => node.primitive === "image");
+    expect(image).toBeDefined();
+    const src = String(image?.props["src"]);
+    expect(src.startsWith("data:image/svg+xml")).toBe(true);
+    const decoded = decodeURIComponent(src.split(",").slice(1).join(","));
+    expect(decoded).toContain("<circle");
+    expect(decoded).toContain("color:rgb(1,2,3)");
+  });
+
+  it("rejects executable SVG markup instead of embedding it", () => {
+    const { nodes, mapped } = run(page('<svg viewBox="0 0 24 24"><script>alert(1)</script><path d="M 0 0"></path></svg>'));
+    expect(nodes.some((node) => node.primitive === "image" && String(node.props["src"]).startsWith("data:image/svg+xml"))).toBe(false);
+    expect(mapped.findings.some((finding) => finding.message.includes("SVG-Form nicht übernommen"))).toBe(true);
   });
 
   it("keeps the text between inline elements", () => {
