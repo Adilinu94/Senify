@@ -701,7 +701,12 @@ export function createSavePipeline(options: SavePipelineOptions): SavePipeline {
             ? "theme"
             : entry.kind === "page"
               ? field === "baseStyleRegistryVersion" ? "style" : "page"
-              : registryField || (!classField && currentRegistry !== undefined) ? "registry" : "style";
+              // Ein ausdruecklich genannter Registry-Stand heisst: neu laden.
+              // Nur die Antwort ohne Feld, aber mit bekannter aktueller Version,
+              // ist der wiederholbare Registry-Konflikt (G-Test).
+              : registryField || classField
+                ? "style"
+                : currentRegistry !== undefined ? "registry" : "style";
           conflictVersion = conflictScope === "page" ? readConflictVersion(response.body) : undefined;
           styleConflictVersion = conflictScope === "registry" ? readCurrentVersion(response.body) : undefined;
           setStatus("conflict", conflictScope === "theme" ? "Die Variablen wurden zwischenzeitlich geändert" : conflictScope === "page"

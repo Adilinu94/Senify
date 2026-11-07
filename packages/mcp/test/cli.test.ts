@@ -14,10 +14,14 @@ async function runCli(args: string[]): Promise<string[]> {
   const spy = vi.spyOn(console, "log").mockImplementation((...entries: unknown[]) => {
     logs.push(entries.map((entry) => String(entry)).join(" "));
   });
+  // Commander beendet den Prozess bei Hilfe/Fehlern selbst; im Test darf das
+  // nicht den Worker treffen (unter voller Suite-Last ist das aufgetreten).
+  const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
   try {
     await createProgram().parseAsync(["node", "senify", ...args]);
   } finally {
     spy.mockRestore();
+    exit.mockRestore();
   }
   return logs;
 }

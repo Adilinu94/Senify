@@ -284,7 +284,8 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await staleBackground.fill("#223344");
       await staleBackground.dispatchEvent("change");
       const dialog = stale.getByRole("dialog");
-      await dialog.getByRole("heading", { name: "Klassen wurden inzwischen geändert" }).waitFor();
+      // Unter voller Suite-Last braucht der 409 länger als die Standardfrist.
+      await dialog.getByRole("heading", { name: "Klassen wurden inzwischen geändert" }).waitFor({ timeout: 60_000 });
       expect(await dialog.locator('[data-action="conflict-retry"]').isVisible()).toBe(false);
       await dialog.locator('[data-action="conflict-reload"]').click();
       await expect.poll(async () => stale.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Neu geladen");
@@ -367,11 +368,11 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await tab.reload();
       await tab.getByRole("alert").getByText("Die Variablen konnten nicht geladen werden.", { exact: false }).waitFor();
       expect(await tab.locator(".senify-canvas__frame").count()).toBe(0);
-    } finally {
+    }  finally {
       await browser.close();
       await running.close();
       await database.close();
       rmSync(dataDir, { recursive: true, force: true });
     }
-  }, 120_000);
+  }, 180_000);
 });

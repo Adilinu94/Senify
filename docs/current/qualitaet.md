@@ -130,23 +130,23 @@ Der aktuelle Lauf vom 09.10.2026 (lokal auf Windows, TEMP/TMP/TMPDIR auf dem Lau
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** 2026-11-02 · vitest coverage (v8)
+**Gemessen:** 2026-11-07 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
-| `packages/engine/src/http.ts` | 96.61 | 87.17 | 100.00 | 96.61 |
-| `packages/engine/src/http-route-support.ts` | 87.15 | 79.79 | 100.00 | 87.15 |
-| `packages/engine/src/http-routes-sites.ts` | 92.95 | 89.13 | 88.88 | 92.95 |
-| `packages/engine/src/store.ts` | 86.15 | 87.59 | 96.04 | 86.15 |
-| `packages/engine/src/lifecycle.ts` | 92.37 | 83.71 | 100.00 | 92.37 |
-| `packages/engine/src/forms.ts` | 92.55 | 86.79 | 100.00 | 92.55 |
+| `packages/engine/src/http.ts` | 96.47 | 87.83 | 100.00 | 97.46 |
+| `packages/engine/src/http-route-support.ts` | 88.61 | 76.63 | 93.02 | 88.69 |
+| `packages/engine/src/http-routes-sites.ts` | 88.13 | 86.36 | 91.66 | 92.85 |
+| `packages/engine/src/store.ts` | 88.99 | 77.16 | 95.67 | 91.96 |
+| `packages/engine/src/lifecycle.ts` | 90.11 | 74.74 | 91.48 | 91.58 |
+| `packages/engine/src/forms.ts` | 91.38 | 83.28 | 96.66 | 92.97 |
 | `packages/mcp/src/tools.ts` | 100.00 | 100.00 | 100.00 | 100.00 |
-| `packages/mcp/src/tools-*.ts` (16 Dateien) | 81.81 bis 100.00 | 53.57 bis 100.00 | 50.00 bis 100.00 | 81.81 bis 100.00 |
-| `packages/engine/src/store-*.ts` (38 Dateien) | 79.36 bis 100.00 | 45.83 bis 100.00 | 71.42 bis 100.00 | 79.36 bis 100.00 |
-| `packages/engine/src/http-*.ts` (24 Dateien) | 87.15 bis 100.00 | 76.84 bis 100.00 | 88.88 bis 100.00 | 87.15 bis 100.00 |
-| `packages/editor/src/state/*` (16 Dateien) | 76.00 bis 100.00 | 60.00 bis 100.00 | 71.42 bis 100.00 | 76.00 bis 100.00 |
+| `packages/mcp/src/tools-*.ts` (16 Dateien) | 88.23 bis 100.00 | 57.25 bis 100.00 | 92.30 bis 100.00 | 87.14 bis 100.00 |
+| `packages/engine/src/store-*.ts` (39 Dateien) | 85.41 bis 100.00 | 61.76 bis 100.00 | 71.42 bis 100.00 | 85.71 bis 100.00 |
+| `packages/engine/src/http-*.ts` (24 Dateien) | 88.13 bis 100.00 | 69.76 bis 100.00 | 89.47 bis 100.00 | 88.69 bis 100.00 |
+| `packages/editor/src/state/*` (18 Dateien) | 75.00 bis 100.00 | 65.67 bis 100.00 | 76.19 bis 100.00 | 80.00 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 93.71 · Branches 84.89 · Functions 96.07 · Lines 93.71
+**Über alle gemessenen Dateien:** Statements 92.07 · Branches 82.98 · Functions 95.46 · Lines 94.64
 
 <!-- messwerte:ende -->
 
