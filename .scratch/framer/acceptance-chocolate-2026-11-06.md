@@ -1,6 +1,6 @@
 # Framer-Echtabnahme: Chocolate (`chocolate-attributes-385353.framer.app`)
 
-Stand: 06.11.2026 · Status: **teilweise, mit behobenem Layoutblocker** · Quelle: veröffentlichte Framer-Site und Unframer-MCP-Zugang (Zugang nur über Umgebungsvariablen, keine Secrets in dieser Datei).
+Stand: 07.11.2026 · Status: **teilweise, mit behobenem Layoutblocker, SVG-Icons und eigener 404-Seite** · Quelle: veröffentlichte Framer-Site und Unframer-MCP-Zugang (Zugang nur über Umgebungsvariablen, keine Secrets in dieser Datei).
 
 ## Inventar
 
@@ -11,26 +11,33 @@ Stand: 06.11.2026 · Status: **teilweise, mit behobenem Layoutblocker** · Quell
 
 ## Import
 
-Elf Seiten wurden in ein isoliertes Senify-Projekt geschrieben (`Framer Chocolate Acceptance 4`, Site-ID `M-Ny0py7u2CvLs`). Kein Schreibvorgang ist fehlgeschlagen; alle Seiten haben Status `imported`.
+Elf Seiten wurden in ein isoliertes Senify-Projekt geschrieben (`Framer Chocolate SVG`, Site-ID `sRo15qZiA9LsTD`). Kein Schreibvorgang ist fehlgeschlagen; alle Seiten haben Status `imported`. Für die SVG-/404-Gegenprobe wurde zusätzlich die `/about`-Seite in ein separates Projekt importiert (`0jdMo3iJDP41Ot`).
 
 ## Behobener Blocker: seitenweite Knoten-ID-Kollision
 
 Framer vergibt auf jeder Seite dieselben Knoten-IDs (`fi27` usw.). Der site-weite CSS-Bake deduplizierte bisher nur nach `id`; dadurch überschrieb die Startseite das Layout von `/about` (und weiteren Unterseiten). Die importierten Knoten-IDs werden jetzt mit demselben Seiten-Hash wie die Framer-Klassenregeln gescoped (`fi-<scope>-N`).
 
-Messung Original gegen Senify-Preview, 1440 px, vollflächig:
+## Behobene Lücken: SVG-Icons und `/404` (07.11.2026)
+
+- Unbekannte Framer-SVGs werden nicht mehr als generische Platte gemappt. Der Mapper übernimmt die Geometrie als inertes `data:image/svg+xml`-Bild, ergänzt `xmlns`, übernimmt die berechnete Farbe für `currentColor` und lehnt Skripte, `foreignObject`, Event-Handler sowie externe URLs ab. Die `/about`-Seite zeigt dadurch die Security-Icons, das Plus-Symbol und die Zitatmarke statt leerer Kreise oder kaputter Bildsymbole.
+- Eine veröffentlichte Seite unter `/404` ersetzt jetzt den statischen Astro-Fallback. Die Preview liefert die importierte 404-Seite mit 1448 px (Original 1418 px) und 0,800 Textüberlappung. Der Framer-Originallauf meldet auf `/404` selbst einen Konsolenfehler; die Senify-Preview bleibt fehlerfrei.
+- Grenze: Die SVGs sind statische Bilder, keine einzeln editierbaren Pfade. `data:`-Bilder mit CSS-Variablen in Füllungen können auf ihren Fallback zurückfallen.
+
+Messung Original gegen Senify-Preview, 1440 px, vollflächig (Wortmengen-Überlappung; die früheren 1,000-Werte stammten aus einer anderen Textzählung):
 
 | Route | Textüberlappung vorher | Textüberlappung nachher | Höhe Original | Höhe vorher | Höhe nachher |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `/` | 0,913 | 0,913 | 8966 | 9030 | 9030 |
-| `/about` | 0,448 | **1,000** | 5537 | 3876 | 5557 |
+| `/` | 0,913 | 0,969 | 8966 | 9030 | 9030 |
+| `/about` | 0,448 | **0,963** | 5537 | 3876 | 5557 |
 | `/blog` | 0,725 | **0,889** | 1972 | 1859 | 2002 |
 | `/contact` | 0,920 | 0,920 | 3585 | 2577 | 3619 |
-| `/price` | 0,994 | 0,994 | 4309 | 937 | 4343 |
+| `/price` | 0,994 | 0,942 | 4309 | 937 | 4343 |
 | `/privacy-policy` | 0,828 | **0,917** | 2051 | 900 | 2081 |
 | `/terms-and-condition` | 0,887 | **0,917** | 2189 | 900 | 2219 |
-| drei Blog-Routen | 1,000 | 1,000 | 3053/3213/3255 | 900 | 2515/3475/3445 |
+| drei Blog-Routen | 0,958/0,963/0,958 | 0,958/0,963/0,958 | 3255/3213/3053 | 900 | 3445/3475/2515 |
+| `/404` | 0,000 | **0,800** | 1418 | 900 | 1448 |
 
-Der Pixelvergleich bleibt bei 80–97 % Abweichung. Die Text- und Höhenwerte belegen die korrigierte Struktur; sie belegen **keine** Pixel-, Font-, Icon- oder Motion-Parität.
+Der Pixelvergleich bleibt bei 81–97 % Abweichung (`/about` 0,896). Die Text- und Höhenwerte belegen die korrigierte Struktur; sie belegen **keine** Pixel-, Font- oder Motion-Parität. Kleine Höhendifferenzen (20–30 px) entstehen durch die fehlenden Pseudo-Elemente und abweichende Schriftmetriken.
 
 ## Runtime und Ausgabe
 
@@ -41,12 +48,12 @@ Der Pixelvergleich bleibt bei 80–97 % Abweichung. Die Text- und Höhenwerte be
 
 ## Benannte Lücken
 
-1. **SVG-Icons:** 12–13 SVG-Knoten pro Unterseite werden als generische Platten übernommen; die Original-Icons fehlen.
-2. **Dekorative Pseudo-Elemente und Hintergrundtexturen:** 31–39 Struktur-/Pseudo-Regeln werden nicht übernommen; dadurch fehlen Flächen, Muster und einzelne Rahmen.
-3. **`/404`:** Der Browser-Import schreibt die Seite, aber der Astro-404-Fallback überschreibt `404.html`; die Preview ist leer. Eine eigene 404-Template-Zuordnung fehlt.
-4. **Pixel-/Font-/Motion-Parität:** Der visuelle Diff bleibt hoch; Schriftglättung, Gewichte, Abstände und Bilder unterscheiden sich. Eine zeitliche Motion-Gegenprobe wurde nicht ausgeführt.
-5. **`/blog/pto…`:** Höhe 2515 statt 3053; Text ist vollständig, aber mindestens ein dekorativer/visueller Abschnitt fehlt.
-6. **Framer-Interaktionen:** Nicht alle Hover-/Scroll-/In-View-Interaktionen sind als Senify-Motion abgebildet; die bekannten Grenzen aus der vorherigen Relay-Abnahme gelten weiter.
+1. **Dekorative Pseudo-Elemente und Hintergrundtexturen:** 31–39 Struktur-/Pseudo-Regeln werden nicht übernommen; dadurch fehlen Flächen, Muster und einzelne Rahmen.
+2. **SVG-Bearbeitbarkeit:** Icons liegen als statische, inerte Bilder vor. Einzelne Pfade, Farbvarianten und Symbolbibliotheken sind nicht editierbar.
+3. **Pixel-/Font-/Motion-Parität:** Der visuelle Diff bleibt hoch; Schriftglättung, Gewichte, Abstände und Bilder unterscheiden sich. Eine zeitliche Motion-Gegenprobe wurde nicht ausgeführt.
+4. **`/blog/pto…`:** Höhe 2515 statt 3053; Text ist vollständig, aber mindestens ein dekorativer/visueller Abschnitt fehlt.
+5. **Framer-Interaktionen:** Nicht alle Hover-/Scroll-/In-View-Interaktionen sind als Senify-Motion abgebildet; die bekannten Grenzen aus der vorherigen Relay-Abnahme gelten weiter.
+6. **RuntimeFreeVerified:** Der statische Scan und der fehlerfreie Browserlauf belegen keine vollständige Netzwerk- und Zeitverhaltensfreiheit.
 
 ## Reproduktion (ohne Zugangsdaten)
 
