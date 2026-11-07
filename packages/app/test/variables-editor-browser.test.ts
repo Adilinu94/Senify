@@ -39,7 +39,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("button", { name: "Verlauf", exact: true }).click();
       await tab.getByRole("button", { name: "Verlauf schließen" }).click();
       await tab.getByRole("tab", { name: "Elemente" }).click();
-      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+      await tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
       await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
       const saved = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as { draft: { nodes: Record<string, { id: string; type: string }> } };
       const heading = Object.values(saved.draft.nodes).find((node) => node.type === "heading")!;
@@ -99,7 +100,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       expect(await tab.locator(".senify-history__row").count()).toBe(0);
       await tab.getByRole("button", { name: "Verlauf schließen" }).click();
       await tab.getByRole("tab", { name: "Elemente" }).click();
-      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+      await tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
       await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
       // A first, definitive 409 must release its own marker (unlike a retry
       // after an unknown write), so ordinary history is usable again.
@@ -148,7 +150,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
       await committed;
       await tab.getByRole("tab", { name: "Elemente" }).click();
-      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+      await tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
       const dialog = tab.locator('dialog[data-role="conflict-dialog"]');
       await expect.poll(async () => dialog.getAttribute("open")).toBe("");
       release?.();
@@ -160,7 +163,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("tab", { name: "Variablen" }).click();
       await tab.getByRole("button", { name: "Ausstehenden Variablenvorgang prüfen" }).waitFor();
       await tab.getByRole("tab", { name: "Elemente" }).click();
-      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+      await tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
       await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
       await tab.getByRole("button", { name: "Verlauf", exact: true }).click();
       expect(await tab.locator(".senify-history__row").isDisabled()).toBe(true);
@@ -215,7 +219,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("button", { name: "Farbe marker löschen bestätigen" }).click();
       await deleted;
       await tab.getByRole("tab", { name: "Elemente" }).click();
-      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+      await tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
       await saving;
       releaseDelete?.();
       await tab.getByRole("tab", { name: "Variablen" }).click();
@@ -265,7 +270,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("button", { name: "Farbe marker umbenennen bestätigen" }).click();
       await committed;
       await tab.getByRole("tab", { name: "Elemente" }).click();
-      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+      await tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
       const dialog = tab.locator('dialog[data-role="conflict-dialog"]');
       await expect.poll(async () => dialog.getAttribute("open")).toBe("");
       release?.();
@@ -367,7 +373,8 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("button", { name: "Prüfung beenden und Editorstand laden" }).click();
       await requested;
       await tab.getByRole("tab", { name: "Elemente" }).click();
-      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+      await tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
       await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
       release?.();
       await tab.getByRole("tab", { name: "Variablen" }).click();
@@ -723,7 +730,9 @@ describe.skipIf(!browserAvailable)("global variables in the editor", () => {
       await tab.getByRole("textbox", { name: "Abstand luft", exact: true }).fill("24px");
       await tab.getByRole("button", { name: "Abstand luft speichern" }).click();
       await expect.poll(spacing).toBe("24px");
-      await node.click();
+      await node.click({ position: { x: 6, y: 6 } });
+      // Der Klick trifft das Icon im Rahmen; Escape geht eine Ebene nach oben.
+      await tab.keyboard.press("Escape");
       await tab.locator('.senify-inspector__tab[data-tab="content"]').click();
       const paddingField = tab.locator('.senify-inspector__field[data-key="padding"]');
       await paddingField.locator('[data-control="tokens"]').click();

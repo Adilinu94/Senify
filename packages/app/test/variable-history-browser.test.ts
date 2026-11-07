@@ -20,7 +20,7 @@ async function fixture(exposeSession = false) {
   ] })).status).toBe(200);
   expect((await request(`/api/sites/${site.id}/style-rules`, { name: "gemeinsam", styles: { background: "#ffffff" } })).status).toBe(201);
   const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-  if (exposeSession) await tab.route("**/app.js", async (route) => {
+  if (exposeSession) await tab.route("**/app-editor-canvas.js", async (route) => {
     const upstream = await route.fetch();
     const source = await upstream.text();
     const anchor = "const savedUi = session.ui();";
@@ -47,7 +47,8 @@ async function fixture(exposeSession = false) {
   };
   const addHeading = async () => {
     await tab.getByRole("tab", { name: "Elemente" }).click();
-    await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+    await tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+    await tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
     await saved();
   };
   const deleteVariable = async () => {
@@ -57,7 +58,7 @@ async function fixture(exposeSession = false) {
   };
   const navigate = (direction: "undo" | "redo") => tab.locator(`.senify-canvas__button[data-action="${direction}"]`).click();
   const deleteClass = async () => {
-    await tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="frame00001"]').click();
+    await tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="frame00001"]').click({ position: { x: 6, y: 6 } });
     await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
     await tab.getByRole("combobox", { name: "Vorhandene Klasse hinzufügen" }).selectOption({ label: "gemeinsam" });
     await saved();
@@ -372,7 +373,7 @@ describe.skipIf(!browserAvailable)("gemeinsame Variablen-History in der App", ()
       await f.addHeading();
       await f.deleteVariable();
       await f.tab.locator('[data-variable-status]').getByText("Variable gelöscht.").waitFor();
-      await f.tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="frame00001"]').click();
+      await f.tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="frame00001"]').click({ position: { x: 6, y: 6 } });
       await f.tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await f.tab.getByRole("combobox", { name: "Vorhandene Klasse hinzufügen" }).selectOption({ label: "gemeinsam" });
       await f.saved();
@@ -418,7 +419,8 @@ describe.skipIf(!browserAvailable)("gemeinsame Variablen-History in der App", ()
       await committed;
       expect(await f.tab.locator('.senify-canvas__button[data-action="undo"]').isDisabled()).toBe(true);
       await f.tab.getByRole("tab", { name: "Elemente" }).click();
-      await f.tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await f.tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+      await f.tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
       const dialog = f.tab.locator('dialog[data-role="conflict-dialog"]');
       await expect.poll(() => dialog.getAttribute("open")).toBe("");
       release();
@@ -433,7 +435,8 @@ describe.skipIf(!browserAvailable)("gemeinsame Variablen-History in der App", ()
       await expect.poll(() => frame.locator('[data-widget="heading"]').count()).toBe(1);
       const saved = f.tab.waitForResponse((response) => response.url().endsWith(`/api/pages/${f.page.id}/editor-mutations`) && response.request().method() === "POST");
       await f.tab.getByRole("tab", { name: "Elemente" }).click();
-      await f.tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await f.tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+      await f.tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
       expect((await saved).status()).toBe(200);
       await expect.poll(async () => Object.values((await f.getPage()).draft.nodes).filter((node) => node.type === "heading").length).toBe(2);
       const savedDraft = (await f.getPage()).draft;
@@ -462,7 +465,7 @@ describe.skipIf(!browserAvailable)("gemeinsame Variablen-History in der App", ()
       await f.deleteVariable();
       await f.tab.getByRole("status").getByText("Variable gelöscht.").waitFor();
       expect((await f.history()).some((label) => label.includes("Variable color.marker gelöscht"))).toBe(true);
-      await f.tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="frame00001"]').click();
+      await f.tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="frame00001"]').click({ position: { x: 6, y: 6 } });
       await f.tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await f.tab.getByRole("combobox", { name: "Vorhandene Klasse hinzufügen" }).selectOption({ label: "gemeinsam" });
       await f.saved();

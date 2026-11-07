@@ -18,11 +18,11 @@ describe.skipIf(!browserAvailable)("imported page in the editor", () => {
       const page = await (await post(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })).json() as { id: string };
       const tab = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
       await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`);
-      const search = tab.getByRole("searchbox", { name: "Element suchen" });
+      const search = tab.getByRole("searchbox", { name: "Elemente suchen" });
       await search.fill("Rahmen");
-      const frameButton = tab.locator('.senify-canvas__chip[data-primitive="frame"]');
+      const frameButton = tab.locator('.senify-elements__tile[data-primitive="frame"]');
       expect(await frameButton.isVisible()).toBe(true);
-      expect(await tab.locator('.senify-canvas__chip[data-primitive="heading"]').isVisible()).toBe(false);
+      expect(await tab.locator('.senify-elements__tile[data-primitive="heading"]').isVisible()).toBe(false);
       await search.fill("Kein solches Element 123");
       expect(await tab.getByText("Keine Elemente gefunden.").isVisible()).toBe(true);
       await search.fill("Rahmen");

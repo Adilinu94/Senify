@@ -46,7 +46,7 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await waitForFrame();
       const frame = () => tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame();
       const node = (id: string) => frame().locator(`[data-node-id="${id}"]`);
-      await node("frame00001").click({ timeout: 30000 });
+      await node("frame00001").click({ timeout: 30000, position: { x: 6, y: 6 } });
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("textbox", { name: "Name der neuen Klasse" }).fill("cta");
       await tab.getByRole("button", { name: "Anlegen", exact: true }).click();
@@ -80,7 +80,9 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       const background = tab.locator('.senify-inspector__field[data-key="background"] input[data-control="color-text"]');
       await background.fill("#123456");
       await background.dispatchEvent("change");
-      await node("frame00002").click();
+      await node("frame00002").click({ position: { x: 6, y: 6 } });
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("searchbox", { name: "Klassen suchen" }).fill("unbekannt");
       expect(await tab.getByRole("combobox", { name: "Vorhandene Klasse hinzufügen" }).locator("option").allTextContents()).toEqual(["Keine Klasse gefunden"]);
       await tab.getByRole("searchbox", { name: "Klassen suchen" }).fill("CTA");
@@ -93,7 +95,8 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await expect.poll(() => color("frame00002")).toBe("rgb(18, 52, 86)");
       await expect.poll(async () => tab.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Gespeichert");
       await tab.reload();
-      await node("frame00002").click({ timeout: 30000 });
+      await node("frame00002").click({ timeout: 30000, position: { x: 6, y: 6 } });
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("button", { name: "cta", exact: true }).click();
       await background.fill("#abcdef");
@@ -107,7 +110,8 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
 
       // A scoped rule belonging to the first page must not prevent the second
       // page from loading the site's global classes.
-      await node("frame00001").click();
+      await node("frame00001").click({ position: { x: 6, y: 6 } });
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("button", { name: "Lokal", exact: true }).click();
       await tab.locator('.senify-inspector__state[data-state="focus"]').click();
@@ -125,7 +129,8 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       expect(otherSeed.status).toBe(200);
       await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${other.id}`);
       await waitForFrame();
-      await node("frame00003").click({ timeout: 30000 });
+      await node("frame00003").click({ timeout: 30000, position: { x: 6, y: 6 } });
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("combobox", { name: "Vorhandene Klasse hinzufügen" }).selectOption({ label: "cta" });
       await background.fill("#445566");
@@ -157,7 +162,8 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       // The other page changed the shared registry: its predecessor checkpoint
       // must be explicitly abandoned, not silently reused or overwritten.
       await recoverHistory();
-      await node("frame00001").click();
+      await node("frame00001").click({ position: { x: 6, y: 6 } });
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("button", { name: "cta", exact: true }).click();
       await tab.getByRole("button", { name: "Verwendung anzeigen" }).click();
@@ -187,7 +193,8 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
 
       // A duplicate is independent, retains responsive and state styles, and
       // is assigned only to the selected element.
-      await node("frame00002").click();
+      await node("frame00002").click({ position: { x: 6, y: 6 } });
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("button", { name: "cta", exact: true }).click();
       await tab.getByRole("button", { name: "Klasse duplizieren" }).click();
       await tab.getByRole("button", { name: "cta-kopie", exact: true }).waitFor();
@@ -213,7 +220,8 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await tab.reload();
       await waitForFrame();
       await expect.poll(() => color("frame00002")).toBe("rgb(152, 118, 84)");
-      await node("frame00002").click();
+      await node("frame00002").click({ position: { x: 6, y: 6 } });
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("button", { name: "cta-kopie", exact: true }).waitFor();
       await tab.getByRole("button", { name: "Klasse cta-kopie entfernen" }).click();
@@ -237,7 +245,8 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       // Clearing a breakpoint and a pseudo-state must survive another load.
       await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${other.id}`);
       await waitForFrame();
-      await node("frame00003").click();
+      await node("frame00003").click({ position: { x: 6, y: 6 } });
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("button", { name: "cta", exact: true }).click();
       await tab.locator('.senify-inspector__state[data-state="hover"]').click();
@@ -260,12 +269,13 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await stale.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${other.id}`);
       await stale.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
       const staleNode = stale.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id="frame00003"]');
-      await staleNode.click();
+      await staleNode.click({ position: { x: 6, y: 6 } });
       await stale.locator('.senify-inspector__tab[data-tab="style"]').click();
       await stale.getByRole("button", { name: "cta", exact: true }).click();
       const staleBackground = stale.locator('.senify-inspector__field[data-key="background"] input[data-control="color-text"]');
       await tab.locator('.senify-canvas__button[data-action="device"][data-device="desktop"]').click();
-      await node("frame00003").click();
+      await node("frame00003").click({ position: { x: 6, y: 6 } });
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("button", { name: "cta", exact: true }).click();
       await background.fill("#112233");
@@ -278,7 +288,7 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       expect(await dialog.locator('[data-action="conflict-retry"]').isVisible()).toBe(false);
       await dialog.locator('[data-action="conflict-reload"]').click();
       await expect.poll(async () => stale.locator('[data-role="canvas-status"]').textContent(), { timeout: 20000 }).toBe("Neu geladen");
-      await staleNode.click();
+      await staleNode.click({ position: { x: 6, y: 6 } });
       await stale.locator('.senify-inspector__tab[data-tab="style"]').click();
       await stale.getByRole("button", { name: "cta", exact: true }).click();
       expect(await staleBackground.inputValue()).toBe("#112233");
@@ -293,7 +303,8 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await waitForFrame();
       await recoverHistory();
       await tab.locator('.senify-canvas__button[data-action="device"][data-device="desktop"]').click();
-      await node("frame00003").click();
+      await node("frame00003").click({ position: { x: 6, y: 6 } });
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("combobox", { name: "Vorhandene Klasse hinzufügen" }).selectOption({ label: "second" });
       await expect.poll(() => color("frame00003")).toBe("rgb(255, 0, 0)");
@@ -313,7 +324,8 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
 
       // Global deletion removes every saved assignment; undo and redo restore
       // the full cross-page state, not only the current page.
-      await node("frame00003").click();
+      await node("frame00003").click({ position: { x: 6, y: 6 } });
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("button", { name: "cta", exact: true }).click();
       await tab.getByRole("button", { name: "Global löschen …" }).click();
@@ -341,7 +353,8 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await tab.reload();
       await waitForFrame();
       await tab.locator('.senify-canvas__button[data-action="device"][data-device="desktop"]').click();
-      await node("frame00003").click();
+      await node("frame00003").click({ position: { x: 6, y: 6 } });
+      await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("button", { name: "cta", exact: true }).waitFor();
       await tab.unroute("**/api/library-components");

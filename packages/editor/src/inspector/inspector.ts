@@ -2068,7 +2068,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     let index = 0;
     for (const group of tab.groups) {
       if (group.fields.length === 0) continue;
-      body.appendChild(renderGroup(model, group, tabId !== "style" || index === 0));
+      body.appendChild(renderGroup(model, group, tabId !== "style" || index === 0 || selectedClassId !== null || model.state !== null));
       index += 1;
     }
     if (tabId === "style") {

@@ -28,13 +28,23 @@ vi.mock("@senify/framer-import", () => ({
 
 type Aufruf = { method: string; path: string; body: unknown };
 
-function tool(list: { name: string; handler: Function; entity?: Function }[], name: string) {
+type TestTool = { name: string; handler: unknown; entity?: unknown };
+
+function tool(list: readonly TestTool[], name: string): TestTool {
   const found = list.find((entry) => entry.name === name);
   if (found === undefined) throw new Error(`Werkzeug fehlt: ${name}`);
   return found;
 }
 
-function lauf(list: { name: string; handler: Function; entity?: Function }[], name: string, args: Record<string, unknown> = {}) {
+function runHandler(candidate: TestTool, context: unknown, args: Record<string, unknown>): unknown {
+  return (candidate.handler as (context: unknown, args: Record<string, unknown>) => unknown)(context, args);
+}
+
+function runEntity(candidate: TestTool, args: Record<string, unknown>): unknown {
+  return (candidate.entity as ((args: Record<string, unknown>) => unknown) | undefined)?.(args);
+}
+
+function lauf(list: readonly TestTool[], name: string, args: Record<string, unknown> = {}) {
   const aufrufe: Aufruf[] = [];
   const context = {
     client: {
@@ -45,7 +55,7 @@ function lauf(list: { name: string; handler: Function; entity?: Function }[], na
       },
     },
   } as never;
-  return { aufrufe, ergebnis: () => tool(list, name).handler(context, args) };
+  return { aufrufe, ergebnis: () => runHandler(tool(list, name), context, args) };
 }
 
 describe("Import-Werkzeuge: die Übersetzung", () => {
@@ -121,21 +131,21 @@ describe("Import-Werkzeuge: die Übersetzung", () => {
   });
 
   it("trägt Entity-Namen für die neuen Werkzeuge", () => {
-    expect(tool(IMPORT_TOOLS, "import_framer_page").entity?.({ siteId: "s1" })).toBe("site:s1");
-    expect(tool(IMPORT_TOOLS, "get_import_report").entity?.({ jobId: "j1" })).toBe("import:j1");
-    expect(tool(IMPORT_TOOLS, "snapshot_unframer_project").entity?.({})).toBe("unframer-snapshot");
-    expect(tool(IMPORT_TOOLS, "prepare_framer_export").entity?.({})).toBe("framer-site-preparation");
-    expect(tool(IMPORT_TOOLS, "export_framer_site").entity?.({})).toBe("framer-export");
-    expect(tool(IMPORT_TOOLS, "import_framer_site").entity?.({ siteId: "s1" })).toBe("site:s1:framer-import");
+    expect(runEntity(tool(IMPORT_TOOLS, "import_framer_page"), { siteId: "s1" })).toBe("site:s1");
+    expect(runEntity(tool(IMPORT_TOOLS, "get_import_report"), { jobId: "j1" })).toBe("import:j1");
+    expect(runEntity(tool(IMPORT_TOOLS, "snapshot_unframer_project"), {})).toBe("unframer-snapshot");
+    expect(runEntity(tool(IMPORT_TOOLS, "prepare_framer_export"), {})).toBe("framer-site-preparation");
+    expect(runEntity(tool(IMPORT_TOOLS, "export_framer_site"), {})).toBe("framer-export");
+    expect(runEntity(tool(IMPORT_TOOLS, "import_framer_site"), { siteId: "s1" })).toBe("site:s1:framer-import");
   });
 });
 
 describe("Katalog- und Seitenwerkzeuge: die Übersetzung", () => {
   it("listet Abschnitte und liefert jede Definition", async () => {
-    const liste = await tool(SECTION_TOOLS, "list_sections").handler({} as never, {});
+    const liste = await runHandler(tool(SECTION_TOOLS, "list_sections"), {}, {}) as { sections: unknown[] };
     expect(liste.sections.length).toBeGreaterThan(0);
     for (const definition of registry().list()) {
-      const info = await tool(SECTION_TOOLS, "get_section").handler({} as never, { type: definition.type });
+      const info = await runHandler(tool(SECTION_TOOLS, "get_section"), {}, { type: definition.type }) as { type: string };
       expect(info.type).toBe(definition.type);
     }
   });
@@ -150,7 +160,7 @@ describe("Katalog- und Seitenwerkzeuge: die Übersetzung", () => {
         },
       },
     } as never;
-    const ergebnis = await tool(PAGE_READ_TOOLS, "get_nodes").handler(context, { pageId: "p1", nodeIds: ["n1"] });
+    const ergebnis = await runHandler(tool(PAGE_READ_TOOLS, "get_nodes"), context, { pageId: "p1", nodeIds: ["n1"] }) as { nodes: unknown[] };
     expect(aufrufe[0]).toMatchObject({ method: "GET", path: "/api/pages/p1" });
     expect(ergebnis.nodes).toHaveLength(1);
     await expect(lauf(PAGE_READ_TOOLS, "get_nodes", { pageId: "p1", nodeIds: [1] }).ergebnis()).rejects.toMatchObject({ category: "validation" });
@@ -194,10 +204,10 @@ describe("Mutations- und Release-Werkzeuge: die Übersetzung", () => {
     const clear = lauf(MUTATION_TOOLS, "clear_motion", { pageId: "p1", nodeId: "n1", baseDraftVersion: 2 });
     await clear.ergebnis();
     expect(clear.aufrufe[0]?.body).toMatchObject({ mutations: [{ op: "clearMotion", id: "n1" }] });
-    expect(tool(MUTATION_TOOLS, "apply_mutations").entity?.({})).toBe("page:");
-    expect(tool(MUTATION_TOOLS, "undo_batch").entity?.({ pageId: "p1" })).toBe("page:p1");
-    expect(tool(MUTATION_TOOLS, "set_motion").entity?.({})).toBe("page:");
-    expect(tool(MUTATION_TOOLS, "clear_motion").entity?.({ pageId: "p1" })).toBe("page:p1");
+    expect(runEntity(tool(MUTATION_TOOLS, "apply_mutations"), {})).toBe("page:");
+    expect(runEntity(tool(MUTATION_TOOLS, "undo_batch"), { pageId: "p1" })).toBe("page:p1");
+    expect(runEntity(tool(MUTATION_TOOLS, "set_motion"), {})).toBe("page:");
+    expect(runEntity(tool(MUTATION_TOOLS, "clear_motion"), { pageId: "p1" })).toBe("page:p1");
   });
 
   it("deployt statisch und über einen Anbieter und pflegt Einstellungen", async () => {
@@ -213,7 +223,7 @@ describe("Mutations- und Release-Werkzeuge: die Übersetzung", () => {
     const geschrieben = lauf(RELEASE_TOOLS, "set_deploy_settings", { siteId: "s1", provider: "vercel", vercelProjectId: null, vercelToken: null });
     await geschrieben.ergebnis();
     expect(geschrieben.aufrufe[0]?.body).toEqual({ provider: "vercel", vercelProjectId: null, vercelToken: null });
-    expect(tool(RELEASE_TOOLS, "get_deploy_settings").entity?.({ siteId: "s1" })).toBe("site:s1");
-    expect(tool(RELEASE_TOOLS, "set_deploy_settings").entity?.({ siteId: "s1" })).toBe("site:s1");
+    expect(runEntity(tool(RELEASE_TOOLS, "get_deploy_settings"), { siteId: "s1" })).toBe("site:s1");
+    expect(runEntity(tool(RELEASE_TOOLS, "set_deploy_settings"), { siteId: "s1" })).toBe("site:s1");
   });
 });

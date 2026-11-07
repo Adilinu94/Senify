@@ -493,14 +493,14 @@ function styleFieldsFor(
   // legacy type keeps the whole table (ADR-0005: the groups are an order, not a
   // gate).
   const groups =
-    definition !== undefined && definition.legacy !== true
+    styleRuleId === undefined && definition !== undefined && definition.legacy !== true
       ? new Set<StyleGroup>(definition.styleGroups)
       : undefined;
   // The base state reads the node props; a pseudo state reads the state bag of
   // the node's scoped rule (ticket 02 point 5) — same device grammar, same
   // control family.
   const selectedRule = styleRuleId === undefined ? undefined : document.styleRules.find(
-    (rule) => rule.id === styleRuleId && rule.kind === "class" && node.classes?.includes(rule.name),
+    (rule) => rule.id === styleRuleId && rule.kind === "class",
   );
   const scoped = state === null || selectedRule !== undefined ? undefined : scopedRuleFor(document, node.id);
   const values: DeviceValueMap = selectedRule !== undefined
@@ -820,9 +820,7 @@ function controlToField(
     source: "control",
     styleGroup: undefined,
   };
-  const tokenGroup = field.kind === "color" ? "color"
-    : field.kind === "dimensions" || field.kind === "gaps" ? tokenGroupForStyleProp(control.key)
-      : undefined;
+  const tokenGroup = field.kind === "color" ? "color" : tokenGroupForStyleProp(control.key);
   attachTokenOptions(field, theme, tokenGroup);
   return field;
 }

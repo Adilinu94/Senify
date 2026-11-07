@@ -266,7 +266,7 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
 
       // A click selects the node: the root carries it and the selection ring
       // lives in the portal over the stage.
-      await desktopFrame.locator('[data-node-id="div000001"]').click();
+      await desktopFrame.locator('[data-node-id="div000001"]').click({ position: { x: 6, y: 6 } });
       await expect.poll(async () => (await probe()).focus).toBe("div000001");
       expect(await tab.locator('.senify-canvas[data-selected="div000001"]').count()).toBe(1);
       await expect
@@ -365,7 +365,7 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       // The undo took the inserted divider away, and with it the selection: the
       // insert had selected what it inserted, and that node is gone. The next
       // insert needs a target again.
-      await desktopFrame.locator('[data-node-id="div000001"]').click();
+      await desktopFrame.locator('[data-node-id="div000001"]').click({ position: { x: 6, y: 6 } });
       await insertAfter();
       await expect
         .poll(async () => desktopFrame.locator('section[data-section="divider"]').count())
@@ -399,7 +399,7 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       // restores, Escape walks one level up and Enter one level down.
       const dividerCount = (): Promise<number> =>
         desktopFrame.locator('section[data-section="divider"]').count();
-      await desktopFrame.locator('[data-node-id="div000001"]').click();
+      await desktopFrame.locator('[data-node-id="div000001"]').click({ position: { x: 6, y: 6 } });
       await expect.poll(async () => (await probe()).focus).toBe("div000001");
       expect(await dividerCount()).toBe(2);
       await tab.keyboard.press("Control+d");
@@ -415,6 +415,9 @@ describe.skipIf(!browserAvailable)("editor canvas in a real browser", () => {
       await expect.poll(dividerCount).toBe(1);
       expect(await tab.evaluate(() => (globalThis as unknown as { __canvas: { undoAsync(): Promise<boolean> } }).__canvas.undoAsync())).toBe(true);
       await expect.poll(dividerCount).toBe(2);
+      // Undo bringt den geloeschten Knoten zurueck, aber nicht die Auswahl.
+      await desktopFrame.locator('[data-node-id="div000001"]').click({ position: { x: 6, y: 6 } });
+      await expect.poll(async () => (await probe()).focus).toBe("div000001");
       await tab.keyboard.press("Escape");
       await expect.poll(async () => (await probe()).focus).toBe("root000001");
       await tab.keyboard.press("Enter");

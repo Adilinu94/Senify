@@ -98,6 +98,7 @@ export async function pageView(siteId, pageId, initialSearch) {
   }
   let siteTheme = null;
   let siteThemeVersion = 0;
+  let themeFailed = false;
   try {
     const themeResponse = await api(`/api/sites/${siteId}/theme`);
     siteTheme = themeResponse.theme ?? null;
@@ -105,21 +106,27 @@ export async function pageView(siteId, pageId, initialSearch) {
   } catch {
     siteTheme = null;
     siteThemeVersion = 0;
+    themeFailed = true;
   }
   let siteStyleRules = [];
   let styleRegistryVersion = 0;
-  let libraryComponents = [];
+  let styleRulesFailed = false;
   try {
-    const [rules, library] = await Promise.all([
-      api(`/api/sites/${siteId}/style-rules`),
-      api("/api/library-components"),
-    ]);
+    const rules = await api(`/api/sites/${siteId}/style-rules`);
     siteStyleRules = rules.rules ?? [];
     styleRegistryVersion = Number.isInteger(rules.version) ? rules.version : 0;
-    libraryComponents = library.components ?? [];
   } catch {
     siteStyleRules = [];
     styleRegistryVersion = 0;
+    styleRulesFailed = true;
+  }
+  // Die Bibliothek ist eine Zutat, keine Bedingung: ohne sie bearbeitet man
+  // die Seite weiter, nur ohne Bausteine.
+  let libraryComponents = [];
+  try {
+    const library = await api("/api/library-components");
+    libraryComponents = library.components ?? [];
+  } catch {
     libraryComponents = [];
   }
   let currentTree = page.draft;
@@ -141,8 +148,16 @@ export async function pageView(siteId, pageId, initialSearch) {
   let assetContext = {};
   async function refreshMedia() {
     try {
-      const listed = await api(`/api/sites/${siteId}/assets`);
-      const assets = listed.assets ?? [];
+      // Die Mediathek ist seitenweise: der Editor braucht alle Seiten, sonst
+      // fehlen Bilder jenseits der ersten 200 Dateien und laufen ins Leere.
+      const assets = [];
+      for (let offset = 0; ;) {
+        const listed = await api(`/api/sites/${siteId}/assets?offset=${offset}&limit=200`);
+        const batch = listed.assets ?? [];
+        assets.push(...batch);
+        if (listed.hasMore !== true || batch.length === 0) break;
+        offset += batch.length;
+      }
       mediaCache = assets.map((asset) => ({
         id: asset.id,
         name: asset.filename,
@@ -234,6 +249,18 @@ export async function pageView(siteId, pageId, initialSearch) {
       "Der alte Editor ist abgeloest — der Canvas ist jetzt der einzige Bearbeitungsweg.",
       "info",
     );
+  }
+
+  if (styleRulesFailed || themeFailed) {
+    const notice = el("div", { class: "empty-state", role: "alert" });
+    notice.appendChild(el("h2", {
+      text: styleRulesFailed
+        ? "Die Klassen konnten nicht geladen werden."
+        : "Die Variablen konnten nicht geladen werden.",
+    }));
+    notice.appendChild(el("p", { text: "Ohne Theme und Style-Registry lässt sich die Seite nicht sicher bearbeiten. Bitte neu laden." }));
+    host.replaceChildren(notice);
+    return;
   }
 
   if (editor) {

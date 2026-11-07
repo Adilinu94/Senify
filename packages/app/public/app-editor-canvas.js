@@ -30,6 +30,7 @@ import { createRedesignInbox } from "./app-editor-redesign-inbox.js";
 import { createToolbarOverflow } from "./app-editor-toolbar-overflow.js";
 import { openRedesignDirectionDialog } from "./app-import.js";
 import { openFramerImportDialog } from "./app-framer-import.js";
+import { createVariablesPanel } from "./app-variables.js";
 
 // The open SSE channel of the active canvas view (ticket 05): a route change
 // closes it before the next view subscribes, so streams do not stack up.
@@ -37,8 +38,7 @@ let activeLiveStream = null;
 let activeToolbarMenuCleanup = null;
 
 export async function mountCanvasView({ pageId, siteId, page, host, toolbar, editor, pagesCache, mediaCache, libraryComponents, assetContext, siteProfile, siteBreakpoints, siteTheme, siteThemeVersion, styleRules, styleRegistryVersion }) {
-  const loaded = editor.loadDocument(page.draft);
-  loaded.document.styleRules = styleRules ?? [];
+  const loaded = editor.loadDocument(page.draft, { styleRules: styleRules ?? [] });
 
   // Drei Spalten: Elemente/Einstellungen, Arbeitsflaeche (Canvas) und Struktur
   // (Tickets 02/03). Alle drei lesen denselben Store — die Auswahl im Canvas
@@ -47,9 +47,48 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
   const canvasHost = el("div", { class: "canvas-view__stage" });
   // Links wechseln sich Elemente und Einstellungen ab (E5), rechts bleibt der
   // Explorer mit den Ebenen.
-  const elementsHost = el("div", { class: "canvas-view__elements" });
-  const inspectorHost = el("div", { class: "canvas-view__inspector" });
-  const sideHost = el("aside", { class: "canvas-view__side" }, elementsHost, inspectorHost);
+  const elementsHost = el("div", { class: "canvas-view__elements", role: "tabpanel", "aria-label": "Elemente" });
+  const inspectorHost = el("div", { class: "canvas-view__inspector", role: "tabpanel", "aria-label": "Bearbeiten" });
+  const variablesHost = el("div", { class: "canvas-view__variables", role: "tabpanel", "aria-label": "Variablen" });
+  const sideTabs = el("div", { class: "canvas-view__sidebar-tabs", role: "tablist", "aria-label": "Editorbereiche" });
+  const sidePanels = { elements: elementsHost, inspector: inspectorHost, variables: variablesHost };
+  let activeSide = "elements";
+  const showSidePanel = (name) => {
+    if (name === "layers") {
+      // Der Struktur-Explorer steht in der rechten Spalte und ist immer sichtbar;
+      // der Reiter setzt nur den Fokus dorthin.
+      explorerHost.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+      for (const button of sideTabs.querySelectorAll("[role=tab]")) {
+        button.setAttribute("aria-selected", String(button.dataset.panel === name));
+      }
+      return;
+    }
+    activeSide = name === "settings" ? "inspector" : name;
+    for (const [key, panel] of Object.entries(sidePanels)) panel.hidden = key !== activeSide;
+    for (const button of sideTabs.querySelectorAll("[role=tab]")) {
+      button.setAttribute(
+        "aria-selected",
+        String(button.dataset.panel === activeSide),
+      );
+    }
+  };
+  for (const [key, label] of [
+    ["elements", "Elemente"],
+    ["layers", "Explorer"],
+    ["inspector", "Bearbeiten"],
+    ["variables", "Variablen"],
+  ]) {
+    const button = el("button", {
+      type: "button",
+      role: "tab",
+      text: label,
+      "data-panel": key,
+      "aria-selected": String(key === "elements"),
+    });
+    button.addEventListener("click", () => showSidePanel(key));
+    sideTabs.appendChild(button);
+  }
+  const sideHost = el("aside", { class: "canvas-view__side" }, sideTabs, elementsHost, inspectorHost, variablesHost);
   host.classList.add("canvas-view");
   host.replaceChildren(sideHost, canvasHost, explorerHost);
 
@@ -112,7 +151,17 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
     } catch (error) {
       return {
         status: typeof error?.status === "number" ? error.status : 500,
-        body: { error: { message: error?.message ?? String(error) } },
+        // Feld und aktuelle Serverversion gehoeren zum Konflikt: ohne sie
+        // landet jede Registry- oder Theme-Kollision im Seiten-Dialog.
+        body: {
+          error: {
+            message: error?.message ?? String(error),
+            ...(error?.field === undefined ? {} : { field: error.field }),
+            ...(error?.currentVersion === undefined ? {} : { currentVersion: error.currentVersion }),
+            ...(error?.category === undefined ? {} : { category: error.category }),
+            ...(error?.suggestion === undefined ? {} : { suggestion: error.suggestion }),
+          },
+        },
       };
     }
   };
@@ -145,6 +194,7 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
     request: transport,
     initialVersion: page.draftVersion,
     styleRegistryVersion,
+    ...(typeof siteThemeVersion === "number" ? { themeVersion: siteThemeVersion } : {}),
     storage,
   });
   const savedUi = session.ui();
@@ -166,11 +216,40 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
   // Wege bleiben hier, weil sie Session und Dokument anfassen.
   const reloadDraft = async () => {
     try {
-      const fresh = await api(`/api/pages/${pageId}`);
-      session.replaceDocument(editor.loadDocument(fresh.draft).document, fresh.draftVersion);
-      // Der Server-Stand ersetzt das Dokument; die offenen eigenen Aenderungen
-      // sind damit verworfen (so steht es im Dialog).
+      // Ein laufender Save gehoert zum alten Stand; erst abwarten, dann laden.
+      if (session.saveState().status === "saving") {
+        statusEl.textContent = "Der Editor speichert noch.";
+        return;
+      }
+      const beforeDocument = session.document;
+      const [fresh, registry, theme] = await Promise.all([
+        api(`/api/pages/${pageId}`),
+        api(`/api/sites/${encodeURIComponent(siteId)}/style-rules`),
+        api(`/api/sites/${encodeURIComponent(siteId)}/theme`),
+      ]);
+      // Waehrend des Ladens kann der Nutzer weitergearbeitet haben. Dann ist
+      // der Serverstand nicht mehr die Antwort auf seine Frage: nichts ersetzen.
+      if (session.document !== beforeDocument) {
+        statusEl.textContent = "Der Editorstand hat sich während des Ladens geändert.";
+        return;
+      }
+      // Erst den Konflikt loesen, dann die frischen Versionen annehmen: der
+      // Pipeline-Guard laesst waehrend eines Konflikts keine neue Version zu.
       session.discardPending();
+      session.replaceDocument(
+        editor.loadDocument(fresh.draft, { styleRules: registry.rules }).document,
+        fresh.draftVersion,
+        registry.version,
+      );
+      // Auch die Variablen sind Teil des Serverstands: nach einem Konflikt
+      // traegt die naechste Seitenaenderung sonst eine veraltete
+      // baseThemeVersion und faellt sofort wieder auf 409.
+      session.acceptThemeVersion(theme.version);
+      siteTheme = theme.theme;
+      siteThemeVersion = theme.version;
+      canvas.setTheme(theme.theme, theme.css);
+      inspector.setTheme(theme.theme);
+      variablesPanel?.setTheme(theme.theme, theme.version);
       setVersion(fresh.draftVersion);
       statusEl.textContent = "Neu geladen";
     } catch (error) {
@@ -201,6 +280,7 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
 
   const canvas = editor.mountCanvas(canvasHost, {
     store: session.store,
+    session,
     registry: editor.createRegistry(),
     renderer: editor.createReactRenderer({
       context: () => ({
@@ -306,7 +386,7 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
       onImported: async (report) => {
         if (report.pageId === pageId) {
           const fresh = await api(`/api/pages/${pageId}`);
-          session.replaceDocument(editor.loadDocument(fresh.draft).document, fresh.draftVersion);
+          session.replaceDocument(editor.loadDocument(fresh.draft, { styleRules: session.document.styleRules }).document, fresh.draftVersion);
           session.discardPending();
           setVersion(fresh.draftVersion);
           statusEl.textContent = "Framer-Import übernommen";
@@ -324,6 +404,7 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
     const ui = session.ui();
     canvas.setMode(ui.mode);
     canvas.setBreakpoint(ui.device);
+    inspector.setBreakpoint(ui.device);
   });
 
   // Der Ebenen-Explorer (Ticket 03 Scheibe 1): Tree mit Tastatur,
@@ -412,7 +493,7 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
               });
               statusEl.textContent = `„${component.name}“ installiert`;
               const fresh = await api(`/api/pages/${pageId}`);
-              session.replaceDocument(editor.loadDocument(fresh.draft).document, fresh.draftVersion);
+              session.replaceDocument(editor.loadDocument(fresh.draft, { styleRules: session.document.styleRules }).document, fresh.draftVersion);
               session.discardPending();
               setVersion(fresh.draftVersion);
             } catch (error) {
@@ -497,6 +578,10 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
     assets: () => mediaCache,
     onTabChange: (tab) => session.setTab(tab),
     onBreakpointChange: (device) => session.setDevice(device),
+    onClassUsage: async (ruleId) => {
+      const result = await api(`/api/sites/${encodeURIComponent(siteId)}/style-rules/${encodeURIComponent(ruleId)}/usage`);
+      return result.usage ?? [];
+    },
     // Der Zustand des Style-Tabs ist die Vorschau (Ticket 02 Punkt 5): der
     // Canvas erzwingt :hover/:focus/:active/:disabled am gewaehlten Knoten.
     onStateChange: (state) => {
@@ -530,20 +615,59 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
   // Ein Klick auf einen Plus-Punkt im Canvas merkt ein Ziel; das Panel zeigt es.
   canvas.onArmedChange((target) => elementsPanel.setTarget(target === null ? null : target.label));
 
+  // Die Variablen (C-Zweig): Liste, Anlegen, Umbenennen, Löschen und die
+  // gemeinsame Server-History. Das Panel hängt an derselben Session wie Canvas
+  // und Inspektor.
+  const variablesPanel = createVariablesPanel({
+    siteId,
+    pageId,
+    session,
+    api,
+    editor,
+    canvas,
+    inspector,
+    author: AUTHOR,
+    getTheme: () => siteTheme ?? editor.defaultTheme(),
+    getThemeVersion: () => siteThemeVersion ?? 0,
+    setTheme: (theme, version, css) => {
+      siteTheme = theme;
+      siteThemeVersion = version;
+      canvas.setTheme(theme, css);
+      inspector.setTheme(theme);
+    },
+    setVersion,
+    reloadDraft: () => reloadDraft(),
+    showVariables: () => showSidePanel("variables"),
+    isActive: () => host.isConnected,
+  });
+  variablesHost.replaceChildren(variablesPanel.element);
+  // Das Variablenpanel stellt beim Oeffnen den gespeicherten Verlauf wieder
+  // her. Das passiert ohne eigenes Session-Ereignis; ein erneutes Setzen der
+  // Auswahl aktualisiert Undo/Redo in der Canvas-Leiste.
+  session.store.setSelection(session.store.selection);
+
   // Panel-Wechsel (E5): ist ein Element gewaehlt, ersetzen die Einstellungen die
   // Elemente; ohne Auswahl (Esc im Inspektor, Zurueck-Knopf, Leerklick im Canvas)
-  // stehen wieder die Elemente da.
+  // stehen wieder die Elemente da. Ein ausdruecklich gewaehlter Bereich
+  // (Variablen, Struktur) bleibt stehen.
+  let lastSelectedId = null;
   const syncSidePanel = () => {
     const selection = session.store.selection;
-    const hasSelection = (selection.focus ?? selection.selected[0] ?? null) !== null;
-    sideHost.dataset.panel = hasSelection ? "settings" : "elements";
-    elementsHost.hidden = hasSelection;
-    inspectorHost.hidden = !hasSelection;
+    const selectedId = selection.focus ?? selection.selected[0] ?? null;
+    // Nur ein Wechsel der Auswahl schaltet um. Wer die Variablen oder die
+    // Struktur geoeffnet hat, bleibt dort, bis er ein anderes Element waehlt.
+    if (selectedId !== lastSelectedId) {
+      lastSelectedId = selectedId;
+      if (selectedId !== null) showSidePanel("inspector");
+      else if (activeSide === "inspector") showSidePanel("elements");
+    }
+    sideHost.dataset.panel = selectedId !== null ? "settings" : activeSide;
   };
   session.store.subscribe(syncSidePanel);
 
   // Die Auswahl aus der letzten Sitzung wiederherstellen, sofern der Knoten
   // noch existiert; `store.select` umgeht den Persistenz-Schreibpfad nicht.
+  showSidePanel("elements");
   if (savedUi.selectedId && session.document.nodes[savedUi.selectedId]) {
     session.store.select(savedUi.selectedId);
   }
@@ -666,7 +790,7 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
       try {
         const fresh = await api(`/api/pages/${pageId}`);
         session.replaceDocument(
-          editor.loadDocument(fresh.draft).document,
+          editor.loadDocument(fresh.draft, { styleRules: session.document.styleRules }).document,
           fresh.draftVersion,
         );
         canvas.flashNodes(nodesToFlash(payload));

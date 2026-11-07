@@ -89,16 +89,16 @@
 
 ## Oberfläche: ES-Module
 
-**39 Dateien.**
+**40 Dateien.**
 
 | Modul | Zeilen | Zweck |
 |---|---|---|
 | `app-articles.js` | 389 | Der Artikel-Workspace: die Liste der Artikel, ihr Editor, die Feldsteuerung und das Lesen der Zellen. Die Bloecke standen in `app.js`, dann in `app-projects.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
-| `app-core.js` | 445 | Die Grundlagen der Oberflaeche. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
+| `app-core.js` | 446 | Die Grundlagen der Oberflaeche. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-editor-agent-preview.js` | 65 | Die Agent-Vorschau (Ticket 05, Punkt 5) - aus `app-editor.js` (R12). |
 | `app-editor-bake-status.js` | 66 | Der Re-Bake-Status am Canvas (E12) - aus `app-editor.js` (R12). |
-| `app-editor-canvas.js` | 774 | Die Buehne des Seiten-Editors (R12). |
-| `app-editor-conflict-dialog.js` | 70 | Der Konflikt-Dialog des Editors (L17) - aus `app-editor.js` (R12). |
+| `app-editor-canvas.js` | 898 | Die Buehne des Seiten-Editors (R12). |
+| `app-editor-conflict-dialog.js` | 71 | Der Konflikt-Dialog des Editors (L17) - aus `app-editor.js` (R12). |
 | `app-editor-live-events.js` | 40 | Die zwei Regeln am Live-Kanal (Ticket 05) - aus `app-editor.js` (R12). |
 | `app-editor-live-sync.js` | 62 | Was der Editor mit einer fremden Live-Meldung tut - aus `app-editor.js` (R12). |
 | `app-editor-panel-toggle.js` | 58 | Die Panel-Umschalter des Editors (E8) - aus `app-editor.js` (R12). |
@@ -106,7 +106,7 @@
 | `app-editor-redesign-inbox.js` | 94 | Die Redesign-Inbox am Canvas (ADR-0012) - aus `app-editor.js` (R12). |
 | `app-editor-save-status.js` | 51 | Was die Statuszeile des Editors sagt - aus `app-editor.js` (R12). |
 | `app-editor-toolbar-overflow.js` | 109 | Das Overflow-Menue der Editor-Toolbar - aus `app-editor.js` (R12). |
-| `app-editor.js` | 290 | Der Seiten-Editor: die Ansicht (`pageView`), der Wartepunkt auf einen Bild-Job und der Hinweis auf den alten Deep-Link. |
+| `app-editor.js` | 317 | Der Seiten-Editor: die Ansicht (`pageView`), der Wartepunkt auf einen Bild-Job und der Hinweis auf den alten Deep-Link. |
 | `app-framer-import.js` | 680 | Der Import aus Framer (P3-2, Schritt 45): der Bericht nach der Analyse und der Dialog, der die Adresse abfragt, analysiert und den Write ausloest. `app-import.js` importiert die zwei Einstiegspunkte. |
 | `app-import.js` | 484 | Der Import aus Framer und die Redesign-Dialoge. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-library.js` | 280 | Die Bausteinbibliothek und der Papierkorb (P3-2, Schritt 42). Beide Views standen in `app-projects.js`; sie teilen sich nichts mit den Projekten - keine Modulvariable, keinen Zustand, nur die Kern-Helfer. |
@@ -127,6 +127,7 @@
 | `app-refs-styles.js` | 83 | Der Stil-Guide der Referenzen-Seite: je Stilfamilie eine Karte mit Vorschau, Vokabular, Beispielen und den beiden Kopier-Aktionen. Der Block stand in `app-references.js` und ist bis auf das `export` unveraendert hierher gewandert; was dort bleibt, sind Auswahl, Suche und der Aufbau der Seite. |
 | `app-review.js` | 257 | Die Reviews und ihre Belege. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-settings.js` | 602 | Die Einstellungen eines Projekts (P3-2, Schritt 43): Profil, Modus, Engine, Bilder, Referenzen, Formulare und der Papierkorb der Backups. `app-projects.js` importiert die View. |
+| `app-variables.js` | 601 | Variablen-Oberfläche der App: Liste, Anlegen, Speichern, Umbenennen, Löschen/Wiederherstellen und die gemeinsame Server-History. |
 | `app-workspace-lists.js` | 133 | Die Listen-Tabs des Projekt-Workspace: Seiten, Pruefen und Aktivitaet (P3-2, Schritt 49). |
 | `app-workspace-settings.js` | 232 | Der Workspace-Tab „Einstellungen": die Projekteinstellungen (Kurzname, Niveau, öffentliche Adresse), die Breakpoints, die hinterlegten Referenzen und der Deploy (P3-2, Schritt 48). |
 | `app-workspace-submissions.js` | 191 | Der Workspace-Tab „Einsendungen": die Formulare einer Site, ihre Einsendungen und die Benachrichtigungs-Jobs dazu (P3-2, Schritt 47). |
@@ -178,9 +179,9 @@ er laeuft selbst durch `packages` und meldet jede Datei ueber der Schwelle, die 
 | `packages/framer-import/src/mapper.ts` | 2080 | die Abbildung Framer nach NodeTree. **Gemessen am 01.11.2026:** 58 Funktionen, und `mapNode` allein sind 336 Zeilen. Sie liest dieselben Tabellen wie `mapDocument` und die Zustaende des Mappers - ein Schnitt muesste diese als Parameter durchreichen. Die Datei ist am 26.10.2026 um 190 Zeilen gewachsen (Browser-Abgriff der Animationen, `appearStyleRulesOf` und `ruleFamilyWeights`): der Abgriff liefert die Daten, die Abbildung auf den NodeTree bleibt hier |
 | `packages/manifest/src/tools.ts` | 1879 | ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 114 Werkzeugen mit je vier Angaben |
 | `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
-| `packages/editor/src/inspector/model.ts` | 1538 | das Modell des Inspektors |
+| `packages/editor/src/inspector/model.ts` | 1536 | das Modell des Inspektors |
 | `packages/engine/src/types.ts` | 1487 | die öffentlichen Typen der Engine; keine Logik |
-| `packages/editor/src/canvas/canvas.ts` | 1421 | die Bühne des Editors |
+| `packages/editor/src/canvas/canvas.ts` | 1422 | die Bühne des Editors |
 | `packages/engine/src/forms.ts` | 1285 | Formulare, Einsendungen und die Einsendungs-Ansicht. Der CSV-Export ist am 31.10.2026 als reine Formatierung nach `forms-csv.ts` gewandert (die Regeln einer Tabellenkalkulation: Trenner, RFC 4180, BOM, Formelanfang); was bleibt, ist das Fachgebiet - Snapshot, Token, Spam-Schutz, Benachrichtigungen, Sammlung aus dem Formular |
 | `packages/editor/src/state/operations.ts` | 1251 | die Editor-Operationen: ein Dispatcher (`applyEditorMutation`) und je eine Funktion pro Operation, dazu die gemeinsamen Pruefer fuer Katalog, Props, Styles und Motion. Die Pruefer teilen den Katalog und die Fehlerform - sie zu trennen hiesse, den Katalog zweimal zu lesen. Geteilt wird ueber `applyEditorMutation`, geprueft ueber `EditorStore` (`mutations.test.ts`, `history.test.ts`, `save-pipeline.test.ts`) |
 | `packages/engine/src/lifecycle.ts` | 1190 | der Release-Lebenszyklus in einem Fachgebiet: Revision, Re-Bake, Veroeffentlichung, Preview und Review gehoeren zusammen, weil ein Release ohne die anderen drei nicht entsteht; ein Schnitt muesste die gemeinsame Transaktion teilen |

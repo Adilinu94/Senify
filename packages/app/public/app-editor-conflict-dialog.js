@@ -58,6 +58,7 @@ export function createConflictDialog({ el, host, onReload, onRetry }) {
       currentKey = key;
       const reload = button("conflict-reload", "danger", model.reloadLabel, onReload);
       const retry = button("conflict-retry", "primary", model.retryLabel, onRetry);
+      retry.hidden = !model.retryAllowed;
       const later = button("conflict-later", "", model.dismissLabel, () => {});
       dialog.replaceChildren(
         el("h2", { text: model.title }),

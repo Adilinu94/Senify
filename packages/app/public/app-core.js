@@ -92,6 +92,7 @@ export async function api(path, options = {}) {
     failure.status = response.status;
     failure.category = error.category;
     failure.field = error.field;
+    failure.currentVersion = error.currentVersion;
     throw failure;
   }
   return data;

@@ -30,7 +30,8 @@ describe.skipIf(!browserAvailable)("save conflict dialog", () => {
       await tab.waitForFunction('document.querySelector(".canvas-view__stage")?.dataset.startFit != null', undefined, { timeout: 30000 });
       expect((await post(`/api/pages/${page.id}/mutations`, { baseDraftVersion: page.draftVersion, mutations: [{ op: "insertNode", parent: { nodeId: page.draft.rootNodeId }, node: { type: "divider" } }] })).status).toBe(200);
       await tab.getByRole("tab", { name: "Elemente" }).click();
-      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+      await tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
       const dialog = tab.locator('dialog[data-role="conflict-dialog"]');
       await expect.poll(async () => dialog.getAttribute("open")).toBe("");
       let captured: (() => void) | undefined;
@@ -46,7 +47,9 @@ describe.skipIf(!browserAvailable)("save conflict dialog", () => {
       await requested;
       const nodes = tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame().locator('[data-node-id]');
       const before = await nodes.count();
-      await tab.getByRole("button", { name: "Überschrift", exact: true }).click();
+      await tab.getByRole("tab", { name: "Elemente" }).click();
+      await tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+      await tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
       await expect.poll(() => nodes.count()).toBeGreaterThan(before);
       const after = await nodes.count();
       release?.();
@@ -187,9 +190,9 @@ describe.skipIf(!browserAvailable)("save conflict dialog", () => {
       // A class-registry change without a page change must also stop an old
       // editor from sending its page changes against stale class names.
       expect((await post(`/api/sites/${site.id}/style-rules`, { name: "fremde-klasse" })).status).toBe(201);
-      await heroSection.hover();
-      await expect.poll(async () => tab.locator('.senify-canvas__plus[data-position="after"]').count()).toBe(1);
-      await tab.locator('.senify-canvas__plus[data-position="after"]').click();
+      await tab.getByRole("tab", { name: "Elemente" }).click();
+      await tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+      await tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
       await expect.poll(async () => dialog.getAttribute("open")).toBe("");
       await expect.poll(async () => dialog.locator("h2").textContent()).toBe("Klassen wurden inzwischen geändert");
       expect(await dialog.locator('[data-action="conflict-retry"]').isVisible()).toBe(false);
@@ -203,9 +206,9 @@ describe.skipIf(!browserAvailable)("save conflict dialog", () => {
         body: JSON.stringify({ theme: { tokens: { primitive: { color: { accent: "#123456" } } } } }),
       });
       expect(themeWrite.status).toBe(200);
-      await heroSection.hover();
-      await expect.poll(async () => tab.locator('.senify-canvas__plus[data-position="after"]').count()).toBe(1);
-      await tab.locator('.senify-canvas__plus[data-position="after"]').click();
+      await tab.getByRole("tab", { name: "Elemente" }).click();
+      await tab.getByRole("searchbox", { name: "Elemente suchen" }).fill("Überschrift");
+      await tab.locator('.senify-elements__tile[data-primitive="heading"]').click();
       await expect.poll(async () => dialog.getAttribute("open")).toBe("");
       await expect.poll(async () => dialog.locator("h2").textContent()).toBe("Variablen wurden inzwischen geändert");
       expect(await dialog.locator('[data-action="conflict-retry"]').isVisible()).toBe(false);
@@ -214,7 +217,7 @@ describe.skipIf(!browserAvailable)("save conflict dialog", () => {
       await tab.getByRole("tab", { name: "Variablen" }).click();
       expect(await tab.getByRole("textbox", { name: "Farbe accent", exact: true }).inputValue()).toBe("#123456");
 
-      await heroSection.click();
+      await heroSection.click({ position: { x: 6, y: 6 } });
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       const secondThemeWrite = await fetch(`${running.dashboardUrl}/api/sites/${site.id}/theme`, {
         method: "PUT", headers: { "content-type": "application/json" },
