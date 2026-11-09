@@ -15,12 +15,15 @@
 import { execSync } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { bootEngine, createTestSite, HUMAN_AUTHOR } from "../../packages/engine/test/helpers.ts";
 import { bakePages } from "../../packages/engine/src/bake.ts";
 
-const OUT = resolve(".scratch/framer-live-2026-11-09/paket1");
+const customOut = process.env.SENIFY_PAKET1_OUT;
+const OUT = resolve(customOut ?? ".scratch/framer-live-2026-11-09/paket1");
+if (customOut !== undefined && existsSync(OUT)) throw new Error("Das gewählte Ausgabeziel existiert bereits; bitte einen neuen Pfad wählen.");
 const ORIGIN = "https://chocolate-attributes-385353.framer.app";
 const MARKER = `SENIFY-P1-EDIT-${Date.now().toString(36)}`;
 const OFFLINE = process.argv.includes("--offline");
@@ -52,9 +55,10 @@ async function writeFixtureMirror(): Promise<string> {
   await mkdir(dir, { recursive: true });
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Paket-1 Fixture</title>
+<meta property="og:image" content="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/ZuoAAAAASUVORK5CYII=" />
 <style>body{margin:0;font-family:sans-serif}h1{font-size:48px}</style></head>
 <body>
-<div id="main" data-framer-hydrate-v2='{"routeId":"fixture-home"}'><div class="framer-fixture"><h1>Fixture Original Headline</h1><p>Fixture paragraph text.</p></div></div>
+<div id="main" data-framer-hydrate-v2='{"routeId":"fixture-home"}'><div class="framer-fixture"><h1>Fixture Original Headline</h1><p>Fixture paragraph text.</p><img alt="Poster" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/ZuoAAAAASUVORK5CYII=" /></div></div>
 <div id="svg-templates" style="display:none"></div>
 <div id="__framer-badge-container"></div>
 <script data-framer-bundle type="module" src="./runtime.mjs"></script>
@@ -134,7 +138,10 @@ async function runCase(name: string, sources: { pagePath: string; source: Record
       const carrier = findCarrier(draft);
       if (textNode === null) throw new Error(`Kein Textknoten mit props.text in ${pagePath} gefunden`);
       edits.push({ pageId, nodeId: textNode.id, originalText: textNode.text });
-      if (carrier !== null) carriers.push({ pageId, nodeId: carrier });
+      if (carrier === null) throw new Error(`Kein Seiten-Payload in ${pagePath}`);
+      const poster = draft.nodes[carrier]?.props?.["poster"];
+      if (typeof poster !== "object" || poster === null || typeof (poster as { assetId?: unknown }).assetId !== "string") throw new Error(`Kein Poster-Asset am Seiten-Payload in ${pagePath}`);
+      carriers.push({ pageId, nodeId: carrier });
       console.log(JSON.stringify({ case: name, pagePath, editableShare: report.editableShare, textNode: textNode.id, carrier }));
     }
 
@@ -183,9 +190,23 @@ async function runCase(name: string, sources: { pagePath: string; source: Record
       (record.variants as Record<string, any>)[variant].belege = checks;
       await persist();
     }
+    for (const item of (record.variants as Record<string, any>)["after"].belege) {
+      if (item.html.markerInHtml || item.dom.markerInDom || !item.html.payloadTraegerImHtml) throw new Error(`Payload-Ausgangsfall nicht bestätigt: ${item.route}`);
+    }
+    for (const item of (record.variants as Record<string, any>)["structure"].belege) {
+      if (!item.html.markerInHtml || !item.dom.markerInDom || item.html.payloadTraegerImHtml) throw new Error(`Strukturausgabe nicht bestätigt: ${item.route}`);
+    }
+    if (name === "fixture") {
+      const original = (record.variants as Record<string, any>)["after"].belege[0];
+      const structure = (record.variants as Record<string, any>)["structure"].belege[0];
+      if (original.dom.fixtureRuntimeMounted !== "mounted" || structure.dom.fixtureRuntimeMounted !== null) {
+        throw new Error("Fixture-Runtime lief nicht ausschließlich im Payload-Zustand");
+      }
+    }
     record.status = "abgeschlossen";
   } catch (error) {
     record.status = name === "fixture" ? "fehlgeschlagen" : "blockiert";
+    process.exitCode = 1;
     record.fehler = error instanceof Error ? error.message : String(error);
     console.error(JSON.stringify({ case: name, status: record.status, fehler: record.fehler }));
   } finally {
