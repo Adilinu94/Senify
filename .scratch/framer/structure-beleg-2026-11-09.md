@@ -2,12 +2,12 @@
 
 ## Umfang
 
-- Branch `integration/c-auf-g-2026-11-08`, HEAD `ae9f313`, Node 24.15.0.
+- Branch `integration/c-auf-g-2026-11-08`, HEAD `64422bd`, Arbeitsbaum mit Laufzeitprüfung, Node 24.15.0.
 - Isolierte Engine-Testinstanz mit pg-mem; keine produktive Datenbank und kein bestehendes Senify-Projekt verändert.
 - Quelle: `https://chocolate-attributes-385353.framer.app/` und `/about`. Die Adresse liefert inzwischen die Seite „Astra“; der Inhalt hat sich seit dem früheren Chocolate-Lauf geändert.
 - Import: `capture: browser`, `mode: fidelity`, `output: structure`, `write: true`, `createOnly: true`; Theme-Patch nur für `/`.
 - Der Text wurde über die Editor-Mutationsroute geändert, nicht über den Browser-Editor. Den echten Editorweg belegt `packages/app/test/framer-import-browser.test.ts`.
-- Rohbelege: `.scratch/framer-live-2026-11-09/structure-final-run/result.json` und die Builds daneben. Der Ordner ist lokal und ignoriert.
+- Rohbelege: `.scratch/framer-live-2026-11-09/structure-audit-2026-11-09/result.json` und die Builds daneben. Der Ordner ist lokal und ignoriert; der frühere Lauf ohne Laufzeitprüfung liegt unter `structure-final-run`.
 
 ## Import
 
@@ -20,28 +20,39 @@ Beide Berichte nennen `Ausgabe "structure" am Seitenwurzelknoten gespeichert.`
 
 ## Änderung und Build
 
-- Erster Textknoten je Seite war „Astra“ (`fi-8a5eda-11`, `fi-979bdd-11`); die Mutation setzte den Marker `SENIFY-STRUCT-mw9lwxcb`, Draft-Version jeweils 3.
+- Erster Textknoten je Seite war „Astra“ (`fi-8a5eda-11`, `fi-979bdd-11`); die Mutation setzte den Marker `SENIFY-STRUCT-mw9pdyi8`, Draft-Version jeweils 3.
 - Build vor und nach der Änderung für beide Seiten. Der Marker erscheint nach der Änderung in HTML und Browser-DOM.
 - Kein `data-payload-id` im HTML, kein `framerImport` im HTML, kein Verzeichnis `assets/payloads`.
 - Keine Anfrage an einen Framer-Host im gebauten Zustand (`/`: 37 Anfragen, `/about`: 13).
 - Keine Konsolenfehler im Browser.
-- HTML-Größe nach der Änderung: `/` 226 326 Bytes, `/about` 70 893 Bytes.
+- HTML-Größe nach der Änderung: `/` 227 034 Bytes, `/about` 70 425 Bytes.
+
+## Laufzeitprüfung
+
+Die gebaute Seite wurde mit `auditFramerRuntime` aus `packages/engine/src/runtime-audit.ts` geprüft. Das Ergebnis hat drei Zustände: bestätigt, widerlegt, unbekannt.
+
+| Seite | Ergebnis | Signale |
+|---|---|---|
+| `/` | unbekannt | Ein Inline-Skript lädt `lenis.min.js` und `page.js` dynamisch nach. Keine Framer-Marker, keine Framer-Host-Anfrage, kein Framer-Global. |
+| `/about` | widerlegt | Keine Script-Tags im HTML. Kein Payload, keine Framer-Host-Anfrage, kein Framer-Global. |
+
+Das widerlegte Ergebnis für `/about` ist ein Marker-Beleg, kein formaler Beweis gegen bewusst verschleierten Code: dort gibt es keinen ausführbaren Inhalt. Für `/` bleibt die Runtime-Frage offen, obwohl keine Framer-Host-Anfrage auftrat. Genau das verlangt der Handoff: ein fehlender CDN-Aufruf allein reicht nicht.
 
 ## Konkrete offene Fälle
 
 - `/`: 176 `warn:unsupported-declaration`, 2 `warn:smooth-scroll`; darunter 27 Data-URL-Grafiken in einem Stilausdruck nicht übernommen und mehrere `appear-id`-Effekte ohne zugeordneten Knoten.
 - `/about`: 122 `warn:unsupported-declaration`, 2 `warn:smooth-scroll`; gleiche `appear-id`-Klasse.
-- Build-Warnungen je Variante: 17 `children-unrendered` (Link-Knoten mit Kindern) und 24 `css-value-dropped`.
-- `/` lädt lokal `lenis.min.js`, `page.js` und ein Inline-Skript. Deren Verhalten ist nicht vollständig geprüft; ein fehlender Framer-Host-Aufruf allein belegt keine Runtime-Freiheit.
+- Build-Warnungen im Audit-Lauf: 17 `children-unrendered` (Link-Knoten mit Kindern), keine `css-value-dropped` in diesem Lauf.
+- `/` lädt lokal `lenis.min.js`, `page.js` und ein Inline-Skript. Die Laufzeitprüfung stuft `/` deshalb als unbekannt und `/about` als widerlegt ein. Ein fehlender Framer-Host-Aufruf allein belegt keine Runtime-Freiheit.
 - Nur 1440 × 900, hell, Scrollposition 0, 3 s nach `load`. Tablet, Mobil, Hover, Scroll-Zustände, Bewegung, CMS und weitere Seiten sind nicht geprüft.
 
 ## Reproduktion
 
 ```powershell
-pnpm exec tsx .scratch/framer/structure-beleg-2026-11-09.mts
-# oder in ein neues Verzeichnis:
-$env:SENIFY_STRUCTURE_OUT = ".scratch/framer-live-2026-11-09/structure-lauf-2"
+$env:SENIFY_STRUCTURE_OUT = ".scratch/framer-live-2026-11-09/structure-lauf-$(Get-Date -Format yyyyMMdd-HHmmss)"
 pnpm exec tsx .scratch/framer/structure-beleg-2026-11-09.mts
 ```
+
+Das Skript verweigert ein bereits vorhandenes Ausgabeziel. Für jede Wiederholung einen neuen Pfad wählen.
 
 Das Skript bricht ab, wenn ein aktiver seitenweiter Träger, ein fehlender Marker in HTML oder DOM, ein Payload-Träger im HTML oder `framerImport` im HTML auftritt.

@@ -17,11 +17,12 @@ import { join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { bootEngine, createTestSite, HUMAN_AUTHOR } from "../../packages/engine/test/helpers.ts";
 import { bakePages } from "../../packages/engine/src/bake.ts";
+import { auditFramerRuntime } from "../../packages/engine/src/runtime-audit.ts";
 
 const customOut = process.env.SENIFY_STRUCTURE_OUT;
 const OUT = resolve(customOut ?? ".scratch/framer-live-2026-11-09/structure-2026-11-09");
-if (customOut !== undefined && existsSync(OUT)) {
-  throw new Error("Das gewählte Ausgabeziel existiert bereits; bitte einen neuen Pfad wählen.");
+if (existsSync(OUT)) {
+  throw new Error("Das Ausgabeziel existiert bereits; bitte mit SENIFY_STRUCTURE_OUT einen neuen Pfad wählen.");
 }
 const ORIGIN = "https://chocolate-attributes-385353.framer.app";
 const MARKER = `SENIFY-STRUCT-${Date.now().toString(36)}`;
@@ -91,10 +92,29 @@ function isFramerHost(hostname: string): boolean {
   return /(^|\.)(framerusercontent\.com|framer\.website|framer\.app|framer\.ai|framer\.media|framercms\.com)$/i.test(hostname);
 }
 
+function buildHtmlFile(dir: string, pagePath: string): string {
+  const route = pagePath === "/" ? "/" : `/${pagePath.replace(/^\/+|\/+$/g, "")}/`;
+  return join(dir, route === "/" ? "index.html" : join(route.slice(1, -1), "index.html"));
+}
+
+async function localScripts(dir: string, html: string): Promise<{ url: string; content?: string }[]> {
+  const scripts: { url: string; content?: string }[] = [];
+  for (const match of html.matchAll(/<script\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)) {
+    const src = match[1] ?? match[2];
+    if (src === undefined) continue;
+    const file = join(dir, src.replace(/^\//, ""));
+    try {
+      scripts.push({ url: src, content: await readFile(file, "utf8") });
+    } catch {
+      scripts.push({ url: src });
+    }
+  }
+  return scripts;
+}
+
 async function inspectBuild(dir: string, pagePath: string) {
   const route = pagePath === "/" ? "/" : `/${pagePath.replace(/^\/+|\/+$/g, "")}/`;
-  const htmlFile = join(dir, route === "/" ? "index.html" : join(route.slice(1, -1), "index.html"));
-  const html = await readFile(htmlFile, "utf8");
+  const html = await readFile(buildHtmlFile(dir, pagePath), "utf8");
   const payloadDir = join(dir, "assets", "payloads");
   const payloadFiles: { name: string; bytes: number }[] = [];
   try {
@@ -109,9 +129,11 @@ async function inspectBuild(dir: string, pagePath: string) {
   try {
     const context = await browser.newContext({ viewport: VIEWPORT, colorScheme: "light" });
     const page = await context.newPage();
-    const requests: string[] = [];
+    const requests: { url: string; resourceType: string }[] = [];
     const consoleErrors: string[] = [];
-    page.on("request", (req) => { if (requests.length < 500) requests.push(req.url()); });
+    page.on("request", (req) => {
+      if (requests.length < 500) requests.push({ url: req.url(), resourceType: req.resourceType() });
+    });
     page.on("console", (msg) => { if (msg.type() === "error" && consoleErrors.length < 20) consoleErrors.push(msg.text().slice(0, 300)); });
     page.on("pageerror", (err) => { if (consoleErrors.length < 20) consoleErrors.push(String(err).slice(0, 300)); });
     await page.goto(`http://127.0.0.1:${port}${route}`, { waitUntil: "load", timeout: 60_000 });
@@ -124,9 +146,12 @@ async function inspectBuild(dir: string, pagePath: string) {
         bodyTextBytes: text.length,
         skriptSrcs: [...document.scripts].map((s) => s.src).filter(Boolean),
         inlineSkripte: [...document.scripts].filter((s) => !s.src).length,
+        framerGlobals: Object.keys(window).filter((key) => /^(__framer|framer)/i.test(key)).slice(0, 20),
       };
     }, MARKER);
-    const framerRequests = requests.filter((url) => { try { return isFramerHost(new URL(url).hostname); } catch { return false; } });
+    const framerRequests = requests.filter((entry) => {
+      try { return isFramerHost(new URL(entry.url).hostname); } catch { return false; }
+    });
     return {
       route,
       html: {
@@ -141,6 +166,7 @@ async function inspectBuild(dir: string, pagePath: string) {
         anfragenGesamt: requests.length,
         framerAnfragen: framerRequests.length,
         framerBeispiele: framerRequests.slice(0, 10),
+        eintraege: requests,
         protokollGekapptBei: 500,
       },
       consoleErrors,
@@ -159,6 +185,7 @@ async function main() {
   try {
     const site = await createTestSite(env.api, "Struktur-Beleg");
     const pageIds: string[] = [];
+    const pageIdsByPath = new Map<string, string>();
     const edits: { pageId: string; nodeId: string; originalText: string }[] = [];
     for (const source of SOURCES) {
       const started = Date.now();
@@ -182,6 +209,7 @@ async function main() {
       const report = res.body.report;
       const pageId = report.pageId as string;
       pageIds.push(pageId);
+      pageIdsByPath.set(source.pagePath, pageId);
       const pageRes = await env.api.request<any>({ method: "GET", path: `/api/pages/${pageId}` });
       const draft = pageRes.body.draft as Draft;
       const textNode = findTextNode(draft);
@@ -261,12 +289,27 @@ async function main() {
     const after = await bake("after");
     (record.varianten as Record<string, unknown>).after = { build: after, buildWarningKinds: warningKinds(after.warnings) };
     record.afterBelege = [];
+    record.runtimeAudit = {};
     for (const source of SOURCES) {
       const beleg = await inspectBuild(after.outDir, source.pagePath);
       (record.afterBelege as unknown[]).push(beleg);
       if (!beleg.html.markerInHtml || !beleg.dom.markerInDom) throw new Error(`Änderung fehlt in HTML/DOM: ${source.pagePath}`);
       if (beleg.html.payloadTraegerImHtml) throw new Error(`Seitenweiter Träger im HTML: ${source.pagePath}`);
       if (beleg.html.framerImportImHtml) throw new Error(`framerImport im HTML: ${source.pagePath}`);
+      const pageId = pageIdsByPath.get(source.pagePath);
+      if (pageId === undefined) throw new Error(`Keine Seite für ${source.pagePath}`);
+      const page = await env.engine.store.getPage(pageId);
+      const html = await readFile(buildHtmlFile(after.outDir, source.pagePath), "utf8");
+      const audit = auditFramerRuntime({
+        tree: page.draft,
+        html,
+        scripts: await localScripts(after.outDir, html),
+        network: beleg.netzwerk.eintraege,
+        globals: beleg.dom.framerGlobals,
+      });
+      (beleg as Record<string, unknown>).runtimeAudit = audit;
+      (record.runtimeAudit as Record<string, unknown>)[source.pagePath] = audit;
+      if (audit.verdict === "confirmed") throw new Error(`Framer-Runtime bestätigt: ${source.pagePath}`);
     }
     record.status = "abgeschlossen";
   } catch (error) {
