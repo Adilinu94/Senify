@@ -438,6 +438,12 @@ export async function runFramerImportJob(
   },
 ): Promise<ImportRunResult> {
   const dryRun = input.body.write !== true;
+  if (!dryRun && input.body.output === "structure") {
+    throw new SenifyError("conflict", "Die Strukturausgabe kann derzeit nur analysiert werden", {
+      field: "output",
+      suggestion: "Das sichere Speichern und Wiederherstellen der Ausgabeart ist noch nicht verfügbar.",
+    });
+  }
   const pagePath = input.body.pagePath ?? "/";
   const source = sourceOf(input.body);
   const includeAssets = !dryRun && input.body.assets !== "skip";
@@ -489,6 +495,7 @@ export async function runFramerImportJob(
       includeFonts,
       pagePath,
       mode: input.body.mode ?? "dna",
+      ...(input.body.output === undefined ? {} : { output: input.body.output }),
       baseDurationMs,
     });
   } catch (error) {
@@ -651,6 +658,7 @@ export async function runFramerImportJob(
   > = {
     jobId: input.jobId,
     dryRun,
+    ...(input.body.output === undefined ? {} : { requestedOutput: input.body.output }),
     irHash: run.irHash,
     ...(run.discoveredPages.length > 0 ? { discoveredPages: run.discoveredPages } : {}),
     score: run.report.score,
@@ -756,6 +764,9 @@ export async function runFramerImportJob(
         }),
     steps: [
       ...run.report.steps,
+      ...(input.body.output === "structure"
+        ? ["Die Strukturausgabe kann derzeit nur analysiert und noch nicht gespeichert werden."]
+        : []),
       ...(cmsPlan === null
         ? []
         : [

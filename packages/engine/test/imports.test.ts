@@ -39,6 +39,8 @@ type ImportResponse = {
     receiptId: string | null;
     replayed: boolean;
     irHash: string;
+    requestedOutput?: "original" | "structure";
+    editableShare?: { editable: number; original: number; nodes: number };
     score: number;
     counts: { nodes: number; mapped: number; placeholders: number };
     declarations: { total: number; carried: number; dropped: number };
@@ -112,6 +114,49 @@ async function getPage(pageId: string): Promise<PageResponse> {
 }
 
 describe("POST /api/sites/:siteId/imports/framer", () => {
+  it("analysiert die ausdrücklich gewählte Ausgabe, ohne Struktur-Schreibvorgänge vorzeitig freizugeben", async () => {
+    const own = await createTestSite(env.api, "Ausgabeanalyse");
+    const root = join(mirrorDir, "output-contract");
+    mkdirSync(join(root, "scripts"), { recursive: true });
+    writeFileSync(join(root, "index.html"), `<!doctype html><html><head>
+<script type="module" data-framer-bundle src="scripts/_script0.mjs"></script>
+</head><body><div id="main" data-framer-hydrate-v2='{"routeId":"abc"}'><p>Text</p></div></body></html>`);
+    writeFileSync(join(root, "scripts", "_script0.mjs"), `globalThis.fixture = document.getElementById("main");`);
+    const source = { rootDir: root };
+    const original = await runImport({ source }, own.id);
+    const explicitOriginal = await runImport({ source, output: "original" }, own.id);
+    const structure = await runImport({ source, output: "structure" }, own.id);
+    expect(original.status).toBe(201);
+    expect(explicitOriginal.status).toBe(201);
+    expect(structure.status).toBe(201);
+    expect(original.body.report.irHash).toBe(explicitOriginal.body.report.irHash);
+    expect(explicitOriginal.body.report.requestedOutput).toBe("original");
+    expect(structure.body.report.requestedOutput).toBe("structure");
+    expect(structure.body.report.irHash).not.toBe(original.body.report.irHash);
+    expect(original.body.report.payloads?.length).toBeGreaterThan(0);
+    expect(structure.body.report.payloads).toEqual([]);
+    expect(structure.body.report.editableShare).toBeUndefined();
+    expect(structure.body.report.steps.join(" ")).toContain("nicht geprüft");
+    expect(structure.body.report.steps.join(" ")).toContain("noch nicht gespeichert");
+    expect((await runImport({ source, output: "unknown" }, own.id)).status).toBe(400);
+    const jobPath = `/api/sites/${own.id}/imports`;
+    const jobsBefore = await env.api.request<{ jobs: unknown[] }>({ method: "GET", path: jobPath });
+    const write = await runImport({ source, output: "structure", write: true, pagePath: "/struktur" }, own.id);
+    expect(write.status).toBe(409);
+    const jobsAfter = await env.api.request<{ jobs: unknown[] }>({ method: "GET", path: jobPath });
+    expect(jobsAfter.body.jobs).toHaveLength(jobsBefore.body.jobs.length);
+    const pages = await env.api.request<{ pages: { path: string }[] }>({ method: "GET", path: `/api/sites/${own.id}/pages` });
+    expect(pages.body.pages.some((page) => page.path === "/struktur")).toBe(false);
+    const originalWrite = await runImport({
+      source, output: "original", write: true, pagePath: "/original", assets: "skip", fonts: "skip",
+      expectedIrHash: explicitOriginal.body.report.irHash,
+    }, own.id);
+    expect(originalWrite.status).toBe(201);
+    expect(originalWrite.body.report.requestedOutput).toBe("original");
+    const page = await env.engine.store.getPage(originalWrite.body.report.pageId as string);
+    expect(Object.values(page.draft.nodes).some((node) => node.type === "payload" && node.props.coversPage === true)).toBe(true);
+  }, 60_000);
+
   it("createOnly schützt eine nach der Analyse angelegte Zielseite", async () => {
     const own = await createTestSite(env.api, "Import Race");
     const source = { html: framerHtml() };

@@ -76,6 +76,9 @@ export const CreateImportBodySchema = Type.Object(
     // "dna" (default) rewrites what the design DNA forbids (gradients, shadows,
     // radii, centered headings); "fidelity" keeps the source's look.
     mode: Type.Optional(Type.Union([Type.Literal("dna"), Type.Literal("fidelity")])),
+    // Output selection is independent from normalization. Structural writes
+    // remain guarded until the selection can survive reimport and restore.
+    output: Type.Optional(Type.Union([Type.Literal("original"), Type.Literal("structure")])),
     // How a URL source is read (S2): "static" (default) reads the SSR-HTML,
     // "browser" loads the page in Chromium first so content a script builds at
     // runtime is imported too. The browser path needs Playwright and produces a
@@ -106,6 +109,8 @@ export const ImportReportSchema = Type.Object(
   {
     jobId: Type.String(),
     dryRun: Type.Boolean(),
+    // A requested output is not a claim about actual runtime freedom.
+    requestedOutput: Type.Optional(Type.Union([Type.Literal("original"), Type.Literal("structure")])),
     pageId: Type.Union([Type.String(), Type.Null()]),
     newDraftVersion: Type.Union([Type.Number(), Type.Null()]),
     receiptId: Type.Union([Type.String(), Type.Null()]),
