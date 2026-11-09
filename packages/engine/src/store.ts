@@ -2748,6 +2748,13 @@ export class Store {
       // the same page swaps its own rules and leaves every other page's alone.
       // Stacking them would leave the registry holding the first version (it
       // keeps the first rule per id), so a change made in Framer never arrived.
+      //
+      // Legacy Framer imports wrote one global token root rule with id
+      // `framer-import-tokens`. It has no page scope and is not matched by
+      // RULE_ID_PATTERN. Removing it on the first scoped reimport would break
+      // older pages that still reference unscoped `--token-*` names. Keep it;
+      // scoped imports define `--token-<scope>-*` and rewrite only their own
+      // page/rules, so the global definition does not conflict with them.
       const importedScopes = new Set(
         plan.styleRules
           .map((rule) => RULE_ID_PATTERN.exec(rule.id)?.[1])

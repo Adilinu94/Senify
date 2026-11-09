@@ -5,6 +5,7 @@ import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { captureBrowser } from "@senify/framer-import";
+import type { IrNode } from "../src/ir.ts";
 
 // The browser capture (plan S2.1/S2.2) against local servers, so the whole
 // path runs offline and deterministic:
@@ -61,6 +62,32 @@ const MOTION_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
 </script>
 </body></html>`;
 
+const SCROLL_PAGE = `<!doctype html><html><head><style>
+body { margin: 0; height: 3000px; }
+.item { height: 80px; }
+.fixed { position: fixed; top: 0; }
+</style></head><body><main id="main">
+<div class="item" data-framer-name="Normal">Normal</div>
+<div class="item" data-framer-name="Bewegt">Bewegt</div>
+<div class="fixed" data-framer-name="Fixed"><span data-framer-name="Fixed child">Fixed</span></div>
+</main><script>
+addEventListener('scroll', () => {
+  document.querySelector('[data-framer-name="Bewegt"]').style.transform = 'translateY(' + (scrollY / 2) + 'px)';
+});
+</script></body></html>`;
+
+// A page whose look lives exclusively in a linked stylesheet: the browser
+// capture must read the CSSOM, not only the inline critical CSS.
+const LINKED_PAGE = `<!doctype html><html><head><link rel="stylesheet" href="/linked.css"></head><body><div id="main"><div class="linked" data-framer-name="Linked">Linked</div></div></body></html>`;
+const LINKED_CSS = ".linked{color:#123456}.linked:hover{color:#654321}";
+
+// The capture pins the light scheme; a Framer-style palette swap must not leak
+// the dark variant into the IR.
+const SCHEME_PAGE = `<!doctype html><html><head><style>
+.probe { color: rgb(9, 9, 9); }
+@media (prefers-color-scheme: dark) { .probe { color: rgb(1, 2, 3); } }
+</style></head><body><div id="main"><div class="probe" data-framer-name="Scheme">Scheme</div></div></body></html>`;
+
 let fixtureServer: import("node:http").Server;
 let fixtureOrigin: string;
 let motionServer: import("node:http").Server;
@@ -90,9 +117,22 @@ beforeAll(async () => {
   });
   fixtureServer = fixture.server;
   fixtureOrigin = fixture.origin;
-  const motion = await startServer((_request, response) => {
+  const motion = await startServer((request, response) => {
+    if (request.url === "/linked.css") {
+      response.writeHead(200, { "content-type": "text/css; charset=utf-8" });
+      response.end(LINKED_CSS);
+      return;
+    }
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    response.end(MOTION_PAGE);
+    response.end(
+      request.url === "/scroll"
+        ? SCROLL_PAGE
+        : request.url === "/linked"
+          ? LINKED_PAGE
+          : request.url === "/scheme"
+            ? SCHEME_PAGE
+            : MOTION_PAGE,
+    );
   });
   motionServer = motion.server;
   motionOrigin = motion.origin;
@@ -182,4 +222,39 @@ describe.skipIf(!browserAvailable)("captureBrowser", () => {
       captureBrowser({ url: "http://127.0.0.1:1/", settleMs: 10 }),
     ).rejects.toThrow();
   }, 30_000);
+
+  it("collects linked stylesheets and their hover state", async () => {
+    const result = await captureBrowser({ url: `${motionOrigin}/linked`, settleMs: 200 });
+    const find = (node: IrNode): IrNode | undefined => {
+      if (node.baseClasses.includes("linked")) return node;
+      for (const child of node.children) {
+        const hit = find(child);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    };
+    const page = result.document.pages[0];
+    expect(page).toBeDefined();
+    const linked = page === undefined ? undefined : find(page.root);
+    expect(linked).toBeDefined();
+    expect(linked?.states[0]?.visual["color"]).toBe("rgb(18, 52, 86)");
+    expect(linked?.states[0]?.interactions?.hover?.["color"]).toBe("rgb(101, 67, 33)");
+  }, 60_000);
+
+  it("pins the light color scheme for deterministic captures", async () => {
+    const result = await captureBrowser({ url: `${motionOrigin}/scheme`, settleMs: 200 });
+    const page = result.document.pages[0];
+    expect(page).toBeDefined();
+    const find = (node: IrNode): IrNode | undefined => {
+      if (node.name === "Scheme") return node;
+      for (const child of node.children) {
+        const hit = find(child);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    };
+    const probe = page === undefined ? undefined : find(page.root);
+    expect(probe).toBeDefined();
+    expect(probe?.states[0]?.visual["color"]).toBe("rgb(9, 9, 9)");
+  }, 60_000);
 });

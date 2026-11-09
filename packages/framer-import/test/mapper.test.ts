@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { captureFixture, captureHtml, fontFamilyName, normalize, mapDocument } from "@senify/framer-import";
+import { captureFixture, captureHtml, fontFamilyName, normalize, mapDocument, ruleScopeOf } from "@senify/framer-import";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,6 +22,18 @@ describe("mapDocument", () => {
     for (const rule of mapped.document.styleRules) {
       expect(rule.origin?.source).toBe("framer-import");
     }
+  });
+
+  it("scopes node ids per page so the site-wide CSS cannot collide", () => {
+    const document = captureFixture(join(FIXTURES, "framer-stupendous-football-158496"));
+    const normalized = normalize(document);
+    const first = mapDocument(document, normalized.rules, { nodeIdPrefix: "fi-aaaaaa-" });
+    const second = mapDocument(document, normalized.rules, { nodeIdPrefix: "fi-bbbbbb-" });
+    const firstIds = Object.keys(first.document.nodes).filter((id) => id !== "root");
+    const secondIds = new Set(Object.keys(second.document.nodes).filter((id) => id !== "root"));
+    expect(firstIds.length).toBeGreaterThan(0);
+    expect(firstIds.every((id) => id.startsWith("fi-aaaaaa-"))).toBe(true);
+    expect(firstIds.some((id) => secondIds.has(id))).toBe(false);
   });
 
   it("keeps structurally different header variants, each visible on its own device only", () => {
@@ -276,5 +288,40 @@ describe("mapDocument", () => {
         expect(mapped.document.nodes[child]).toBeDefined();
       }
     }
+  });
+
+  it("isoliert gleiche Farbtoken-IDs auf verschiedenen Seiten", () => {
+    const token = "11111111-1111-1111-1111-111111111111";
+    const page = (color: string, path: string): string =>
+      `<html lang="de"><head><title>${path}</title><style>:root{--token-${token}:${color}}.x{color:var(--token-${token}, ${color})}</style></head><body><div id="main" data-framer-hydrate-v2><div class="x" style="color:var(--token-${token}, ${color})">Text</div><svg viewBox="0 0 10 10"><path d="M0 0h10v10z" fill="var(--token-${token}, ${color})"/></svg></div></body></html>`;
+    const pathA = "/seite-a";
+    const pathB = "/seite-b";
+    const docA = captureHtml({ html: page("rgb(1, 1, 1)", pathA), pagePath: pathA });
+    const docB = captureHtml({ html: page("rgb(2, 2, 2)", pathB), pagePath: pathB });
+    const scopeA = ruleScopeOf(pathA);
+    const scopeB = ruleScopeOf(pathB);
+    const mappedA = mapDocument(docA, normalize(docA).rules, { nodeIdPrefix: `fi-${scopeA}-` });
+    const mappedB = mapDocument(docB, normalize(docB).rules, { nodeIdPrefix: `fi-${scopeB}-` });
+
+    const allRules = [...mappedA.document.styleRules, ...mappedB.document.styleRules];
+    const tokenRules = allRules.filter((rule) => rule.kind === "ambient" && Object.keys(rule.styles).some((name) => name.includes(`--token-`)));
+    expect(tokenRules).toHaveLength(2);
+    expect(new Set(tokenRules.map((rule) => rule.id)).size).toBe(2);
+    const tokenValues = tokenRules.flatMap((rule) => Object.entries(rule.styles).filter(([name]) => name.includes("--token-")).map(([, value]) => value));
+    expect(tokenValues).toContain("rgb(1, 1, 1)");
+    expect(tokenValues).toContain("rgb(2, 2, 2)");
+
+    const vars = (mapped: typeof mappedA): string[] => {
+      const values: string[] = [];
+      for (const rule of mapped.document.styleRules) {
+        for (const value of Object.values(rule.styles)) values.push(String(value));
+      }
+      for (const node of Object.values(mapped.document.nodes)) {
+        for (const value of Object.values(node.props)) values.push(String(value));
+      }
+      return values.filter((value) => value.includes(`--token-`));
+    };
+    expect(vars(mappedA).every((value) => value.includes(scopeA))).toBe(true);
+    expect(vars(mappedB).every((value) => value.includes(scopeB))).toBe(true);
   });
 });

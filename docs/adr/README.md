@@ -33,10 +33,11 @@
 | [ADR-0028](0028-unframer-als-zweite-quelle.md) | Der Unframer-MCP wird die zweite Import-Quelle für Projektstruktur | angenommen |
 | [ADR-0029](0029-deklarative-import-animationen.md) | Deklarative Framer-Importanimationen | angenommen |
 | [ADR-0030](0030-historische-tokenmigration-bei-umbenennung.md) | Historische Tokenverweise bei einer Umbenennung | angenommen |
+| [ADR-0031](0031-lokale-stile-vor-globalen-klassen.md) | Bedingung vor Herkunft, lokal vor global bei gleicher Bedingung | angenommen |
 
 ## Nächste Nummer
 
-Die nächste freie Nummer ist `ADR-0031`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
+Die nächste freie Nummer ist `ADR-0032`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
 
 ## Regeln
 

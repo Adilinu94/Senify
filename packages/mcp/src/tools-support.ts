@@ -53,6 +53,40 @@ export function listSchema(key: string, item: unknown): Record<string, unknown> 
   };
 }
 
+// A list route that cuts a page answers with the envelope of `paging.ts` next
+// to the rows. All four fields are required because they are exactly what a
+// client branches on to ask for the next page: `hasMore` says whether there is
+// one, `page.offset + limit` says where it starts, and `exactTotal` says whether
+// `total` is a count or only "at least this many" - a client that trusts an
+// inexact total stops paging too early.
+//
+// Only for handlers that really return the envelope; a list without paging
+// keeps `listSchema`, or the server would drop its structuredContent.
+export function pagedListSchema(
+  key: string,
+  item: unknown,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      [key]: { type: "array", items: item },
+      page: {
+        type: "object",
+        properties: { limit: { type: "number" }, offset: { type: "number" } },
+        required: ["limit", "offset"],
+        additionalProperties: true,
+      },
+      total: { type: "number" },
+      exactTotal: { type: "boolean" },
+      hasMore: { type: "boolean" },
+      ...extra,
+    },
+    required: [key, "page", "total", "exactTotal", "hasMore"],
+    additionalProperties: true,
+  };
+}
+
 // The engine cuts every list route to one page (default 50, cap 200). A list
 // tool therefore has to pass `limit` and `offset` on, or an agent that sees
 // `hasMore: true` has no way to ask for the next page. The values travel

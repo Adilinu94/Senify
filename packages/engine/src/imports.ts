@@ -828,6 +828,7 @@ export async function runFramerImportJob(
     // answer replays its receipt, a changed one is a new import.
     ...(() => {
       const options: Record<string, string> = {};
+      if (input.body.createOnly === true) options.createOnly = "true";
       if (cmsText !== undefined) {
         options.cms = createHash("sha256").update(cmsText, "utf8").digest("hex");
       }
@@ -842,6 +843,9 @@ export async function runFramerImportJob(
   const target =
     input.body.pageId !== undefined
       ? (() => {
+          if (input.body.createOnly === true) {
+            throw new SenifyError("validation", "createOnly erlaubt keine bestehende Zielseite", { field: "pageId" });
+          }
           if (input.body.baseDraftVersion === undefined) {
             throw new SenifyError("validation", "Für eine bestehende Zielseite ist baseDraftVersion erforderlich", {
               field: "baseDraftVersion",
@@ -854,7 +858,7 @@ export async function runFramerImportJob(
             baseDraftVersion: input.body.baseDraftVersion,
           } as const;
         })()
-      : existingTarget !== undefined
+      : existingTarget !== undefined && input.body.createOnly !== true
         ? ({ kind: "page", pageId: existingTarget.id, baseDraftVersion: existingTarget.draftVersion } as const)
         : ({ kind: "new", path: pagePath, title: run.document.pages[0]?.title ?? "Importierte Seite" } as const);
 

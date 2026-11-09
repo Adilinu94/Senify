@@ -522,7 +522,14 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
 
   const browser = await chromium.launch({ headless: true });
   try {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    // The capture is the deterministic reference for the comparison. Pin the
+    // light scheme: Framer sites often swap their palette under
+    // `prefers-color-scheme`, and an inherited OS dark mode would bake the
+    // other variant into the IR.
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      colorScheme: "light",
+    });
     // Every request the page makes - the navigation, its redirects, every
     // sub-resource - passes the address check of ADR-0016. Without it a
     // public page could point the browser at a metadata service or at a
@@ -721,6 +728,24 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     // them. The stamp comes off first: it is not part of the document.
     await page.evaluate("window.senifyUnstampKeys()");
     const ssrHtml = await page.content();
+    // The DOM snapshot contains link elements but not the stylesheets they
+    // loaded. CSSOM access is restricted by the browser for cross-origin
+    // sheets; skip inaccessible sheets rather than weakening that boundary.
+    const linkedCss = await page.evaluate(() => {
+      const result: string[] = [];
+      const browserDocument = (globalThis as unknown as {
+        document: { styleSheets: ArrayLike<{ ownerNode: { nodeName: string } | null; cssRules: ArrayLike<{ cssText: string }> }> };
+      }).document;
+      for (const sheet of Array.from(browserDocument.styleSheets)) {
+        if (sheet.ownerNode?.nodeName !== "LINK") continue;
+        try {
+          result.push(Array.from(sheet.cssRules, (rule) => rule.cssText).join("\n"));
+        } catch {
+          // Cross-origin CSSOM may be unreadable even if the browser renders it.
+        }
+      }
+      return result.join("\n");
+    });
     // A probe names its target three ways: by the IR key the stamp wrote (the
     // exact node), by a CSS selector (`keyIndex`), or — for an element outside
     // the stamped tree — by its nth-child path, which addresses no node and
@@ -784,6 +809,7 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
 
     const capture: CaptureHtmlInput = {
       html: ssrHtml,
+      css: linkedCss,
       ...(input.rootDir !== undefined ? { rootDir: input.rootDir } : {}),
       url: input.url,
       pagePath: input.pagePath ?? new URL(input.url).pathname,

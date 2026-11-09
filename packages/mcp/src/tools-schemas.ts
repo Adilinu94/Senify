@@ -180,3 +180,81 @@ export const OUTLINE_SCHEMA = {
   required: ["pageId", "path", "title", "draftVersion", "sections"],
   additionalProperties: true,
 } as const;
+
+// A content entry as the entry routes answer with it (`content.ts`). The id is
+// what a client carries on to get_entry, update_entry and publish_entry; slug
+// and status are described because an agent reads them, not demanded.
+export const ENTRY_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    siteId: { type: "string" },
+    collectionId: { type: "string" },
+    slug: { type: "string" },
+    status: { type: "string" },
+    version: { type: "number" },
+  },
+  required: ["id"],
+  additionalProperties: true,
+} as const;
+
+export const JOB_SUMMARY_SCHEMA = {
+  type: "object",
+  properties: { id: { type: "string" }, siteId: { type: "string" }, status: { type: "string" } },
+  required: ["id"],
+  additionalProperties: true,
+} as const;
+
+export const THEME_SCHEMA = {
+  type: "object",
+  properties: { id: { type: "string" }, siteId: { type: "string" }, version: { type: "number" }, theme: { type: "object" } },
+  required: ["id", "version", "theme"],
+  additionalProperties: true,
+} as const;
+
+// The write result of a page: apply_mutations and undo_batch answer alike, from
+// the same transaction seen from either side (`http-route-support.ts`,
+// `undo-batch.ts`). `newDraftVersion` is the value the next write has to send as
+// baseDraftVersion, so it is the one field a client cannot do without.
+// `undoBatchId` is null for a dry run and for a batch that changed nothing.
+export const MUTATION_RESULT_SCHEMA = {
+  type: "object",
+  properties: {
+    newDraftVersion: { type: "number" },
+    undoBatchId: { type: ["string", "null"] },
+    warnings: { type: "array", items: { type: "object" } },
+    results: { type: "array", items: { type: "object" } },
+    undone: { type: "array", items: { type: "object" } },
+  },
+  required: ["newDraftVersion"],
+  additionalProperties: true,
+} as const;
+
+// The soft deletes build this themselves instead of passing the engine's
+// record on: the id is the confirmation, and nothing else about a trashed row
+// is worth reading.
+export const TRASH_RESULT_SCHEMA = {
+  type: "object",
+  properties: { trashed: { type: "string" } },
+  required: ["trashed"],
+  additionalProperties: false,
+} as const;
+
+// The rule the style routes answer with (`store-style-rules.ts`). set_styles
+// returns it from either the create or the update path, create_style_rule from
+// the create path; both carry the four fields the widget engine's constructors
+// always set. The update path adds `version`, hence the open shape.
+export const STYLE_RULE_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    name: { type: "string" },
+    kind: { type: "string" },
+    selector: { type: "string" },
+    styles: { type: "object" },
+    states: { type: "object" },
+    version: { type: "number" },
+  },
+  required: ["id", "name", "kind", "styles"],
+  additionalProperties: true,
+} as const;

@@ -278,8 +278,9 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
     case "image": {
       const asset = assetOf(props, "asset");
       const alt = text(props, "alt");
+      const source = text(props, "src");
       return root("img", [primitiveClass("image")], {
-        src: asset === "" ? "" : `/assets/${asset}`,
+        src: source !== "" ? source : asset === "" ? "" : `/assets/${asset}`,
         alt,
         "data-asset": asset === "" ? undefined : asset,
       });

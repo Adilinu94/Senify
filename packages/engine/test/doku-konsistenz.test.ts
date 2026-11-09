@@ -265,13 +265,19 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // Anteil entstehen erst nach der Klassen-Kaskade, nicht beim Baum-Bau.
     // Vorher 70: Punkt 13 (CSS-Bildadressen) hat `remoteUrlsInValues` ergaenzt;
     // 69 vor der fremden Browser-Capture-Aenderung (26.10.2026, 539b533).
-    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(72);
+    // Der Merge ergänzt vier Helfer für Farbschema-Auswertung und Body-Palette.
+    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(76);
     // 57 seit dem 26.10.2026: der fremde Commit 7a5b838 (Browser-Abgriff der
     // Animationen) hat drei Funktionen ergaenzt. Der Waechter hat es sofort
     // gemeldet - genau dafuer steht er hier. Der Bericht nennt dieselbe Zahl.
     // 58 seit dem 01.11.2026: Punkt 15, Ursache 2 (die transparente
     // Textfuellung) hat `isTransparentTextColor` ergaenzt.
-    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(58);
+    // 63 seit dem 08.11.2026 (Integrations-Merge): fünf Helfer grenzen
+    // Framer-Token-IDs/Custom Properties pro Seite ein (`tokenVarName`,
+    // `scopedTokenText`, `scopedTokenValue`, `scopeTokenRules`,
+    // `scopeTokenNodes`), damit Mehrseitenimporte mit gleicher Token-ID aber
+    // unterschiedlichen Werten sich nicht gegenseitig überschreiben.
+    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(63);
 
     // Der CSS-Block wird ueber ANKER geprueft, nicht ueber Zeilennummern.
     //
@@ -291,6 +297,7 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
 
     // Und die Begruendung muss die Zahlen tragen, die sie behauptet.
     expect(module).toContain("(21 Funktionen)");
+    expect(module).toContain("76 Funktionen");
     expect(module).toContain("58 Funktionen");
     // `mapNode` ist mit der Datei gewachsen (289 -> 336).
     expect(module).toContain("336 Zeilen");

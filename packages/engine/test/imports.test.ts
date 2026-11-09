@@ -112,6 +112,19 @@ async function getPage(pageId: string): Promise<PageResponse> {
 }
 
 describe("POST /api/sites/:siteId/imports/framer", () => {
+  it("createOnly schützt eine nach der Analyse angelegte Zielseite", async () => {
+    const own = await createTestSite(env.api, "Import Race");
+    const source = { html: framerHtml() };
+    const preview = await runImport({ source, pagePath: "/geschuetzt", assets: "skip", fonts: "skip" }, own.id);
+    expect(preview.status).toBe(201);
+    const existing = await createTestPage(env.api, own.id, { path: "/geschuetzt", title: "Fremder Entwurf" });
+    const before = await env.engine.store.getPage(existing.id);
+    const response = await runImport({ source, pagePath: "/geschuetzt", assets: "skip", fonts: "skip", write: true, createOnly: true }, own.id);
+    expect(response.status).toBe(409);
+    const after = await env.engine.store.getPage(existing.id);
+    expect(after.draftVersion).toBe(before.draftVersion);
+    expect(after.draft).toEqual(before.draft);
+  }, 60_000);
   it("reicht die Capture-Wahl durch und lehnt einen unbekannten Wert ab", async () => {
     // `capture` ist eine Wahl der Quelle (S2), kein freier Text: der Contract
     // kennt genau zwei Werte. Ein Tippfehler darf nicht still im statischen
@@ -480,6 +493,222 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
       expect(once.length).toBeGreaterThan(0);
       expect(twice.length).toBe(once.length);
       expect(twice.map((rule) => rule.id).sort()).toEqual(once.map((rule) => rule.id).sort());
+    }, 120_000);
+
+    it("behält die alte globale Framer-Tokenregel, damit unveränderte Altseiten ihre Farben nicht verlieren", async () => {
+      // Altimporte hatten eine globale `framer-import-tokens`-Regel mit ungescopten
+      // `--token-*`-Namen. Ein scoped Reimport einer einzelnen Seite darf diese
+      // Definition nicht entfernen: andere alte Seiten können noch darauf verweisen.
+      // Scoped Imports benutzen eigene `--token-<scope>-*`-Namen und kollidieren nicht.
+      const own = await createTestSite(env.api, "Import Legacy Token Migration");
+      await env.engine.store.appendImportedStyleRules(
+        own.id,
+        [
+          {
+            id: "framer-import-tokens",
+            name: ":root",
+            kind: "ambient",
+            selector: ":root",
+            order: 0,
+            styles: { "--token-legacy-a": "#111111", "--token-legacy-b": "#222222" },
+            contextStyles: {},
+            origin: { source: "framer-import", ordinal: 0 },
+            authoredBy: "preset",
+          },
+        ],
+        TEST_AUTHOR,
+      );
+      // Zwei bestehende Altseiten mit ungescopten Token-Referenzen.
+      const pageA = await createTestPage(env.api, own.id, { path: "/alt-a", title: "Alt A" });
+      const pageB = await createTestPage(env.api, own.id, { path: "/alt-b", title: "Alt B" });
+      const legacyDraft = (colorToken: string) => ({
+        rootNodeId: "root",
+        nodes: {
+          root: { id: "root", type: PAGE_ROOT_TYPE, props: {}, children: ["n1"] },
+          n1: { id: "n1", type: "text", props: { text: "Alt", color: `var(${colorToken})` } },
+        },
+      });
+      await env.engine.store.replacePageDraft(pageA.id, legacyDraft("--token-legacy-a") as never);
+      await env.engine.store.replacePageDraft(pageB.id, legacyDraft("--token-legacy-b") as never);
+
+      const commitScoped = async (scope: string, path: string, token: string, color: string) => {
+        const job = await env.engine.store.createImportJob({
+          siteId: own.id,
+          source: { kind: "html", url: null, rootDir: null, html: "<!doctype html><html><body></body></html>", baseUrl: null },
+          pagePath: path,
+          dryRun: false,
+          maxAttempts: 1,
+        });
+        return env.engine.store.commitFramerImportPlan({
+          siteId: own.id,
+          jobId: job.id,
+          contentKey: `legacy-token-content-${scope}`,
+          requestFingerprint: `legacy-token-request-${scope}`,
+          author: TEST_AUTHOR,
+          target: { kind: "new", path, title: `Seite ${scope}` },
+          draft: { rootNodeId: "root", nodes: { root: { id: "root", type: PAGE_ROOT_TYPE, props: { color: `var(${token})` }, children: [] } } },
+          payloads: [],
+          styleRules: [
+            {
+              id: `fi-${scope}-0`,
+              name: ":root",
+              kind: "ambient",
+              selector: ":root",
+              order: 0,
+              description: `Scoped Token Root ${scope}`,
+              styles: { [token]: color },
+              contextStyles: {},
+              origin: { source: "framer-import", ordinal: 0 },
+              authoredBy: "preset",
+            },
+          ],
+          themePatch: null,
+          report: {
+            jobId: job.id, dryRun: false, irHash: `legacy-token-${scope}`, score: 1,
+            counts: { nodes: 1, mapped: 1, placeholders: 0 },
+            declarations: { total: 1, carried: 1, dropped: 0 },
+            assets: { downloaded: 0, deduped: 0, failed: 0, fonts: 0 },
+            motion: { measured: 0, mappedToPreset: 0, documented: 0 },
+            findings: [], marqueeCandidates: [], steps: ["test"],
+          },
+        });
+      };
+
+      // Nur eine neue/scoped Seite importieren.
+      await commitScoped("d4e5f6", "/neu", "--token-d4e5f6-brand", "#333333");
+
+      const rules = await env.api.request<{ rules: { id: string; kind: string; styles?: Record<string, string> }[] }>({
+        method: "GET",
+        path: `/api/sites/${own.id}/style-rules`,
+      });
+      expect(rules.status).toBe(200);
+      const legacy = rules.body.rules.find((r) => r.id === "framer-import-tokens");
+      expect(legacy?.styles?.["--token-legacy-a"]).toBe("#111111");
+      expect(legacy?.styles?.["--token-legacy-b"]).toBe("#222222");
+      expect(rules.body.rules.some((r) => r.id === "fi-d4e5f6-0")).toBe(true);
+
+      // Unveränderte Altseiten behalten ihre ungescopten Referenzen und die globale Definition bleibt verfügbar.
+      const draftA = await env.engine.store.getPage(pageA.id);
+      const draftB = await env.engine.store.getPage(pageB.id);
+      expect(JSON.stringify(draftA.draft)).toContain("--token-legacy-a");
+      expect(JSON.stringify(draftB.draft)).toContain("--token-legacy-b");
+      expect(draftA.draft.nodes["n1"]?.props?.color).toBe("var(--token-legacy-a)");
+      expect(draftB.draft.nodes["n1"]?.props?.color).toBe("var(--token-legacy-b)");
+    }, 120_000);
+
+    it("isoliert scoped Farbtoken mit gleicher Quell-ID auf neuen Seiten", async () => {
+      const own = await createTestSite(env.api, "Import Scoped Token Isolation");
+      const commitScoped = async (scope: string, path: string, token: string, color: string, text: string) => {
+        const job = await env.engine.store.createImportJob({
+          siteId: own.id,
+          source: { kind: "html", url: null, rootDir: null, html: "<!doctype html><html><body></body></html>", baseUrl: null },
+          pagePath: path,
+          dryRun: false,
+          maxAttempts: 1,
+        });
+        return env.engine.store.commitFramerImportPlan({
+          siteId: own.id,
+          jobId: job.id,
+          contentKey: `scoped-token-content-${scope}`,
+          requestFingerprint: `scoped-token-request-${scope}`,
+          author: TEST_AUTHOR,
+          target: { kind: "new", path, title: `Seite ${scope}` },
+          draft: { rootNodeId: "root", nodes: { root: { id: "root", type: PAGE_ROOT_TYPE, props: { color: `var(${token})` }, children: ["n1"] }, n1: { id: "n1", type: "text", props: { text, color: `var(${token})` } } } },
+          payloads: [],
+          styleRules: [
+            {
+              id: `fi-${scope}-0`,
+              name: ":root",
+              kind: "ambient",
+              selector: ":root",
+              order: 0,
+              description: `Scoped Token Root ${scope}`,
+              styles: { [token]: color },
+              contextStyles: {},
+              origin: { source: "framer-import", ordinal: 0 },
+              authoredBy: "preset",
+            },
+          ],
+          themePatch: null,
+          report: {
+            jobId: job.id, dryRun: false, irHash: `scoped-token-${scope}`, score: 1,
+            counts: { nodes: 2, mapped: 2, placeholders: 0 },
+            declarations: { total: 1, carried: 1, dropped: 0 },
+            assets: { downloaded: 0, deduped: 0, failed: 0, fonts: 0 },
+            motion: { measured: 0, mappedToPreset: 0, documented: 0 },
+            findings: [], marqueeCandidates: [], steps: ["test"],
+          },
+        });
+      };
+
+      // Zwei neue Seiten: gleicher Quell-Tokenname, aber pro Seite bereits auf scoped Namen gemappt.
+      const committedA = await commitScoped("a1b2c3", "/farbe-a", "--token-a1b2c3-brand", "#aa0000", "A");
+      const committedB = await commitScoped("d4e5f6", "/farbe-b", "--token-d4e5f6-brand", "#00bb00", "B");
+      const pageIdA = committedA.report.pageId;
+      const pageIdB = committedB.report.pageId;
+      if (pageIdA === null || pageIdB === null) throw new Error("commitFramerImportPlan hat keine pageId geliefert");
+
+      const rules = await env.api.request<{ rules: { id: string; styles?: Record<string, string> }[] }>({
+        method: "GET",
+        path: `/api/sites/${own.id}/style-rules`,
+      });
+      expect(rules.status).toBe(200);
+      const ruleA = rules.body.rules.find((r) => r.id === "fi-a1b2c3-0");
+      const ruleB = rules.body.rules.find((r) => r.id === "fi-d4e5f6-0");
+      expect(ruleA?.styles?.["--token-a1b2c3-brand"]).toBe("#aa0000");
+      expect(ruleB?.styles?.["--token-d4e5f6-brand"]).toBe("#00bb00");
+      expect(ruleA?.styles?.["--token-d4e5f6-brand"]).toBeUndefined();
+      expect(ruleB?.styles?.["--token-a1b2c3-brand"]).toBeUndefined();
+
+      const draftA = await env.engine.store.getPage(pageIdA);
+      const draftB = await env.engine.store.getPage(pageIdB);
+      expect(draftA.draft.nodes["n1"]?.props?.color).toBe("var(--token-a1b2c3-brand)");
+      expect(draftB.draft.nodes["n1"]?.props?.color).toBe("var(--token-d4e5f6-brand)");
+
+      // Reimport nur Seite A mit neuem Wert: Seite B bleibt unverändert.
+      const beforeReimport = await env.engine.store.getPage(pageIdA);
+      const reimportJob = await env.engine.store.createImportJob({
+        siteId: own.id,
+        source: { kind: "html", url: null, rootDir: null, html: "<!doctype html><html><body></body></html>", baseUrl: null },
+        pagePath: "/farbe-a",
+        pageId: pageIdA,
+        dryRun: false,
+        maxAttempts: 1,
+      });
+      await env.engine.store.commitFramerImportPlan({
+        siteId: own.id,
+        jobId: reimportJob.id,
+        contentKey: "scoped-token-content-a1b2c3-r2",
+        requestFingerprint: "scoped-token-request-a1b2c3-r2",
+        author: TEST_AUTHOR,
+        target: { kind: "existing", pageId: pageIdA, baseDraftVersion: beforeReimport.draftVersion },
+        draft: { rootNodeId: "root", nodes: { root: { id: "root", type: PAGE_ROOT_TYPE, props: { color: "var(--token-a1b2c3-brand)" }, children: ["n1"] }, n1: { id: "n1", type: "text", props: { text: "A2", color: "var(--token-a1b2c3-brand)" } } } },
+        payloads: [],
+        styleRules: [{
+          id: "fi-a1b2c3-0", name: ":root", kind: "ambient", selector: ":root", order: 0,
+          description: "Scoped Token Root a1b2c3 v2", styles: { "--token-a1b2c3-brand": "#cc0000" }, contextStyles: {},
+          origin: { source: "framer-import", ordinal: 0 }, authoredBy: "preset",
+        }],
+        themePatch: null,
+        report: {
+          jobId: reimportJob.id, dryRun: false, irHash: "scoped-token-a1b2c3-r2", score: 1,
+          counts: { nodes: 2, mapped: 2, placeholders: 0 }, declarations: { total: 1, carried: 1, dropped: 0 },
+          assets: { downloaded: 0, deduped: 0, failed: 0, fonts: 0 },
+          motion: { measured: 0, mappedToPreset: 0, documented: 0 },
+          findings: [], marqueeCandidates: [], steps: ["test"],
+        },
+      });
+
+      const after = await env.api.request<{ rules: { id: string; styles?: Record<string, string> }[] }>({
+        method: "GET",
+        path: `/api/sites/${own.id}/style-rules`,
+      });
+      expect(after.body.rules.find((r) => r.id === "fi-a1b2c3-0")?.styles?.["--token-a1b2c3-brand"]).toBe("#cc0000");
+      expect(after.body.rules.find((r) => r.id === "fi-d4e5f6-0")?.styles?.["--token-d4e5f6-brand"]).toBe("#00bb00");
+      const draftA2 = await env.engine.store.getPage(pageIdA);
+      const draftB2 = await env.engine.store.getPage(pageIdB);
+      expect(draftA2.draft.nodes["n1"]?.props?.text).toBe("A2");
+      expect(draftB2.draft.nodes["n1"]?.props?.color).toBe("var(--token-d4e5f6-brand)");
     }, 120_000);
   });
 

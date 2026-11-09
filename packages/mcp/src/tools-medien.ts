@@ -7,16 +7,16 @@
 // liest sie mit (`render-manifest.mjs` nimmt alle `tools-*.ts`).
 
 import { SenifyError } from "@senify/core";
-import { ASSET_SCHEMA } from "./tools-schemas.ts";
+import { ASSET_SCHEMA, ENTRY_SCHEMA, JOB_SUMMARY_SCHEMA, TRASH_RESULT_SCHEMA } from "./tools-schemas.ts";
 import type { ToolDefinition } from "./tools.ts";
 import {
-  listSchema,
   objectSchema,
   optionalBoolean,
   optionalNullableString,
   optionalNumber,
   optionalString,
   optionalStringArray,
+  pagedListSchema,
   pagingQuery,
   requireNumber,
   requireRecord,
@@ -51,7 +51,7 @@ export const MEDIEN_TOOLS: ToolDefinition[] = [
       },
       ["siteId"],
     ),
-    outputSchema: listSchema("assets", ASSET_SCHEMA),
+    outputSchema: pagedListSchema("assets", ASSET_SCHEMA),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -74,6 +74,12 @@ export const MEDIEN_TOOLS: ToolDefinition[] = [
     description:
       "Uploads a local file to the media library: asks for a signed upload URL, sends the bytes and returns the asset record. Identical bytes dedupe onto the existing asset instead of creating a second record. Pass an idempotencyKey to make a retry reuse the first upload URL.",
     scope: "write",
+    outputSchema: {
+      type: "object",
+      properties: { asset: ASSET_SCHEMA, deduped: { type: "boolean" }, warnings: { type: "array", items: { type: "string" } } },
+      required: ["asset", "deduped"],
+      additionalProperties: true,
+    },
     inputSchema: objectSchema(
       {
         siteId: { type: "string" },
@@ -121,6 +127,7 @@ export const MEDIEN_TOOLS: ToolDefinition[] = [
       },
       ["siteId", "assetId"],
     ),
+    outputSchema: ASSET_SCHEMA,
     entity: (args) => `asset:${String(args.assetId ?? "")}`,
     handler: async (context, args) => {
       const assetId = requireString(args, "assetId");
@@ -185,6 +192,7 @@ export const MEDIEN_TOOLS: ToolDefinition[] = [
       "siteId",
       "assetId",
     ]),
+    outputSchema: TRASH_RESULT_SCHEMA,
     entity: (args) => `asset:${String(args.assetId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -203,6 +211,7 @@ export const MEDIEN_TOOLS: ToolDefinition[] = [
       "siteId",
       "assetId",
     ]),
+    outputSchema: ASSET_SCHEMA,
     entity: (args) => `asset:${String(args.assetId ?? "")}`,
     handler: async (context, args) =>
       context.client.request(
@@ -284,6 +293,7 @@ export const MEDIEN_TOOLS: ToolDefinition[] = [
     description:
       "Lists the image jobs of a site (newest first), optionally filtered by status. Use it to coordinate parallel generations. Paged: limit (1-200, default 50) and offset; follow hasMore.",
     scope: "read",
+    outputSchema: pagedListSchema("jobs", JOB_SUMMARY_SCHEMA),
     inputSchema: objectSchema(
       {
         siteId: { type: "string" },
@@ -354,6 +364,7 @@ export const MEDIEN_TOOLS: ToolDefinition[] = [
     description:
       "Lists the entries of a site with filters (collectionId, status, q, trashed) and sorting (sort, dir). With q the hits come back ranked by weight (title, then slug, then body), not by the sort field. Paged: limit (1-200, default 50) and offset; follow hasMore.",
     scope: "read",
+    outputSchema: pagedListSchema("entries", ENTRY_SCHEMA),
     inputSchema: objectSchema(
       {
         siteId: { type: "string" },
@@ -420,6 +431,7 @@ export const MEDIEN_TOOLS: ToolDefinition[] = [
       },
       ["siteId", "collectionId"],
     ),
+    outputSchema: ENTRY_SCHEMA,
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -454,6 +466,7 @@ export const MEDIEN_TOOLS: ToolDefinition[] = [
       },
       ["entryId", "baseVersion"],
     ),
+    outputSchema: ENTRY_SCHEMA,
     entity: (args) => `entry:${String(args.entryId ?? "")}`,
     handler: async (context, args) => {
       const entryId = requireString(args, "entryId");

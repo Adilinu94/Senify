@@ -427,4 +427,56 @@ describe("restoreTo stepwise jumps", () => {
     const ok = await session.restoreToAsync(first.id);
     expect({ ok, calls, pending: session.pendingExternalId, ext2: ext2.id }).toMatchObject({ ok: false, calls: ["ext2:undo"], pending: ext2.id });
   });
+
+  it("stoppt vor einem externen Schritt ohne Runner und setzt nach Registrierung fort", async () => {
+    const { session, marker } = harness();
+    const store = session.store;
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
+    const first = store.history.top()!;
+    const ext = store.beginExternalAction({ label: "Token umbenennen", versionBefore: store.version, versionAfter: store.version + 1 });
+    store.commitExternalAction(ext.id);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "B" });
+    await session.flush();
+    expect(session.canRestoreToAsync(first.id)).toBe(false);
+    expect(await session.restoreToAsync(first.id)).toBe(false);
+    expect(store.history.applied().map((entry) => entry.id)).toEqual([marker.id, first.id, ext.id]);
+    let calls = 0;
+    session.registerExternalHistory(ext.id, async (request) => {
+      calls += 1;
+      return { status: "committed", pageVersion: request.versions.pageVersion + 1, themeVersion: (request.versions.themeVersion ?? 0) + 1, registryVersion: request.versions.registryVersion ?? undefined };
+    });
+    expect(session.canRestoreToAsync(first.id)).toBe(true);
+    expect(await session.restoreToAsync(first.id)).toBe(true);
+    expect(calls).toBe(1);
+    expect(store.history.applied().map((entry) => entry.id)).toEqual([marker.id, first.id]);
+  });
+
+  it("stoppt, wenn eine neue lokale Eingabe die Route während des Flushs ungültig macht", async () => {
+    const { session } = harness();
+    const store = session.store;
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "A" });
+    const first = store.history.top()!;
+    const ext = store.beginExternalAction({ label: "Token umbenennen", versionBefore: store.version, versionAfter: store.version + 1 });
+    store.commitExternalAction(ext.id);
+    store.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "B" });
+    await session.flush();
+    let calls = 0;
+    session.registerExternalHistory(ext.id, async (request) => {
+      calls += 1;
+      return { status: "committed", pageVersion: request.versions.pageVersion + 1, themeVersion: (request.versions.themeVersion ?? 0) + 1, registryVersion: request.versions.registryVersion ?? undefined };
+    });
+    let inserted = false;
+    const unsubscribe = session.subscribe(() => {
+      if (inserted || session.saveState().status !== "saving") return;
+      inserted = true;
+      session.apply({ op: "setNodeProp", id: "head000001", key: "text", value: "C" });
+    });
+    try {
+      expect(await session.restoreToAsync(first.id)).toBe(false);
+      expect(inserted).toBe(true);
+      expect(calls).toBe(0);
+      expect(store.document.nodes["head000001"]?.props["text"]).toBe("C");
+      expect(store.history.future()).toEqual([]);
+    } finally { unsubscribe(); }
+  });
 });

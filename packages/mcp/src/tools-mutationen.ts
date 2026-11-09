@@ -7,6 +7,7 @@
 // Seite) und tragen denselben `baseDraftVersion`-Vertrag. Die Reihenfolge in
 // `MUTATION_TOOLS` ist die Reihenfolge im Manifest.
 
+import { MUTATION_RESULT_SCHEMA } from "./tools-schemas.ts";
 import {
   objectSchema,
   optionalBoolean,
@@ -36,6 +37,7 @@ export const MUTATION_TOOLS: ToolDefinition[] = [
       },
       ["pageId", "baseDraftVersion", "mutations"],
     ),
+    outputSchema: MUTATION_RESULT_SCHEMA,
     entity: (args) => `page:${String(args.pageId ?? "")}`,
     handler: async (context, args) => {
       const pageId = requireString(args, "pageId");
@@ -63,6 +65,7 @@ export const MUTATION_TOOLS: ToolDefinition[] = [
       },
       ["pageId", "baseDraftVersion"],
     ),
+    outputSchema: MUTATION_RESULT_SCHEMA,
     entity: (args) => `page:${String(args.pageId ?? "")}`,
     handler: async (context, args) => {
       const pageId = requireString(args, "pageId");

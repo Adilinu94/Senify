@@ -22,6 +22,8 @@ export type GeneratedPrimitives = {
   spacing: Record<string, string>;
   radius: Record<string, string>;
   shadow: Record<string, string>;
+  fontSize: Record<string, string>;
+  fontFamily: Record<string, string>;
   type: TypeScale;
 };
 
@@ -43,6 +45,10 @@ export function buildGeneratedPrimitives(theme: Theme): GeneratedPrimitives {
     shadow: {
       ...buildShadow(theme.scales.shadowTint ?? "#1a1a1a"),
     },
+    // Font-size and font-family primitives are user-authored; the generated
+    // type scale stays under `type` and keeps its own `--type-*-size` variables.
+    fontSize: {},
+    fontFamily: {},
     type: buildTypeScale(theme.scales.typeBase ?? 16, theme.scales.typeRatio ?? 1.25),
   };
 }

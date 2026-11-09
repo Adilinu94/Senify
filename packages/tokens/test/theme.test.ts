@@ -174,6 +174,19 @@ describe("emitters", () => {
     expect(tailwind).toContain("--text-h1: var(--type-h1-size);");
   });
 
+  it("emits primitive font sizes and families into their Tailwind namespaces", () => {
+    const theme = mergeThemePatch(defaultTheme(), {
+      tokens: { primitive: { fontSize: { gross: "1.5rem" }, fontFamily: { marke: "\"Sora\", sans-serif" } } },
+    });
+    const resolved = resolveTheme(theme);
+    const css = emitCss(resolved);
+    expect(css).toContain("--font-size-gross: 1.5rem;");
+    expect(css).toContain("--font-family-marke: \"Sora\", sans-serif;");
+    const tailwind = emitTailwindTheme(resolved);
+    expect(tailwind).toContain("--text-gross: var(--font-size-gross);");
+    expect(tailwind).toContain("--font-marke: var(--font-family-marke);");
+  });
+
   it("emits font faces and preloads once files exist", () => {
     const theme = defaultTheme();
     // Isolate the one file this test names: the default theme ships its own

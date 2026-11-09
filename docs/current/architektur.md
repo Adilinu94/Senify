@@ -147,7 +147,7 @@ R1 ist durch Build und angeschlossenes Artefakt-Gate implementierungsseitig gesc
 | R5 | Legacy-Editor → Canvas | geschlossen: Legacy-Datei entfernt, Redirect sichtbar | `mount.ts` gelöscht, `frame-renderer.ts`, Canvas-/Server-Tests |
 | R6 | Write → Idempotency-Abschluss | geschlossen | `http.ts`, `idempotency.test.ts`, `error-paths.test.ts` |
 | R7 | Release → Snapshots | geschlossen: Assets, Components, Payloads und Entries; begrenzter Asset-Restore-Fehlerfall | `types.ts`, `lifecycle.ts`, `release-manifest.test.ts` |
-| R8 | MCP → Schema/Pagination/Manifest | geschlossen: retryable, Output-Schemas (6 lesend + 6 schreibend), MCP-Pagination, Manifest als Faktenquelle für Docs/Matrix/Server-Spiegel | `mcp/src/tools.ts`, `mcp/src/server.ts`, `manifest/`, `engine/src/paging.ts`, `engine/src/route-matrix.ts` |
+| R8 | MCP → Schema/Pagination/Manifest | Integrationsprüfung offen: Paging, Output-Schemas und Manifest sind zusammengeführt; der Gesamt-Gate steht aus | `mcp/src/tools.ts`, `mcp/src/server.ts`, `manifest/`, `engine/src/paging.ts`, `engine/src/route-matrix.ts` |
 | R9 | Style-Registry → Klassen-Rename | geschlossen | `style-rules.test.ts` |
 | R10 | Import → Dateien | Kompensation neuer Uploads nach Commit-Fehler belegt; keine gemeinsame Datei-/DB-Transaktion | `imports.ts`, `imports.test.ts` |
 | R11 | Nachweis → CI | Gates vorhanden und auf dem Folge-Diff lokal bestanden | `verify.yml`, `vitest.config.ts`, `test:postgres`, `error-paths.test.ts` |

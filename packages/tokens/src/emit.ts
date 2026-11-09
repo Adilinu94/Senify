@@ -29,6 +29,14 @@ export function themeVariables(resolved: ResolvedTheme): Record<string, string> 
   for (const [key, value] of Object.entries(shadow)) {
     if (typeof value === "string") vars[`--shadow-${dash(key)}`] = value;
   }
+  const fontSize = (resolved.primitive.fontSize ?? {}) as Record<string, unknown>;
+  for (const [key, value] of Object.entries(fontSize)) {
+    if (typeof value === "string") vars[`--font-size-${dash(key)}`] = value;
+  }
+  const fontFamily = (resolved.primitive.fontFamily ?? {}) as Record<string, unknown>;
+  for (const [key, value] of Object.entries(fontFamily)) {
+    if (typeof value === "string") vars[`--font-family-${dash(key)}`] = value;
+  }
   const typeScale = (resolved.primitive.type ?? {}) as Record<
     string,
     { size?: unknown; lineHeight?: unknown; letterSpacing?: unknown }
@@ -168,7 +176,13 @@ export function emitTailwindTheme(resolved: ResolvedTheme): string {
   };
   for (const variable of Object.keys(themeVariables(resolved))) {
     if (variable.startsWith("--color-")) mirror(variable, "--color-");
-    else if (variable.startsWith("--font-")) mirror(variable, "--font-");
+    else if (variable.startsWith("--font-family-")) {
+      const name = variable.slice("--font-family-".length);
+      lines.push(`  --font-${name}: var(${variable});`);
+    } else if (variable.startsWith("--font-size-")) {
+      const name = variable.slice("--font-size-".length);
+      lines.push(`  --text-${name}: var(${variable});`);
+    } else if (variable.startsWith("--font-")) mirror(variable, "--font-");
     else if (variable.startsWith("--radius-")) mirror(variable, "--radius-");
     else if (variable.startsWith("--shadow-")) mirror(variable, "--shadow-");
     else if (variable.startsWith("--ease-")) mirror(variable, "--ease-");

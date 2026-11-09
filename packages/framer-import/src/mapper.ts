@@ -426,13 +426,14 @@ function diffValues(
 
 type Ids = { next: number };
 
-function newId(ids: Ids): string {
+function newId(ids: Ids, prefix: string): string {
   ids.next += 1;
-  return `fi${ids.next}`;
+  return `${prefix}${ids.next}`;
 }
 
 type MapContext = {
   ids: Ids;
+  idPrefix: string;
   nodes: Record<string, EditorNode>;
   classByNode: Map<string, string>;
   nodeIdByIrKey: Record<string, string>;
@@ -459,7 +460,7 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
   const siblings = mergeSiblingVariants(node.children, context.breakpoints, foldStats);
   context.stats.mergedVariants += foldStats.merged;
   const merged = mergeStates(node.states);
-  const id = newId(context.ids);
+  const id = newId(context.ids, context.idPrefix);
   // The primitive decision runs AFTER the sibling merge: the merged children
   // decide whether a `list` stays a list or degrades to a frame.
   let primitive = primitiveFor(node, siblings);
@@ -1706,27 +1707,103 @@ function styleRulesOf(
 //
 // They are emitted as an ambient rule because that is exactly what they are:
 // definitions on the page root, attached by selector, owned by no node.
-const TOKEN_VARIABLE = /^--token-[a-f0-9-]{36}$/;
+const TOKEN_ID = /^([a-z0-9_-]+)$/i;
+const TOKEN_VAR_RE = /--token-([a-z0-9_-]+)/gi;
 
-function tokenRootRule(document: FramerIrDocument, order: number): StyleRule | null {
+function tokenVarName(tokenId: string, tokenScope: string | undefined): string | null {
+  if (!TOKEN_ID.test(tokenId)) return null;
+  return tokenScope === undefined ? `--token-${tokenId}` : `--token-${tokenScope}-${tokenId}`;
+}
+
+function scopedTokenText(text: string, tokenScope: string | undefined, tokenIds: ReadonlySet<string>): string {
+  if (tokenScope === undefined || tokenIds.size === 0) return text;
+  return text.replace(TOKEN_VAR_RE, (match, id: string) =>
+    tokenIds.has(id.toLowerCase()) ? `--token-${tokenScope}-${id}` : match,
+  );
+}
+
+function scopedTokenValue(value: unknown, tokenScope: string | undefined, tokenIds: ReadonlySet<string>): unknown {
+  if (typeof value === "string") return scopedTokenText(value, tokenScope, tokenIds);
+  if (Array.isArray(value)) return value.map((entry) => scopedTokenValue(entry, tokenScope, tokenIds));
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) out[key] = scopedTokenValue(entry, tokenScope, tokenIds);
+    return out;
+  }
+  return value;
+}
+
+function scopeTokenRules(
+  rules: StyleRule[],
+  tokenScope: string | undefined,
+  tokenIds: ReadonlySet<string>,
+): void {
+  if (tokenScope === undefined || tokenIds.size === 0) return;
+  const rewriteBag = (bag: DeviceValueMap | undefined): DeviceValueMap | undefined => {
+    if (bag === undefined) return undefined;
+    const out: DeviceValueMap = {};
+    for (const [name, value] of Object.entries(bag)) {
+      out[name] = typeof value === "string" ? scopedTokenText(value, tokenScope, tokenIds) : value;
+    }
+    return out;
+  };
+  for (const rule of rules) {
+    rule.styles = rewriteBag(rule.styles) ?? rule.styles;
+    if (rule.states !== undefined) {
+      for (const [state, bag] of Object.entries(rule.states)) {
+        (rule.states as Record<string, DeviceValueMap>)[state] = rewriteBag(bag) ?? bag;
+      }
+    }
+    if (rule.contextStyles !== undefined) {
+      for (const [context, bag] of Object.entries(rule.contextStyles)) {
+        rule.contextStyles[context] = rewriteBag(bag) ?? bag;
+      }
+    }
+  }
+}
+
+function scopeTokenNodes(
+  nodes: Record<string, EditorNode>,
+  tokenScope: string | undefined,
+  tokenIds: ReadonlySet<string>,
+): void {
+  if (tokenScope === undefined || tokenIds.size === 0) return;
+  for (const node of Object.values(nodes)) {
+    node.props = scopedTokenValue(node.props, tokenScope, tokenIds) as EditorNode["props"];
+  }
+}
+
+function tokenRootRule(
+  document: FramerIrDocument,
+  order: number,
+  tokenScope: string | undefined,
+  tokenIds: Set<string>,
+): StyleRule | null {
   const styles: Record<string, string> = {};
   for (const token of document.styles.colors) {
-    const name = `--token-${token.id}`;
-    if (!TOKEN_VARIABLE.test(name)) continue;
+    const name = tokenVarName(token.id, tokenScope);
+    if (name === null) continue;
+    tokenIds.add(token.id.toLowerCase());
     const value = (token.value ?? "").trim();
     // A definition that is itself a `var()` names another token; it has no
     // colour of its own to write, and the root rule would only re-name it.
     if (value === "" || value.includes("var(")) continue;
-    styles[name] = value;
+    styles[name] = tokenScope === undefined ? value : scopedTokenText(value, tokenScope, tokenIds);
   }
   if (Object.keys(styles).length === 0) return null;
+  // The id follows the page-scope pattern (`fi-<scope>-0`) so a re-import of the
+  // same page replaces its own token definitions instead of stacking them beside
+  // another page's definitions (both used the global id `framer-import-tokens`).
+  const id = tokenScope === undefined ? "framer-import-tokens" : `fi-${tokenScope}-0`;
   return {
-    id: "framer-import-tokens",
+    id,
     name: ":root",
     kind: "ambient",
     selector: ":root",
     order,
-    description: "Farbdefinitionen der Quelle (--token-*)",
+    description: tokenScope === undefined
+      ? "Farbdefinitionen der Quelle (--token-*)"
+      : `Farbdefinitionen der Quelle, seitenbezogen (--token-${tokenScope}-*)`,
     styles,
     contextStyles: {},
     origin: { source: "framer-import", ordinal: order },
@@ -1739,7 +1816,7 @@ function tokenRootRule(document: FramerIrDocument, order: number): StyleRule | n
 export function mapDocument(
   document: FramerIrDocument,
   normalized: NormalizedStyleRule[],
-  options: { mode?: NormalizeMode } = {},
+  options: { mode?: NormalizeMode; nodeIdPrefix?: string; tokenScope?: string } = {},
 ): MapperResult {
   // The mode decides what the page's fonts say:
   //  - fidelity: the source's own families. The page is the source's page, and
@@ -1748,9 +1825,12 @@ export function mapDocument(
   //  - dna: the theme's slots. The page joins the site's typography, and a
   //    family the site does not have can no longer fall back to a system
   //    font (which would draw every text differently from the source).
+  const tokenScope = options.tokenScope ?? /^fi-([0-9a-f]{6})-$/.exec(options.nodeIdPrefix ?? "")?.[1];
+  const tokenIds = new Set<string>();
   const slots = (options.mode ?? "dna") === "dna" ? sourceFontsOf(document).slots : new Map<string, string>();
   const context: MapContext = {
     ids: { next: 0 },
+    idPrefix: options.nodeIdPrefix ?? "fi",
     nodes: {},
     classByNode: new Map(normalized.flatMap((rule) => rule.device === "desktop" ? rule.nodeKeys.map((key) => [key, rule.name] as const) : [])),
     breakpoints: new Map(
@@ -1797,6 +1877,8 @@ export function mapDocument(
       title: page?.title ?? "Importierte Seite",
       lang: page?.lang ?? "de",
       ...rootProps,
+      ...(document.styles.body?.background === undefined ? {} : { backgroundColor: document.styles.body.background }),
+      ...(document.styles.body?.color === undefined ? {} : { color: document.styles.body.color }),
     },
     children: [],
   };
@@ -1834,7 +1916,9 @@ export function mapDocument(
   const rules = styleRulesOf(normalized, context.fontSlots);
   // The source's colour definitions come first: every `var(--token-…)` in the
   // page (and inside an imported SVG) resolves against them.
-  const tokenRule = tokenRootRule(document, 0);
+  const tokenRule = tokenRootRule(document, 0, tokenScope, tokenIds);
+  scopeTokenRules(rules, tokenScope, tokenIds);
+  scopeTokenNodes(context.nodes, tokenScope, tokenIds);
   if (tokenRule !== null) {
     rules.unshift(tokenRule);
     // The later rules keep their ordinal AFTER the token block so the cascade

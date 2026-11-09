@@ -1566,13 +1566,13 @@ async function collectionsById(
 
 export async function listEntries(
   store: Store,
-  input: { siteId: string; filters: EntryListFilters },
+  input: { siteId: string; filters: EntryListFilters; allForPaging?: boolean },
 ): Promise<Entry[]> {
   await store.getSite(input.siteId);
   const { filters } = input;
   const tokens =
     filters.query === undefined ? undefined : searchTokens(filters.query);
-  const entries = await store.listEntries({
+  const baseFilter = {
     siteId: input.siteId,
     ...(filters.collectionId === undefined
       ? {}
@@ -1583,7 +1583,15 @@ export async function listEntries(
       ? {}
       : { searchTokens: tokens }),
     limit: 500,
-  });
+  };
+  const entries: Entry[] = [];
+  let offset = 0;
+  for (;;) {
+    const batch = await store.listEntries({ ...baseFilter, ...(offset === 0 ? {} : { offset }) });
+    entries.push(...batch);
+    if (!input.allForPaging || batch.length < 500) break;
+    offset += batch.length;
+  }
   if (tokens !== undefined && tokens.length > 0) {
     // A search in the list ranks by weight; an explicit sort would hide it.
     const collections = await collectionsById(store, entries);
@@ -1602,7 +1610,7 @@ export async function listEntries(
           b.entry.updatedAt.localeCompare(a.entry.updatedAt) ||
           b.entry.id.localeCompare(a.entry.id),
       )
-      .slice(0, filters.limit)
+      .slice(0, input.allForPaging ? undefined : filters.limit)
       .map((hit) => hit.entry);
   }
   const collections = await collectionsById(store, entries);
@@ -1614,7 +1622,7 @@ export async function listEntries(
         filters.dir,
       ),
     )
-    .slice(0, filters.limit);
+    .slice(0, input.allForPaging ? undefined : filters.limit);
 }
 
 export async function searchEntries(

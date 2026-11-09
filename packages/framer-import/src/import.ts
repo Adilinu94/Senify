@@ -22,7 +22,7 @@ import {
   type CaptureBrowserInput,
 } from "./capture-browser.ts";
 import type { FramerIrDocument, IrDevice, IrFinding, IrNode } from "./ir.ts";
-import { normalize, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
+import { normalize, ruleScopeOf, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
 import { mapDocument, type MapperResult, type ThemePatch } from "./mapper.ts";
 import { buildFidelityReport, type FidelityReport } from "./fidelity.ts";
 import { importAssets, type AssetReport, type AssetUploader } from "./assets.ts";
@@ -727,7 +727,17 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     ...runtimePayloads,
   ];
   const normalized = normalize(document, { mode: input.mode ?? "dna" });
-  const mapped = mapDocument(document, normalized.rules, { mode: input.mode ?? "dna" });
+  // Framer reuses node ids like `fi27` on every page and `--token-*` color
+  // variables with the same token ids but different values per page. The bake
+  // compiles one site-wide stylesheet, so imported pages must not share data
+  // attributes or token custom properties; scope both by the page hash.
+  const pageScope = ruleScopeOf(document.pages[0]?.path ?? "/");
+  const nodeIdPrefix = `fi-${pageScope}-`;
+  const mapped = mapDocument(document, normalized.rules, {
+    mode: input.mode ?? "dna",
+    nodeIdPrefix,
+    tokenScope: pageScope,
+  });
   const motion = mapFramerMotion(
     document,
     input.baseDurationMs === undefined ? {} : { baseDurationMs: input.baseDurationMs },

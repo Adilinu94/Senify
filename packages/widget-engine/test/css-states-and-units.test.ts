@@ -370,14 +370,15 @@ describe("diagnostics", () => {
         nodes: [
           { id: "n", primitive: "frame", classIds: ["pill"], states: { hover: { filter: "url(javascript:1)" } } },
         ],
-        classRules: [{ name: "pill", props: { backdropFilter: "url(javascript:1)" } }],
+        classRules: [{ name: "pill", props: { backdropFilter: "url(javascript:1)" }, states: { hover: { filter: "url(javascript:2)" } } }],
       },
       { layer: null },
     );
     // Every drop names the rule it would have been part of: the node state, the
-    // global class rule and the anchored class-over-state combination.
+    // global class rule and the class's own state. ADR-0031 emits the class
+    // hover separately; it no longer synthesizes an anchored combination.
     const selectors = [...new Set(report.diagnostics.map((entry) => entry.selector))].sort();
-    expect(selectors).toEqual([".pill", `[data-node-id="n"].pill:hover`, `[data-node-id="n"]:hover`]);
+    expect(selectors).toEqual([".pill", ".pill:hover", `[data-node-id="n"]:hover`]);
   });
 
   it("reports a bad value once, however many devices repeat it", () => {

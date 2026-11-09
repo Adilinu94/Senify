@@ -762,6 +762,12 @@ export async function bakeSite(
     input.breakpoints,
   );
   try {
+    // A published page at /404 is the site's own not-found page. Astro's
+    // static 404.astro would overwrite it in the output, so the generic
+    // fallback steps aside (the dynamic route still emits 404.html).
+    if (expandedPages.some((page) => page.path === "/404")) {
+      rmSync(join(stageDir, "src", "pages", "404.astro"), { force: true });
+    }
     // The output folder is absolute from here on. A relative path would make
     // the volume comparison of `buildInto` wrong (a relative path has no
     // root), the build would land in a second folder and be copied instead

@@ -7,10 +7,10 @@
 // im Manifest.
 
 import {
-  listSchema,
   objectSchema,
   optionalBoolean,
   optionalString,
+  pagedListSchema,
   pagingQuery,
   requireString,
 } from "./tools-support.ts";
@@ -35,7 +35,7 @@ export const SITE_TOOLS: ToolDefinition[] = [
       "Lists all website projects with id, name, slug and profile. Start here to discover the siteId other tools need. Paged: limit (1-200, default 50) and offset; follow hasMore.",
     scope: "read",
     inputSchema: objectSchema({ limit: { type: "number" }, offset: { type: "number" } }),
-    outputSchema: listSchema("sites", SITE_SCHEMA),
+    outputSchema: pagedListSchema("sites", SITE_SCHEMA),
     handler: async (context, args) =>
       context.client.request("GET", `/api/sites${pagingQuery(args)}`),
   },

@@ -137,6 +137,7 @@ export const siteContentRoutes: Route[] = [
       const all = await listEntries(context.store, {
         siteId,
         filters: parseEntryListFilters(url.searchParams),
+        allForPaging: true,
       });
       const page = paginate(all, parsePaging(url.searchParams), all.length);
       return {

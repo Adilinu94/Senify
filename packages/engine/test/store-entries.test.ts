@@ -143,6 +143,7 @@ describe("EntriesRepository: entries", () => {
     expect(await ids({ siteId: f.site.id, searchTokens: ["apfel"] })).toEqual([a.id, b.id]);
     expect(await ids({ siteId: f.site.id, searchTokens: ["apfel", "birne"] })).toEqual([a.id]);
     expect(await ids({ siteId: f.site.id, limit: 2 })).toEqual([a.id, b.id]);
+    expect(await ids({ siteId: f.site.id, limit: 2, offset: 2 })).toEqual([c.id, elsewhere.id]);
     expect(await ids({ siteId: f.site.id, limit: 0 })).toEqual([a.id]);
 
     await f.repo.setEntryDeleted(b.id, "2026-10-10T09:00:00.000Z");

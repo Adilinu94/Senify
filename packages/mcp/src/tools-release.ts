@@ -11,10 +11,11 @@ import {
   objectSchema,
   optionalNullableString,
   optionalString,
+  pagedListSchema,
   pagingQuery,
   requireString,
 } from "./tools-support.ts";
-import { CHECKS_SCHEMA, PREVIEW_SCHEMA, RELEASE_RESULT_SCHEMA, REVIEW_SCHEMA } from "./tools-schemas.ts";
+import { CHECKS_SCHEMA, JOB_SUMMARY_SCHEMA, PREVIEW_SCHEMA, RELEASE_SCHEMA, RELEASE_RESULT_SCHEMA, REVIEW_SCHEMA } from "./tools-schemas.ts";
 import type { ToolDefinition } from "./tools.ts";
 
 /** Die Werkzeuge der Veroeffentlichung und des Betriebs. */
@@ -151,6 +152,7 @@ export const RELEASE_TOOLS: ToolDefinition[] = [
     description:
       "Lists a site's releases (newest first) with the active release id. Each release carries its manifest: renderer version, build hash and the style registry snapshot it was baked with (rollback restores it). Paged: limit (1-200, default 50) and offset; follow hasMore.",
     scope: "read",
+    outputSchema: pagedListSchema("releases", RELEASE_SCHEMA, { activeReleaseId: { type: ["string", "null"] } }),
     inputSchema: objectSchema(
       {
         siteId: { type: "string" },
@@ -186,6 +188,7 @@ export const RELEASE_TOOLS: ToolDefinition[] = [
     description:
       "Lists the durable re-bake jobs of a site (newest first): content changes enqueue them, a worker re-bakes the active release and records done/failed with attempts, next attempt time and the last error. Use it to check why a published content change is not live yet. Paged: limit (1-200, default 50) and offset; follow hasMore.",
     scope: "read",
+    outputSchema: pagedListSchema("jobs", JOB_SUMMARY_SCHEMA),
     inputSchema: objectSchema(
       {
         siteId: { type: "string" },

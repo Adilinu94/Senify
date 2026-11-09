@@ -5,10 +5,11 @@ import {
   type CssDocument,
 } from "../src/index.ts";
 
-// Device + state + class combined. The cascade decision (O1) keeps the fixed
-// stage order base -> device -> state -> class -> inline; a state and a class
-// expand over every device, and a node that carries both gets the combined rule
-// `[data-node-id].cls:hover` with the class values over the state values.
+// Device + state + class combined. ADR-0031 keeps the condition order
+// class-base -> base -> class-device -> device -> class-state -> state, and a
+// class state and a node state stay separate rules: the later local state wins
+// the same-condition tie. No anchored `[data-node-id].cls:hover` combination
+// is needed any more.
 
 const doc: CssDocument = {
   nodes: [
@@ -28,8 +29,18 @@ const doc: CssDocument = {
   ],
 };
 
-const GOLDEN = `[data-node-id="card"] {
+const GOLDEN = `.highlight {
+  background-color: #222222;
+}
+
+[data-node-id="card"] {
   color: #ff0000;
+}
+
+@media (max-width: 1023.98px) {
+  .highlight {
+    background-color: #333333;
+  }
 }
 
 @media (max-width: 1023.98px) {
@@ -48,28 +59,6 @@ const GOLDEN = `[data-node-id="card"] {
   @media (hover: hover) {
     [data-node-id="card"]:hover {
       background-color: #0000ff;
-    }
-  }
-}
-
-.highlight {
-  background-color: #222222;
-}
-
-@media (hover: hover) {
-  [data-node-id="card"].highlight:hover {
-    background-color: #222222;
-  }
-}
-
-@media (max-width: 1023.98px) {
-  .highlight {
-    background-color: #333333;
-  }
-
-  @media (hover: hover) {
-    [data-node-id="card"].highlight:hover {
-      background-color: #333333;
     }
   }
 }`;
@@ -95,32 +84,37 @@ describe("combination coverage", () => {
     expect(media).toContain("background-color: #0000ff;");
   });
 
-  it("combines class and state into one selector", () => {
-    // Klasse + Zustand: `[data-node-id].highlight:hover`.
-    expect(css).toContain(`[data-node-id="card"].highlight:hover {`);
+  it("keeps class and node state as separate rules", () => {
+    expect(css).toContain(".highlight {");
+    expect(css).toContain(`[data-node-id="card"]:hover {`);
+    expect(css).not.toContain(`[data-node-id="card"].highlight:hover {`);
   });
 
-  it("combines device, state and class in one rule", () => {
-    // Gerät + Zustand + Klasse: the combined selector inside the tablet media.
-    const tablet = css.slice(
-      css.indexOf("@media (max-width: 1023.98px)", css.indexOf(".highlight")),
-    );
-    expect(tablet.startsWith("@media (max-width: 1023.98px)")).toBe(true);
-    expect(tablet).toContain(`[data-node-id="card"].highlight:hover {`);
+  it("emits the class device before the local device", () => {
+    const tablet = css.slice(css.indexOf("@media (max-width: 1023.98px)"));
+    const classDevice = tablet.indexOf(".highlight {");
+    const nodeDevice = tablet.indexOf(`[data-node-id="card"] {`);
+    expect(classDevice).toBeGreaterThan(-1);
+    expect(nodeDevice).toBeGreaterThan(classDevice);
     expect(tablet).toContain("background-color: #333333;");
   });
 
-  it("orders the stages state before class", () => {
-    expect(css.indexOf(`[data-node-id="card"]:hover {`)).toBeLessThan(
-      css.indexOf(`.highlight {`),
-    );
+  it("orders class base before local base and state", () => {
+    const classBase = css.indexOf(`.highlight {`);
+    const nodeBase = css.indexOf(`[data-node-id="card"] {`);
+    const nodeState = css.indexOf(`[data-node-id="card"]:hover {`);
+    expect(classBase).toBeLessThan(nodeBase);
+    expect(nodeBase).toBeLessThan(nodeState);
   });
 
-  it("lets the class win inside the combined rule (O1)", () => {
-    // The class sets `background`; the state sets `background` too. The class
-    // is the stronger stage, so the combined rule carries the class value.
-    expect(css).toContain(`[data-node-id="card"].highlight:hover {\n    background-color: #222222;`);
-    expect(css).not.toContain(`[data-node-id="card"].highlight:hover {\n    background-color: #00ff00;`);
+  it("lets the local node state keep its background over the class base", () => {
+    // The class sets `background`; the node state sets `background` too. The
+    // local state is the later rule at the same condition and wins.
+    // Hover rules sit inside the hover guard, one level deeper.
+    expect(css).toContain(`[data-node-id="card"]:hover {\n    background-color: #00ff00;`);
+    expect(css.indexOf(`[data-node-id="card"]:hover {`)).toBeGreaterThan(
+      css.indexOf(".highlight {"),
+    );
   });
 
   it("writes no combined rule without a class", () => {
@@ -147,17 +141,28 @@ describe("combination coverage", () => {
 });
 
 describe("compiled rules as data", () => {
-  it("reports the combined rule with its modifiers", () => {
+  it("reports the class base and the local state as separate rules", () => {
     const report = compileCssReport(doc, { layer: null });
-    const combined = report.rules.find(
-      (rule) => rule.selector === `[data-node-id="card"].highlight:hover` && rule.media === null,
+    const classBase = report.rules.find(
+      (rule) => rule.selector === ".highlight" && rule.media === null,
     );
-    expect(combined).toBeDefined();
-    expect(combined?.stage).toBe("class");
-    expect(combined?.state).toBe("hover");
-    expect(combined?.classIds).toEqual(["highlight"]);
-    expect(combined?.declarations).toEqual([
+    expect(classBase).toBeDefined();
+    expect(classBase?.stage).toBe("class");
+    expect(classBase?.state).toBeNull();
+    expect(classBase?.classIds).toEqual(["highlight"]);
+    expect(classBase?.declarations).toEqual([
       { property: "background-color", value: "#222222" },
+    ]);
+
+    const localState = report.rules.find(
+      (rule) => rule.selector === `[data-node-id="card"]:hover` && rule.media === null,
+    );
+    expect(localState).toBeDefined();
+    expect(localState?.stage).toBe("state");
+    expect(localState?.state).toBe("hover");
+    expect(localState?.classIds).toEqual([]);
+    expect(localState?.declarations).toEqual([
+      { property: "background-color", value: "#00ff00" },
     ]);
   });
 
@@ -173,11 +178,11 @@ describe("compiled rules as data", () => {
   it("keeps the rule count in sync with the stylesheet", () => {
     const report = compileCssReport(doc, { layer: null });
     const blockCount = (report.css.match(/\{/g) ?? []).length;
-    // Each rule opens exactly one block, each media wrapper one more. Eight
-    // rules; the wrappers are the device queries (tablet base, mobile state,
-    // tablet class) and the hover guard around every hover rule: state desktop,
-    // state mobile, class desktop, class tablet.
-    expect(report.ruleCount).toBe(8);
-    expect(blockCount).toBe(report.ruleCount + 3 + 4);
+    // Each rule opens exactly one block, each media wrapper one more. Six
+    // rules; the wrappers are the three device queries (class tablet, node
+    // tablet, state mobile) and the hover guard around the two hover rules
+    // (state desktop, state mobile).
+    expect(report.ruleCount).toBe(6);
+    expect(blockCount).toBe(report.ruleCount + 3 + 2);
   });
 });
