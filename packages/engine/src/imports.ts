@@ -160,6 +160,7 @@ export function editorDocumentToNodeTree(document: {
       id,
       type: isRoot ? PAGE_ROOT_TYPE : node.primitive,
       props: props as NodeTree["nodes"][NodeId]["props"],
+      ...(isRoot && node.framerImport !== undefined ? { framerImport: structuredClone(node.framerImport) } : {}),
       ...(node.variant !== undefined ? { variant: node.variant } : {}),
       ...(node.classes !== undefined ? { classes: [...node.classes] } : {}),
       ...(Object.keys(overrides).length > 0 ? { overrides } : {}),

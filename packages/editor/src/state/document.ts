@@ -22,7 +22,7 @@ import {
   type StateName,
   type StyleRule,
 } from "@senify/widget-engine";
-import type { MotionSpec } from "@senify/section-sdk";
+import type { FramerImportState, MotionSpec } from "@senify/section-sdk";
 
 export const DOCUMENT_VERSION = 2;
 
@@ -39,6 +39,7 @@ export type EditorNode = {
   id: NodeId;
   primitive: string;
   props: DeviceValueMap;
+  framerImport?: FramerImportState;
   // The section variant of a legacy node ("centered", "split", …). The canvas
   // and the release must render the same variant; the migration lifts it and
   // the bridge hands it back (ticket 17 parity finding).
