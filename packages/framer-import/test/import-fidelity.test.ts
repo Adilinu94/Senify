@@ -59,6 +59,15 @@ describe("capture fidelity", () => {
     expect(finding?.message).toContain("/projekt");
   });
 
+  it("does not leave unrendered children on a text-only link", () => {
+    const { nodes } = run(page('<a href="/projekt"><span>Projekt ansehen</span></a>'));
+    const link = nodes.find(
+      (node) => node.primitive === "link" && node.props["label"] === "Projekt ansehen",
+    );
+    expect(link).toBeDefined();
+    expect(link?.children ?? []).toEqual([]);
+  });
+
   it("keeps image alt text", () => {
     const { nodes } = run(page('<img src="a.png" alt="Logo Acme" width="100" height="50">'));
     expect(nodes.find((node) => node.primitive === "image")?.props["alt"]).toBe("Logo Acme");

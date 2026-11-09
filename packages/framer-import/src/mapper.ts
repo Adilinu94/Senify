@@ -753,8 +753,15 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
   // `body` accepts no children: a rich-text with element children bakes them
   // into the `html` prop instead of mapping child nodes. A heading lifted
   // from its rich-text container owns the container's children the same way.
+  // A `link` renders only its `label`: the element children of a text-only
+  // link are the rich-text wrappers the label already spells out, and mapping
+  // them would leave children no component renders.
   const children: string[] = [];
-  if (primitive !== "body" && !(primitive === "heading" && hasElementChildren)) {
+  if (
+    primitive !== "body" &&
+    primitive !== "link" &&
+    !(primitive === "heading" && hasElementChildren)
+  ) {
     for (const child of siblings) {
       const mapped = mapNode(child, context, node);
       if (mapped !== null) {
