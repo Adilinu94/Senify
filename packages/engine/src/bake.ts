@@ -24,6 +24,7 @@ import {
 } from "@senify/renderer";
 import { resolveTheme, type ResolvedTheme } from "@senify/tokens";
 import type { NodeTree } from "@senify/section-sdk";
+import type { StyleRule } from "@senify/widget-engine";
 import { prefetchLists } from "./lists.ts";
 import { toBindingEntry } from "./lists.ts";
 import { collectAssetIds } from "./media.ts";
@@ -102,10 +103,24 @@ function assetIdOfPath(path: string): string | undefined {
   return /^\/assets\/([^/]+)\//.exec(path)?.[1];
 }
 
+// CSS properties can reference local media without an { assetId } object
+// (for example a Framer mask). IDs are resolved through this site's assets.
+function collectCssAssetIds(value: unknown, ids: Set<string>): void {
+  if (typeof value === "string") {
+    for (const match of value.matchAll(/url\(\s*["']?\/assets\/([A-Za-z0-9_-]+)\//gi)) {
+      if (match[1] !== undefined) ids.add(match[1]);
+    }
+  } else if (Array.isArray(value)) {
+    for (const entry of value) collectCssAssetIds(entry, ids);
+  } else if (value !== null && typeof value === "object") {
+    for (const entry of Object.values(value)) collectCssAssetIds(entry, ids);
+  }
+}
 async function collectDeliverableAssets(input: {
   store: Store;
   site: Site;
   trees: NodeTree[];
+  styleRules: readonly StyleRule[];
   dataDir: string;
   // The font files of the theme. They belong to the release even when no node
   // names them: the theme's `@font-face` rules point at them, and a missing
@@ -113,6 +128,13 @@ async function collectDeliverableAssets(input: {
   fontFiles?: readonly string[];
 }): Promise<DeliveredAsset[]> {
   const referenced = collectAssetIds(input.trees.map((draft) => ({ draft })));
+  for (const tree of input.trees) for (const node of Object.values(tree.nodes)) collectCssAssetIds(node.props, referenced);
+  for (const rule of input.styleRules) {
+    collectCssAssetIds(rule.styles, referenced);
+    collectCssAssetIds(rule.states, referenced);
+    collectCssAssetIds(rule.contextStyles, referenced);
+    collectCssAssetIds(rule.rawCss, referenced);
+  }
   for (const file of input.fontFiles ?? []) {
     const assetId = assetIdOfPath(file);
     if (assetId !== undefined) referenced.add(assetId);
@@ -481,6 +503,7 @@ export async function bakePages(
     store,
     site: input.site,
     trees: build.trees,
+    styleRules,
     dataDir: input.dataDir,
     fontFiles: themeFontFiles(resolved),
   });
