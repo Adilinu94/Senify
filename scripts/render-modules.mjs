@@ -167,6 +167,8 @@ const BLEIBT = {
     "die Abbildung Framer nach NodeTree. **Gemessen am 01.11.2026:** 58 Funktionen, und `mapNode` allein sind 336 Zeilen. Sie liest dieselben Tabellen wie `mapDocument` und die Zustaende des Mappers - ein Schnitt muesste diese als Parameter durchreichen. Die Datei ist am 26.10.2026 um 190 Zeilen gewachsen (Browser-Abgriff der Animationen, `appearStyleRulesOf` und `ruleFamilyWeights`): der Abgriff liefert die Daten, die Abbildung auf den NodeTree bleibt hier",
   "packages/framer-import/src/unframer-ir.ts":
     "der Leser des Unframer-Projekt-XML (ADR-0028): ein toleranter XML-Baum, die Stapel-/Box-/Text-Metadaten und die Ableitung ins Import-IR greifen auf dieselben Tabellen und denselben Elementbaum zu. Ein Schnitt wuerde den Baum und die Zustands-Tabellen als Parameter durchreichen; die Datei ist eine Uebersetzung mit einem Eingang und einem Ausgang",
+  "packages/framer-import/src/import.ts":
+    "Orchestriert Capture, Assetverarbeitung, Runtime-Payload, Mapping und Berichte. Die Datei überschreitet nach dem internen Strukturpfad die Schwelle; die Runtime-Payload-Extraktion ist ein Kandidat für einen eigenen geprüften Schnitt, bevor weitere Ausgabearten hier wachsen.",
   "packages/framer-import/src/ir.ts":
     "das gemeinsame Import-Zwischenmodell mit Typen und zugehörigen Schemas: Capture, Normalisierung, Mapper und Berichte teilen diesen Vertrag. Die Datei enthält überwiegend deklarative Strukturen; eine Aufteilung braucht getrennte stabile Importpfade und wird als eigener Schritt geprüft",
   "packages/editor/src/canvas/canvas.ts": "die Bühne des Editors",

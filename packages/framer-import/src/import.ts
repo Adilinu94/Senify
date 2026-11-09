@@ -53,6 +53,9 @@ export type ImportSource =
 
 export type RunImportInput = {
   source: ImportSource;
+  // Internal building block for ADR-0032. The public import contract and
+  // persistence are added separately; absence preserves the original path.
+  output?: "original" | "structure";
   // How a URL source is read. Absent means `browser` with a fallback: the page
   // is loaded in Chromium first, because only the loaded page carries content a
   // script builds (the rating stars: 0 SVG static against 5 in the browser,
@@ -604,7 +607,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   // cannot express.
   const runtimeFindings: IrFinding[] = [];
   const runtimePayloads: ExtractedPayload[] = [];
-  if (sourceHtml !== null && input.source.kind === "url") {
+  if (input.output !== "structure" && sourceHtml !== null && input.source.kind === "url") {
     const pageUrl = input.source.url;
     const loadFile: RuntimeFileLoader = async (target) => {
       // Only the hosts a Framer site serves its runtime from (ADR-0016: no
@@ -661,7 +664,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
           "Die Seite läuft ohne die Original-Runtime; Animationen, die nur sie trägt, fehlen dann.",
       });
     }
-  } else if (input.source.kind === "mirror") {
+  } else if (input.output !== "structure" && input.source.kind === "mirror") {
     // Der Offline-Import: der Mirror trägt die Runtime-Dateien selbst. Sie
     // kommen **nur** aus dem Mirror (ADR-0016: ein Ordner liefert nur seine
     // eigenen Dateien) — ein Pfad, der ihn verlässt, wird nicht gelesen.
@@ -781,6 +784,9 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     report.steps[0] =
       "Quelle gelesen (Framer-Projekt-XML; Struktur ohne Zeitsteuerung, die Laufzeitwirkung bleibt beim Browser-Capture)";
   }
+  if (input.output === "structure") {
+    report.steps.push("Strukturausgabe gewählt; Runtime-Freiheit und vollständige Bearbeitbarkeit sind nicht geprüft.");
+  }
   const byNodeKey = new Map(payloads.map((payload) => [payload.nodeKey, payload]));
   for (const node of Object.values(mapped.document.nodes)) {
     if (node.primitive !== "payload") continue;
@@ -820,6 +826,9 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   report.editableShare = pagePayload === undefined
     ? { editable: 100, original: 0, nodes: pageNodes }
     : { editable: 0, original: 100, nodes: pageNodes - carrierNodes };
+  // A structural tree can still contain unresolved components or partial
+  // payloads. Do not claim a 100% editable release before those are assessed.
+  if (input.output === "structure") delete report.editableShare;
   if (pagePayload !== undefined) {
     const root = mapped.document.nodes[mapped.document.rootNodeId];
     if (root !== undefined) {
@@ -882,7 +891,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     assets: assetReport,
     payloads,
     breakpoints: siteBreakpointsOf(document.breakpoints),
-    irHash: irHashOf(document),
+    irHash: input.output === "structure" ? `${irHashOf(document)}:output:structure` : irHashOf(document),
     discoveredPages: discoverPagePaths(
       document.pages[0]?.root ?? ({ children: [], href: null } as never),
       document.pages[0]?.path ?? "/",

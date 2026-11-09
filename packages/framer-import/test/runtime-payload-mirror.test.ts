@@ -58,6 +58,28 @@ describe("the runtime payload of a mirror", () => {
     expect(carrier?.props["framerPayloadKey"]).toBe(payload?.integrity);
   });
 
+  it("keeps the original default and builds an explicit structural page without the page runtime", async () => {
+    const root = mirror(page("scripts/_script0.mjs"), {
+      "scripts/_script0.mjs": RUNTIME,
+      "scripts/chunk.mjs": `export const helper = "chunk";`,
+    });
+    const source = { kind: "mirror" as const, rootDir: root };
+    const original = await runImport({ source });
+    const explicitOriginal = await runImport({ source, output: "original" });
+    const structural = await runImport({ source, output: "structure" });
+    const repeated = await runImport({ source, output: "structure" });
+    expect(original.payloads.some((payload) => payload.scope === "page")).toBe(true);
+    expect(original.report.editableShare?.editable).toBe(0);
+    expect(explicitOriginal.irHash).toBe(original.irHash);
+    expect(explicitOriginal.payloads.find((payload) => payload.scope === "page")?.integrity).toBe(original.payloads.find((payload) => payload.scope === "page")?.integrity);
+    expect(structural.payloads.some((payload) => payload.scope === "page")).toBe(false);
+    expect(structural.report.editableShare).toBeUndefined();
+    expect(structural.mapped.document.nodes["framer-runtime-payload"]).toBeUndefined();
+    expect(Object.values(structural.mapped.document.nodes).some((node) => node.props["text"] === "Text")).toBe(true);
+    expect(structural.irHash).not.toBe(original.irHash);
+    expect(repeated.irHash).toBe(structural.irHash);
+    expect(structural.report.steps.join(" ")).toContain("nicht geprüft");
+  });
   it("says so when the mirror names a runtime it does not have", async () => {
     // The address is absolute (the CDN): offline, there is nothing to read.
     const root = mirror(page("https://framerusercontent.com/sites/abc/_script0.mjs"), {});
