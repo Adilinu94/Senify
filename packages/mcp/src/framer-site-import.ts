@@ -45,6 +45,7 @@ export async function importFramerSite(
     write: boolean;
     sourceUrl?: string;
     applyTheme?: boolean;
+    output?: "original" | "structure";
   },
 ): Promise<{
   status: "analyzed" | "blocked" | "partial" | "imported";
@@ -82,6 +83,7 @@ export async function importFramerSite(
         assets: "skip",
         fonts: "skip",
         write: false,
+        ...(input.output === undefined ? {} : { output: input.output }),
       });
       const finding = answer.report.findings.find((entry) => entry.severity === "block");
       const reason = finding?.message ?? (input.write && answer.report.existingPage !== undefined ? "Zielseite existiert bereits" : undefined);
@@ -112,6 +114,7 @@ export async function importFramerSite(
         write: true,
         createOnly: true,
         applyTheme: input.applyTheme === true && !themeApplied,
+        ...(input.output === undefined ? {} : { output: input.output }),
         // Browser captures depend on hydration timing and the live page. The
         // dry-run hash is a preview, not a stable contract for a second render.
         ...(route?.browser === true ? {} : { expectedIrHash: hashes.get(page.path) }),

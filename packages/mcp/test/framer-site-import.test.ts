@@ -41,6 +41,17 @@ describe("importFramerSite", () => {
       expect(request).toHaveBeenCalledTimes(4);
       expect(request.mock.calls[2]?.[2]).toMatchObject({ applyTheme: true, createOnly: true, expectedIrHash: "hash/", source: { page: "/" } });
       expect(request.mock.calls[3]?.[2].applyTheme).toBe(false);
+      expect(request.mock.calls[0]?.[2]).not.toHaveProperty("output");
+    } finally { rmSync(rootDir, { recursive: true, force: true }); }
+  });
+
+  it("reicht die gewaehlte Ausgabe an Analyse und Write weiter", async () => {
+    const rootDir = fixture();
+    try {
+      const request = vi.fn().mockImplementation(async (_method, _path, body) => ({ job: { status: "succeeded" }, report: { irHash: `hash${body.pagePath}`, pageId: body.write ? `id${body.pagePath}` : null, findings: [], assets: { failed: 0 } } }));
+      const result = await importFramerSite({ request } as unknown as EngineClient, { siteId: "s1", rootDir, write: true, output: "structure" });
+      expect(result.status).toBe("imported");
+      expect(request.mock.calls.every((call) => call[2].output === "structure")).toBe(true);
     } finally { rmSync(rootDir, { recursive: true, force: true }); }
   });
 

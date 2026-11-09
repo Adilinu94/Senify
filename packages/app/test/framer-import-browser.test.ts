@@ -78,6 +78,20 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
         images.map((image) => (image as unknown as { naturalWidth: number }).naturalWidth),
       );
       expect(sizes.every((width) => width > 100)).toBe(true);
+
+      // The output choice is part of the request: re-analyse with structure and
+      // the report names request and carrier; the editable-share guess is left
+      // out because the structure path makes no claim about runtime freedom.
+      await tab.selectOption('[data-role="framer-output"]', "structure");
+      await tab.locator('[data-role="framer-import-dialog"] button[type="submit"]').click();
+      await expect.poll(
+        async () => tab.locator('[data-role="framer-import-report"]').textContent(),
+        { timeout: 30000 },
+      ).toContain("Ausgabe: structure");
+      expect(await tab.locator('[data-role="framer-import-report"]').textContent()).toContain(
+        "Träger: structure",
+      );
+      expect(await tab.locator('[data-role="framer-editable-share"]').count()).toBe(0);
       await tab.locator('[data-action="framer-import-apply"]').click();
       // The page existed, so the import replaced its draft: the dialog stays
       // open and offers the way back before it closes.
@@ -87,18 +101,27 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
       // das unten über Draft-Version und Knoten-Inhalt belegt wird.
       const fresh = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as {
         draftVersion: number;
-        draft: { nodes: Record<string, { props?: Record<string, unknown> }> };
+        draft: {
+          rootNodeId: string;
+          nodes: Record<string, { props?: Record<string, unknown>; framerImport?: { output: string } }>;
+        };
       };
       expect(fresh.draftVersion).toBe(page.draftVersion + 1);
       expect(Object.values(fresh.draft.nodes).some((node) => node.props?.text === "Import Dialog")).toBe(true);
+      expect(fresh.draft.nodes[fresh.draft.rootNodeId]?.framerImport).toEqual({ output: "structure" });
 
-      // Undo: the replaced draft comes back from its revision.
+      // Undo: the replaced draft comes back from its revision, including its
+      // output state (the empty page had none).
       await tab.locator('[data-action="framer-import-undo"]').click();
       await expect.poll(async () => tab.locator('[data-action="framer-import-undo"]').textContent(), { timeout: 20000 }).toBe("Rückgängig gemacht");
       const restored = await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json() as {
-        draft: { nodes: Record<string, { props?: Record<string, unknown> }> };
+        draft: {
+          rootNodeId: string;
+          nodes: Record<string, { props?: Record<string, unknown>; framerImport?: { output: string } }>;
+        };
       };
       expect(Object.values(restored.draft.nodes).some((node) => node.props?.text === "Import Dialog")).toBe(false);
+      expect(restored.draft.nodes[restored.draft.rootNodeId]?.framerImport).toBeUndefined();
       await tab.locator('[data-action="framer-import-close"]').click();
       await expect.poll(
         async () => tab.locator('[data-role="framer-import-dialog"]').count(),

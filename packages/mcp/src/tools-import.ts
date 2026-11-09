@@ -25,7 +25,7 @@ export const IMPORT_TOOLS: ToolDefinition[] = [
     name: "import_framer_page",
     title: "Import Framer page",
     description:
-      "Imports a Framer page (published URL, local mirror folder or raw SSR-HTML) into a site: capture → normalize → map → report. Default is a dry run (report only); write: true creates the page (or writes into pageId) as ONE revision, appends the style rules with their framer-import origin and optionally applies the theme patch (applyTheme): the fonts plus the brand colour, the neutral tint and the body text size the page shows. A URL is read in Chromium first (runtime-built content and the other device builds included); without a working browser the run falls back to the SSR-HTML and reports that as a `capture-fallback` finding. `capture: \"static\"` skips Chromium, `capture: \"browser\"` is strict (an error instead of a fallback). Fonts are fetched and self-hosted (DSGVO); unreachable files surface as findings, never as silent drops.",
+      "Imports a Framer page (published URL, local mirror folder or raw SSR-HTML) into a site: capture → normalize → map → report. Default is a dry run (report only); write: true creates the page (or writes into pageId) as ONE revision, appends the style rules with their framer-import origin and optionally applies the theme patch (applyTheme): the fonts plus the brand colour, the neutral tint and the body text size the page shows. A URL is read in Chromium first (runtime-built content and the other device builds included); without a working browser the run falls back to the SSR-HTML and reports that as a `capture-fallback` finding. `capture: \"static\"` skips Chromium, `capture: \"browser\"` is strict (an error instead of a fallback). Fonts are fetched and self-hosted (DSGVO); unreachable files surface as findings, never as silent drops. `output` selects the rendering mode: `original` keeps Framer runtime payloads where present, `structure` imports as editable structure (guarded against active page payloads).",
     scope: "write",
     inputSchema: objectSchema(
       {
@@ -44,6 +44,7 @@ export const IMPORT_TOOLS: ToolDefinition[] = [
         fonts: { type: "string", enum: ["rewrite", "skip"] },
         capture: { type: "string", enum: ["static", "browser"] },
         mode: { type: "string", enum: ["dna", "fidelity"] },
+        output: { type: "string", enum: ["original", "structure"] },
         idempotencyKey: { type: "string" },
       },
       ["siteId"],
@@ -71,6 +72,7 @@ export const IMPORT_TOOLS: ToolDefinition[] = [
       const fonts = optionalString(args, "fonts");
       const capture = optionalString(args, "capture");
       const mode = optionalString(args, "mode");
+      const output = optionalString(args, "output");
       const idempotencyKey = optionalString(args, "idempotencyKey");
       return context.client.request(
         "POST",
@@ -92,6 +94,7 @@ export const IMPORT_TOOLS: ToolDefinition[] = [
           ...(fonts === undefined ? {} : { fonts }),
           ...(capture === undefined ? {} : { capture }),
           ...(mode === undefined ? {} : { mode }),
+          ...(output === undefined ? {} : { output }),
           ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
         },
       );

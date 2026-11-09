@@ -156,12 +156,13 @@ describe("MCP-Tool-Verträge", () => {
     const result = await call("import_framer_page", {
       siteId, html: '<html><body><h1>Import</h1></body></html>', baseUrl: "https://example.test/",
       pagePath: "/import", pageId, baseDraftVersion: page.draftVersion, write: false,
-      applyTheme: false, assets: "skip", fonts: "skip", idempotencyKey: "tool-import-1",
+      applyTheme: false, assets: "skip", fonts: "skip", output: "structure",
+      idempotencyKey: "tool-import-1",
     }) as { job: { id: string } };
     const jobs = await env.engine.store.listImportJobsForSite(siteId);
     expect(jobs).toHaveLength(1);
     const payload = await env.engine.store.getImportJobPayload(jobs[0]!.id);
-    expect(payload).toMatchObject({ source: { html: '<html><body><h1>Import</h1></body></html>', baseUrl: "https://example.test/" }, pagePath: "/import", pageId, baseDraftVersion: page.draftVersion, write: false, applyTheme: false, assets: "skip", fonts: "skip" });
+    expect(payload).toMatchObject({ source: { html: '<html><body><h1>Import</h1></body></html>', baseUrl: "https://example.test/" }, pagePath: "/import", pageId, baseDraftVersion: page.draftVersion, write: false, applyTheme: false, assets: "skip", fonts: "skip", output: "structure" });
     expect(await call("get_import_report", { jobId: jobs[0]!.id })).toMatchObject({ job: { id: jobs[0]!.id, status: "succeeded" } });
     expect(result.job.id).toBe(jobs[0]!.id);
   });

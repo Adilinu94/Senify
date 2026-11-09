@@ -121,6 +121,14 @@ export function importReportBlock(report) {
         ),
       )
     : el("p", { class: "muted", text: "Keine Marquee-Kandidaten." });
+  const outputLine =
+    report?.storedOutput || report?.requestedOutput || report?.runtimeCarrier
+      ? el(
+          "p",
+          { class: "muted" },
+          `Ausgabe: ${report?.storedOutput ?? report?.requestedOutput ?? "-"} · Träger: ${report?.runtimeCarrier ?? "-"}`,
+        )
+      : "";
   return el(
     "div",
     { class: "framer-report" },
@@ -137,6 +145,7 @@ export function importReportBlock(report) {
       { class: "framer-report-summary" },
       `Score ${report?.score ?? 0}/100 · ${counts.mapped ?? 0}/${counts.nodes ?? 0} Knoten · ${counts.placeholders ?? 0} Platzhalter`,
     ),
+    outputLine,
     el(
       "p",
       { class: "muted" },
@@ -431,6 +440,12 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
   });
   apply.disabled = true;
 
+  const outputSelect = el("select", { class: "refs-input", "data-role": "framer-output" });
+  outputSelect.append(
+    el("option", { value: "", text: "Standard (wie Seite/Anfrage)" }),
+    el("option", { value: "original", text: "Original (Framer-Runtime, falls vorhanden)" }),
+    el("option", { value: "structure", text: "Struktur (bearbeitbar)" }),
+  );
   const syncSource = () => {
     const value = sourceSelect.value;
     const isProject = value === "project";
@@ -513,6 +528,7 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
     fonts: fontsSelect.value,
     applyTheme: themeCheck.checked,
     mode: modeSelect.value,
+    ...(outputSelect.value === "" ? {} : { output: outputSelect.value }),
     // The write must be the thing that was analysed: same source hash, and the
     // page it replaces still at the version the analysis saw.
     ...(write && report !== null
@@ -665,6 +681,7 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
     el("label", {}, "Seitenpfad", pagePathInput),
     el("div", { class: "inline" }, el("label", {}, "Assets", assetsSelect), el("label", {}, "Fonts", fontsSelect)),
     el("label", {}, "Modus", modeSelect),
+    el("label", {}, "Ausgabe", outputSelect),
     el("label", { class: "inline" }, themeCheck, " Theme-Fonts übernehmen"),
     replaceRow,
     sitePagesHost,
