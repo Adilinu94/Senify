@@ -116,6 +116,11 @@ export function checkPropValue(
       // goes through the value grammar: an unsafe reference must not pass just
       // because the control accepted the shape.
       if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+        // Asset and link references are opaque ids the media/link pipeline
+        // resolves, not CSS values — the style grammar does not apply to them
+        // (ADR-0005 Nachtrag). Re-running it rejected `{ assetId }` and broke
+        // the carrier toggle (ADR-0026) for every import with a mandatory poster.
+        if (control.valueType === "asset" || control.valueType === "link") return undefined;
         return checkSafeValue(value);
       }
       return undefined;

@@ -4,6 +4,13 @@
 **Grundlage:** Paket-1-Beleg (`.scratch/framer/paket1-beleg-2026-11-09.md`), ADR-0010 (Island-Payload), ADR-0026 (Struktur-Baum als vollwertige Seite), ADR-0005 (Wert-Grammatik als Sicherheitsgrenze).
 **Zweck:** Entscheidungen vor der Umsetzung des ersten strukturierten Zielpfads (Paket 3) fachlich treffen und dokumentieren. Diese Vorlage entscheidet nichts still; sie legt Optionen, Empfehlung und Kompatibilitätsfolgen offen. Maßgeblich bleiben `docs/adr/`, `docs/fahrplan.md`, `docs/current/stand.md`.
 
+## Entschieden (Nutzer-Dialog, 09.11.2026)
+
+- **D1 = Option A:** B1 jetzt als Konsistenz-Bugfix beheben (Regressionstest + ADR-0005-Nachtrag), noch vor Paket 3.
+- **D2 = Option A:** Eigenes `output`-Feld (`original | structure`) im Import-Body, unabhängig von `mode`.
+- **D3 = Option A:** Default bleibt `original`; bestehende Seiten und Reimports werden nicht still umgewandelt.
+- Offen und erst mit der Implementierung zu entscheiden: endgültige API-Schreibweise/Persistenz (ADR-0032), Runtime-Klassifizierung (Paket 4). Die Annahme von ADR-0032 erfolgt vor dem strukturierten Zielpfad.
+
 ## 1. Ausgangslage (belegt)
 
 - Der Import erzeugt bei erkannter Framer-Runtime **immer** einen seitenweiten Träger `framer-runtime-payload` (`coversPage:true`, Pflicht-Poster aus `og:image`), unabhängig vom Normalisierungsmodus `dna|fidelity` (`packages/framer-import/src/import.ts:625/688/823`). `mode` steuert heute nur die Normalisierung, **nicht** die Ausgabeart.

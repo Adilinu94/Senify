@@ -6,6 +6,7 @@ import {
   createTestPage,
   createTestSite,
   TEST_AUTHOR,
+  HUMAN_AUTHOR,
   treeOf,
   type ErrorResponse,
   type MutationsResponse,
@@ -275,6 +276,54 @@ describe("saving catalog primitives through the editor route", () => {
       await env.close();
     }
   }, 120_000);
+
+  it("toggles a page carrier with a mandatory poster off (ADR-0026, Blocker B1)", async () => {
+    const env = await bootEngine();
+    try {
+      const page = await pageWith(env);
+      const rootId = page.draft.rootNodeId;
+      // The import writes a page carrier with a mandatory poster reference
+      // (ADR-0010 §7). It must pass the registry prop boundary like any node.
+      const carrier = await insert(env, page, rootId, {
+        primitive: "payload",
+        props: { payloadId: "p1", coversPage: true, poster: { assetId: "poster1" }, label: "Original" },
+      });
+      expect(carrier.status).toBe(200);
+      const carrierId = treeOf(await fresh(env, page.id)).nodes[rootId]?.children?.[0] ?? "";
+      expect(carrierId).not.toBe("");
+      // The documented way back to the structure tree is `active:false`. Before
+      // the fix this failed with "Unsupported style value shape" on props.poster,
+      // because the registry branch re-ran the asset reference through the CSS
+      // grammar.
+      const toggle = await env.api.request<MutationsResponse & ErrorResponse>({
+        method: "POST",
+        path: `/api/pages/${page.id}/editor-mutations`,
+        body: {
+          baseDraftVersion: carrier.body.newDraftVersion,
+          author: TEST_AUTHOR,
+          mutations: [{ op: "setNodeProp", id: carrierId, key: "active", value: false }],
+        },
+      });
+      expect(toggle.status).toBe(200);
+      const stored = treeOf(await fresh(env, page.id)).nodes[carrierId];
+      expect(stored?.props.active).toBe(false);
+      expect(stored?.props.poster).toEqual({ assetId: "poster1" });
+      // The original failure used the legacy mutation route. Exercise that
+      // path too, including reactivation and a second deactivation.
+      const legacy = async (version: number, active: boolean) => env.humanApi.request<MutationsResponse & ErrorResponse>({
+        method: "POST",
+        path: `/api/pages/${page.id}/mutations`,
+        body: { baseDraftVersion: version, author: HUMAN_AUTHOR, mutations: [{ op: "updateNodeProps", id: carrierId, patch: { active } }] },
+      });
+      const enabled = await legacy(toggle.body.newDraftVersion, true);
+      expect(enabled.status).toBe(200);
+      const disabled = await legacy(enabled.body.newDraftVersion, false);
+      expect(disabled.status).toBe(200);
+      expect(treeOf(await fresh(env, page.id)).nodes[carrierId]?.props).toMatchObject({ active: false, poster: { assetId: "poster1" } });
+    } finally {
+      await env.close();
+    }
+  });
 
   it("undoes an inserted primitive like any other batch", async () => {
     const env = await bootEngine();

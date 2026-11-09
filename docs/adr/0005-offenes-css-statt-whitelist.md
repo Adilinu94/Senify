@@ -209,3 +209,9 @@ bleibt die Whitelist stehen.
 - **Offener Wertraum ohne benannte Sicherheitsgrenze.** Verworfen: die Whitelist war faktisch
   die Grenze; sie ohne Ersatz zu entfernen, waere ein Sicherheitsrueckschritt. Regel 4 ist die
   Bedingung, unter der diese Entscheidung gilt.
+
+## Nachtrag 09.11.2026: Medien- und Linkreferenzen an der Prop-Grenze
+
+Katalog-Controls der Typen `asset` und `link` akzeptieren zusätzlich zu Zeichenfolgen ihre strukturierten Referenzen (`{ assetId }` beziehungsweise `{ url }` oder `{ pageId }`), sofern der jeweilige Wert den bestehenden Control-Typ erfüllt. Diese Objekte sind Inhaltsreferenzen und werden an der gemeinsamen Prop-Grenze nicht als CSS-Werte interpretiert. Damit können Knoten mit vorhandener Medienreferenz erneut gespeichert und seitenweite Payload-Träger mit Poster gemäß ADR-0026 deaktiviert werden.
+
+Die CSS-Wert-Grammatik bleibt für Stilwerte, Token-Referenzen und Abstandsobjekte maßgeblich; der Nachtrag erlaubt keine CSS-Deklarationsausbrüche. Er ersetzt weder die Medienauflösung noch die Prüfung von Linkzielen bei der Ausgabe. Belege: `packages/widget-engine/src/prop-boundary.ts`, `packages/widget-engine/test/prop-boundary.test.ts`, `packages/engine/test/primitive-mutations.test.ts`.
