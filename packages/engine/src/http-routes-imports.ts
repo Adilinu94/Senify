@@ -42,12 +42,6 @@ export const importRoutes: Route[] = [
       const body = (await readJsonBody(req)) ?? {};
       const parsed = parseBody<CreateImportBody>(CreateImportBodySchema, body, "import");
       const { idempotencyKey, ...importInput } = parsed;
-      if (importInput.write === true && importInput.output === "structure") {
-        throw new SenifyError("conflict", "Die Strukturausgabe kann derzeit nur analysiert werden", {
-          field: "output",
-          suggestion: "Das sichere Speichern und Wiederherstellen der Ausgabeart ist noch nicht verfügbar.",
-        });
-      }
       if (importInput.source.rootDir !== undefined && importInput.source.rootDir !== "") {
         assertImportRootAllowed(importInput.source.rootDir);
       }

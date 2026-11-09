@@ -161,6 +161,8 @@ const BLEIBT = {
     "Formulare, Einsendungen und die Einsendungs-Ansicht. Der CSV-Export ist am 31.10.2026 als reine Formatierung nach `forms-csv.ts` gewandert (die Regeln einer Tabellenkalkulation: Trenner, RFC 4180, BOM, Formelanfang); was bleibt, ist das Fachgebiet - Snapshot, Token, Spam-Schutz, Benachrichtigungen, Sammlung aus dem Formular",
   "packages/engine/src/media.ts": "Assets, Ableitungen und Ordner",
   "packages/engine/src/types.ts": "die öffentlichen Typen der Engine; keine Logik",
+  "packages/engine/src/imports.ts":
+    "der Import-Auftrag in einem Fachgebiet: Quellenprüfung, Framer-Lauf, Asset-/CMS-Plan, Ausgabewahl und der eine Commit lesen dieselben Zwischenstände. Die Datei reißt die Schwelle seit der revisionssicheren Ausgabewahl; ein Schnitt müsste diese Zwischenstände als Parameter durchreichen",
   "packages/framer-import/src/capture-html.ts":
     "der HTML-Capture des Imports - **gemessen am 08.11.2026: 76 Funktionen; der Schnitt wurde versucht und verworfen.** Der CSS-Block am Dateiende (21 Funktionen) sieht wie ein eigenes Fachgebiet aus, ist aber keine Senke: `applyClassRules` liest den Baum (`SPACED_TEXT`, `KEEPS_SPACES`, `FRAMER_TEXT_PROPS`, `IrInteraction`, `IrVisual`, `elementStyleToParts`) und interne Helfer (`parseCssRules`, `buildIndex`, `devicesOf`, `tokenDefinitionsOf`, `matchingRules`, `cascade`, `resolveVars`, `tokensOf`, `Vars`). Die weiteren Funktionen lesen denselben Rohtext (HTML-Scan, Appear-Ableitung, IR-Bau); der Merge ergänzt Farbschema- und Body-Palette-Helfer",
   "packages/framer-import/src/mapper.ts":

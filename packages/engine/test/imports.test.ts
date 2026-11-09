@@ -1,7 +1,7 @@
 import { listenReachable } from "@senify/core/net";
 import { createServer } from "node:http";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { PAGE_ROOT_TYPE, type NodeTree } from "@senify/section-sdk";
@@ -40,6 +40,9 @@ type ImportResponse = {
     replayed: boolean;
     irHash: string;
     requestedOutput?: "original" | "structure";
+    runtimeCarrier?: "page-payload" | "structure";
+    storedOutput?: "original" | "structure";
+    replacedRevisionId?: string;
     editableShare?: { editable: number; original: number; nodes: number };
     score: number;
     counts: { nodes: number; mapped: number; placeholders: number };
@@ -113,8 +116,21 @@ async function getPage(pageId: string): Promise<PageResponse> {
   return (response.body as unknown as PageResponse) ?? response.body;
 }
 
+function outputStateOf(tree: NodeTree): unknown {
+  return tree.nodes[tree.rootNodeId]?.framerImport;
+}
+
+function hasActivePageCarrier(tree: NodeTree): boolean {
+  return Object.values(tree.nodes).some(
+    (node) =>
+      node.type === "payload" &&
+      node.props["coversPage"] === true &&
+      node.props["active"] !== false,
+  );
+}
+
 describe("POST /api/sites/:siteId/imports/framer", () => {
-  it("analysiert die ausdrücklich gewählte Ausgabe, ohne Struktur-Schreibvorgänge vorzeitig freizugeben", async () => {
+  it("speichert die gewählte Ausgabe am Seitenwurzelknoten und trennt Anfrage, Träger und Ablage", async () => {
     const own = await createTestSite(env.api, "Ausgabeanalyse");
     const root = join(mirrorDir, "output-contract");
     mkdirSync(join(root, "scripts"), { recursive: true });
@@ -133,28 +149,165 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     expect(explicitOriginal.body.report.requestedOutput).toBe("original");
     expect(structure.body.report.requestedOutput).toBe("structure");
     expect(structure.body.report.irHash).not.toBe(original.body.report.irHash);
+    // The report names the carrier the run produced, not just the request.
+    expect(original.body.report.runtimeCarrier).toBe("page-payload");
+    expect(structure.body.report.runtimeCarrier).toBe("structure");
     expect(original.body.report.payloads?.length).toBeGreaterThan(0);
     expect(structure.body.report.payloads).toEqual([]);
     expect(structure.body.report.editableShare).toBeUndefined();
+    expect(structure.body.report.storedOutput).toBeUndefined();
     expect(structure.body.report.steps.join(" ")).toContain("nicht geprüft");
-    expect(structure.body.report.steps.join(" ")).toContain("noch nicht gespeichert");
+    expect(structure.body.report.steps.join(" ")).not.toContain("noch nicht gespeichert");
     expect((await runImport({ source, output: "unknown" }, own.id)).status).toBe(400);
-    const jobPath = `/api/sites/${own.id}/imports`;
-    const jobsBefore = await env.api.request<{ jobs: unknown[] }>({ method: "GET", path: jobPath });
-    const write = await runImport({ source, output: "structure", write: true, pagePath: "/struktur" }, own.id);
-    expect(write.status).toBe(409);
-    const jobsAfter = await env.api.request<{ jobs: unknown[] }>({ method: "GET", path: jobPath });
-    expect(jobsAfter.body.jobs).toHaveLength(jobsBefore.body.jobs.length);
-    const pages = await env.api.request<{ pages: { path: string }[] }>({ method: "GET", path: `/api/sites/${own.id}/pages` });
-    expect(pages.body.pages.some((page) => page.path === "/struktur")).toBe(false);
+
+    const structureWrite = await runImport({
+      source, output: "structure", write: true, pagePath: "/struktur", assets: "skip", fonts: "skip",
+      expectedIrHash: structure.body.report.irHash,
+    }, own.id);
+    expect(structureWrite.status, JSON.stringify(structureWrite.body)).toBe(201);
+    expect(structureWrite.body.report.storedOutput).toBe("structure");
+    expect(structureWrite.body.report.runtimeCarrier).toBe("structure");
+    expect(structureWrite.body.report.steps.join(" ")).toContain('Ausgabe "structure" am Seitenwurzelknoten gespeichert');
+    const structurePage = await env.engine.store.getPage(structureWrite.body.report.pageId as string);
+    expect(outputStateOf(structurePage.draft)).toEqual({ output: "structure" });
+    expect(hasActivePageCarrier(structurePage.draft)).toBe(false);
+    // The build reads the same tree: the structure is delivered and the
+    // output state is no prop, no attribute and no active carrier.
+    const structureBakeDir = mkdtempSync(join(tmpdir(), "senify-output-bake-"));
+    try {
+      const baked = await bakePages(env.engine.store, {
+        site: await env.engine.store.getSite(own.id),
+        pages: [structurePage],
+        outDir: structureBakeDir,
+        dataDir: env.engine.dataDir,
+      });
+      expect(baked.pageCount).toBe(1);
+      const html = readFileSync(join(structureBakeDir, "struktur", "index.html"), "utf8");
+      expect(html).toContain("Text");
+      expect(html).not.toContain("framer-runtime-payload");
+      expect(html).not.toContain("framerImport");
+    } finally {
+      rmSync(structureBakeDir, { recursive: true, force: true });
+    }
+
     const originalWrite = await runImport({
       source, output: "original", write: true, pagePath: "/original", assets: "skip", fonts: "skip",
       expectedIrHash: explicitOriginal.body.report.irHash,
     }, own.id);
     expect(originalWrite.status).toBe(201);
     expect(originalWrite.body.report.requestedOutput).toBe("original");
+    expect(originalWrite.body.report.storedOutput).toBe("original");
+    expect(originalWrite.body.report.runtimeCarrier).toBe("page-payload");
     const page = await env.engine.store.getPage(originalWrite.body.report.pageId as string);
-    expect(Object.values(page.draft.nodes).some((node) => node.type === "payload" && node.props.coversPage === true)).toBe(true);
+    expect(outputStateOf(page.draft)).toEqual({ output: "original" });
+    expect(hasActivePageCarrier(page.draft)).toBe(true);
+  }, 60_000);
+
+  it("verweigert den unbestimmten Reimport einer Strukturseite und stellt den Ausgabezustand per Revision wieder her", async () => {
+    const own = await createTestSite(env.api, "Ausgabezustand");
+    const html = framerHtml().replace("Willkommen", "Strukturseite");
+    const first = await runImport(
+      { source: { html }, output: "structure", write: true, pagePath: "/ausgabe", assets: "skip", fonts: "skip" },
+      own.id,
+    );
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    const pageId = first.body.report.pageId ?? "";
+    const created = await env.engine.store.getPage(pageId);
+    expect(outputStateOf(created.draft)).toEqual({ output: "structure" });
+
+    // A request that does not name the output must not switch the page to the
+    // default. The conflict explains both ways forward.
+    const ambiguous = await runImport(
+      { source: { html }, write: true, pagePath: "/ausgabe", assets: "skip", fonts: "skip" },
+      own.id,
+    );
+    expect(ambiguous.status).toBe(409);
+    expect(ambiguous.body.error.field).toBe("output");
+    const ambiguousPreview = await runImport(
+      { source: { html }, pagePath: "/ausgabe", assets: "skip", fonts: "skip" },
+      own.id,
+    );
+    expect(ambiguousPreview.status).toBe(409);
+    const unchanged = await env.engine.store.getPage(pageId);
+    expect(unchanged.draftVersion).toBe(created.draftVersion);
+    expect(outputStateOf(unchanged.draft)).toEqual({ output: "structure" });
+
+    // The explicit switch is one write, guarded by the draft version, and
+    // keeps the replaced draft as a revision.
+    const switched = await runImport(
+      {
+        source: { html }, output: "original", write: true, pagePath: "/ausgabe",
+        assets: "skip", fonts: "skip", baseDraftVersion: created.draftVersion,
+      },
+      own.id,
+    );
+    expect(switched.status, JSON.stringify(switched.body)).toBe(201);
+    expect(switched.body.report.storedOutput).toBe("original");
+    expect(switched.body.report.replacedRevisionId).toBeDefined();
+    const switchedPage = await env.engine.store.getPage(pageId);
+    expect(outputStateOf(switchedPage.draft)).toEqual({ output: "original" });
+
+    // A replay of the earlier structure request is a receipt, not a write: it
+    // must not switch the page back or add a revision.
+    const replay = await runImport(
+      {
+        source: { html }, output: "structure", write: true, pagePath: "/ausgabe",
+        assets: "skip", fonts: "skip", idempotencyKey: "framer-structure-replay",
+      },
+      own.id,
+    );
+    expect(replay.status, JSON.stringify(replay.body)).toBe(201);
+    expect(replay.body.report.replayed).toBe(true);
+    const afterReplay = await env.engine.store.getPage(pageId);
+    expect(afterReplay.draftVersion).toBe(switchedPage.draftVersion);
+    expect(outputStateOf(afterReplay.draft)).toEqual({ output: "original" });
+
+    // Restore brings the output state back together with the tree.
+    const restored = await env.api.request<{ draftVersion: number }>({
+      method: "POST",
+      path: `/api/pages/${pageId}/restore`,
+      body: { revisionId: switched.body.report.replacedRevisionId },
+    });
+    expect(restored.status).toBe(200);
+    const restoredPage = await env.engine.store.getPage(pageId);
+    expect(outputStateOf(restoredPage.draft)).toEqual({ output: "structure" });
+    expect(hasActivePageCarrier(restoredPage.draft)).toBe(false);
+
+    // Editing and saving another node keeps the state on the page root.
+    const theme = await env.engine.store.getTheme(own.id);
+    const edited = await env.api.request({
+      method: "POST",
+      path: `/api/pages/${pageId}/editor-mutations`,
+      body: {
+        baseDraftVersion: restoredPage.draftVersion,
+        baseThemeVersion: theme.version,
+        mutations: [
+          {
+            op: "insertNode",
+            parent: { nodeId: restoredPage.draft.rootNodeId },
+            node: { primitive: "divider", props: {} },
+          },
+        ],
+      },
+    });
+    expect(edited.status).toBe(200);
+    const editedPage = await env.engine.store.getPage(pageId);
+    expect(editedPage.draftVersion).toBe(restoredPage.draftVersion + 1);
+    expect(outputStateOf(editedPage.draft)).toEqual({ output: "structure" });
+  }, 120_000);
+
+  it("behandelt Altseiten ohne Ausgabefeld weiter mit dem Original-Standard", async () => {
+    const own = await createTestSite(env.api, "Ausgabestandard");
+    const existing = await createTestPage(env.api, own.id, { path: "/alt", title: "Alt" });
+    const response = await runImport(
+      { source: { html: framerHtml() }, write: true, pagePath: "/alt", assets: "skip", fonts: "skip" },
+      own.id,
+    );
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    expect(response.body.report.pageId).toBe(existing.id);
+    expect(response.body.report.storedOutput).toBe("original");
+    const page = await env.engine.store.getPage(existing.id);
+    expect(outputStateOf(page.draft)).toEqual({ output: "original" });
   }, 60_000);
 
   it("createOnly schützt eine nach der Analyse angelegte Zielseite", async () => {

@@ -111,6 +111,15 @@ export const ImportReportSchema = Type.Object(
     dryRun: Type.Boolean(),
     // A requested output is not a claim about actual runtime freedom.
     requestedOutput: Type.Optional(Type.Union([Type.Literal("original"), Type.Literal("structure")])),
+    // The carrier the run actually produced: a page-wide Framer payload or the
+    // editable structure. `original` without a page payload delivers the
+    // structure, so the report names the carrier separately from the request.
+    runtimeCarrier: Type.Optional(
+      Type.Union([Type.Literal("page-payload"), Type.Literal("structure")]),
+    ),
+    // The output stored on the page root by a successful write. Absent for a
+    // dry run and for receipts written before this field existed.
+    storedOutput: Type.Optional(Type.Union([Type.Literal("original"), Type.Literal("structure")])),
     pageId: Type.Union([Type.String(), Type.Null()]),
     newDraftVersion: Type.Union([Type.Number(), Type.Null()]),
     receiptId: Type.Union([Type.String(), Type.Null()]),
