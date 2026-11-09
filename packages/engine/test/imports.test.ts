@@ -671,7 +671,6 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
         siteId: own.id,
         source: { kind: "html", url: null, rootDir: null, html: "<!doctype html><html><body></body></html>", baseUrl: null },
         pagePath: "/farbe-a",
-        pageId: pageIdA,
         dryRun: false,
         maxAttempts: 1,
       });
@@ -681,7 +680,7 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
         contentKey: "scoped-token-content-a1b2c3-r2",
         requestFingerprint: "scoped-token-request-a1b2c3-r2",
         author: TEST_AUTHOR,
-        target: { kind: "existing", pageId: pageIdA, baseDraftVersion: beforeReimport.draftVersion },
+        target: { kind: "page", pageId: pageIdA, baseDraftVersion: beforeReimport.draftVersion },
         draft: { rootNodeId: "root", nodes: { root: { id: "root", type: PAGE_ROOT_TYPE, props: { color: "var(--token-a1b2c3-brand)" }, children: ["n1"] }, n1: { id: "n1", type: "text", props: { text: "A2", color: "var(--token-a1b2c3-brand)" } } } },
         payloads: [],
         styleRules: [{
