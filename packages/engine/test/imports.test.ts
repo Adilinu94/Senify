@@ -710,6 +710,57 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
       expect(draftA2.draft.nodes["n1"]?.props?.text).toBe("A2");
       expect(draftB2.draft.nodes["n1"]?.props?.color).toBe("var(--token-d4e5f6-brand)");
     }, 120_000);
+
+    it("behaelt Fallback bei unbekanntem Token, auch wenn andere Tokens derselben Seite gescoped werden", async () => {
+      const own = await createTestSite(env.api, "Import Unknown Token Fallback");
+      const job = await env.engine.store.createImportJob({
+        siteId: own.id,
+        source: { kind: "html", url: null, rootDir: null, html: "<!doctype html><html><body></body></html>", baseUrl: null },
+        pagePath: "/unbekannt",
+        dryRun: false,
+        maxAttempts: 1,
+      });
+      const committed = await env.engine.store.commitFramerImportPlan({
+        siteId: own.id,
+        jobId: job.id,
+        contentKey: "unknown-token-content",
+        requestFingerprint: "unknown-token-request",
+        author: TEST_AUTHOR,
+        target: { kind: "new", path: "/unbekannt", title: "Unbekannt" },
+        draft: {
+          rootNodeId: "root",
+          nodes: {
+            root: { id: "root", type: PAGE_ROOT_TYPE, props: {}, children: ["known", "unknown"] },
+            known: { id: "known", type: "text", props: { text: "Bekannt", color: "var(--token-a1b2c3-brand)" } },
+            unknown: { id: "unknown", type: "text", props: { text: "Fallback", color: "var(--token-missing, #445566)" } },
+          },
+        },
+        payloads: [],
+        styleRules: [{
+          id: "fi-a1b2c3-0", name: ":root", kind: "ambient", selector: ":root", order: 0,
+          description: "Scoped Token Root", styles: { "--token-a1b2c3-brand": "#112233" }, contextStyles: {},
+          origin: { source: "framer-import", ordinal: 0 }, authoredBy: "preset",
+        }],
+        themePatch: null,
+        report: {
+          jobId: job.id, dryRun: false, irHash: "unknown-token", score: 1,
+          counts: { nodes: 3, mapped: 3, placeholders: 0 }, declarations: { total: 1, carried: 1, dropped: 0 },
+          assets: { downloaded: 0, deduped: 0, failed: 0, fonts: 0 },
+          motion: { measured: 0, mappedToPreset: 0, documented: 0 },
+          findings: [], marqueeCandidates: [], steps: ["test"],
+        },
+      });
+      const pageId = committed.report.pageId;
+      if (pageId === null) throw new Error("commitFramerImportPlan hat keine pageId geliefert");
+      const draft = await env.engine.store.getPage(pageId);
+      expect(draft.draft.nodes["known"]?.props?.color).toBe("var(--token-a1b2c3-brand)");
+      expect(draft.draft.nodes["unknown"]?.props?.color).toBe("var(--token-missing, #445566)");
+      const rules = await env.api.request<{ rules: { id: string; styles?: Record<string, string> }[] }>({
+        method: "GET", path: `/api/sites/${own.id}/style-rules`,
+      });
+      expect(rules.body.rules.find((r) => r.id === "fi-a1b2c3-0")?.styles?.["--token-a1b2c3-brand"]).toBe("#112233");
+      expect(rules.body.rules.some((r) => Object.keys(r.styles ?? {}).some((k) => k.includes("missing")))).toBe(false);
+    }, 120_000);
   });
 
   describe("page head and the way back", () => {
