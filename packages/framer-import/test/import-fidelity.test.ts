@@ -68,6 +68,13 @@ describe("capture fidelity", () => {
     expect(link?.children ?? []).toEqual([]);
   });
 
+  it("behaelt den direkten Text eines Links ohne Elementkinder", () => {
+    const { nodes } = run(page('<a href="/projekt">Projekt ansehen</a>'));
+    const link = nodes.find((node) => node.primitive === "link");
+    expect(link?.props["label"]).toBe("Projekt ansehen");
+    expect(link?.children ?? []).toEqual([]);
+  });
+
   it("keeps image alt text", () => {
     const { nodes } = run(page('<img src="a.png" alt="Logo Acme" width="100" height="50">'));
     expect(nodes.find((node) => node.primitive === "image")?.props["alt"]).toBe("Logo Acme");
