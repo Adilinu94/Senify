@@ -189,6 +189,52 @@ describe("mergeDeviceVariants", () => {
     ]);
   });
 
+  // Framer components share their base classes and differ only in the
+  // `framer-v-<hash>` class. A state merge that ignores it pairs by document
+  // order, and that order differs between builds: measured on the Astra `/about`
+  // hero, the filled "Get started" button took the tablet values of the outline
+  // "Careers" button (transparent background, inset border) and disappeared:
+  // dark text on the transparent dark hero.
+  it("paart gleiche Basisklassen über die Variantenklasse, nicht über die Reihenfolge", () => {
+    const button = (key: string, variant: string, background: string, padding: string) => ({
+      key,
+      tag: "a",
+      kind: "element",
+      htmlId: null,
+      baseClasses: ["framer-button"],
+      variantClasses: [`framer-v-${variant}`],
+      states: [{ device: "desktop", hiddenAt: [], visual: { "background-color": background, padding } }],
+      children: [],
+    });
+    const browser = variantDocument([
+      button("nav", "nav", "white", "6px 16px"),
+      button("hero", "primary", "white", "8px 16px"),
+      button("cta", "primary", "white", "8px 16px"),
+    ]);
+    const tablet = variantDocument([
+      button("source-hero", "primary", "white", "8px 16px"),
+      button("source-outline", "outline", "transparent", "6px 16px"),
+      button("source-cta", "primary", "white", "8px 16px"),
+    ]);
+    const merged = mergeDeviceVariants(browser, tablet, "tablet") as unknown as {
+      pages: {
+        root: {
+          children: {
+            key: string;
+            states: { device: string; visual: Record<string, string> }[];
+          }[];
+        };
+      }[];
+    };
+    const byKey = new Map(merged.pages[0]?.root.children.map((child) => [child.key, child]));
+    const tabletState = (key: string) => byKey.get(key)?.states.find((state) => state.device === "tablet");
+    // The hero keeps the filled button of its own build.
+    expect(tabletState("hero")?.visual["background-color"]).toBe("white");
+    expect(tabletState("cta")?.visual["background-color"]).toBe("white");
+    // The outline values of the other component never reach the hero.
+    expect(merged.pages[0]?.root.children.some((child) => child.states.some((state) => state.visual["background-color"] === "transparent"))).toBe(false);
+  });
+
   it("ergänzt auch id-lose Überschriften- und Rich-Text-Gruppen", () => {
     const heading = (key: string, hiddenAt: string[], label: string) => ({
       ...navWrapper(key, hiddenAt, label),

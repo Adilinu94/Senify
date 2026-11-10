@@ -245,6 +245,7 @@ function mergeStatesBySignature(
     tag: string;
     htmlId?: string | null;
     baseClasses?: string[];
+    variantClasses?: string[];
     states: { device: IrDevice; hiddenAt: string[] }[];
     children: SigNode[];
   };
@@ -252,8 +253,15 @@ function mergeStatesBySignature(
   // with different ids are two elements, however equal their classes are. Without
   // it, a section that the other build does not contain could be paired with a
   // neighbour and take over its values.
+  //
+  // The variant class is part of it for the same reason: Framer components share
+  // their base classes and differ only in `framer-v-<hash>`. Measured on the
+  // Astra `/about` hero: the filled "Get started" button and the outline
+  // "Careers" button carry the same base classes, so the outline button's
+  // transparent background and inset border landed on the hero button: dark
+  // text on the transparent dark hero, the button disappeared.
   const signature = (node: SigNode): string =>
-    `${node.tag}|${[...(node.baseClasses ?? [])].sort().join("|")}|${node.htmlId ?? ""}`;
+    `${node.tag}|${[...(node.baseClasses ?? [])].sort().join("|")}|${[...(node.variantClasses ?? [])].sort().join("|")}|${node.htmlId ?? ""}`;
   const bySignature = new Map<string, SigNode[]>();
   const collect = (node: SigNode): void => {
     const key = signature(node);
