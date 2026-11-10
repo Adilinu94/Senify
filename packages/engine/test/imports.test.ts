@@ -10,11 +10,14 @@ import {
   bootEngine,
   createTestPage,
   createTestSite,
+  realPostgresAvailable,
   TEST_AUTHOR,
   type BootEnv,
   type ErrorResponse,
   type PageResponse,
 } from "./helpers.ts";
+
+const hasRealPostgres = await realPostgresAvailable();
 
 // Framer import (plan S3): the engine route owns the rules around the run.
 // The dry run shows the report without writing anything; `write: true` lands
@@ -322,6 +325,37 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
     const after = await env.engine.store.getPage(existing.id);
     expect(after.draftVersion).toBe(before.draftVersion);
     expect(after.draft).toEqual(before.draft);
+  }, 60_000);
+  it.skipIf(!hasRealPostgres)("weist einen konkurrierenden Import-Write unter der Datenbanksperre ab", async () => {
+    const own = await createTestSite(env.api, "Import-Konflikt");
+    const existing = await createTestPage(env.api, own.id, { path: "/konflikt", title: "Konflikt" });
+    const before = await env.engine.store.getPage(existing.id);
+    const sourceOf = (marker: string) =>
+      `<!doctype html><html lang="en"><head><title>${marker}</title></head><body><div id="main"><h1>${marker}</h1></div></body></html>`;
+    const body = (marker: string) => ({
+      source: { html: sourceOf(marker) },
+      write: true,
+      pageId: existing.id,
+      pagePath: "/konflikt",
+      baseDraftVersion: before.draftVersion,
+      assets: "skip",
+      fonts: "skip",
+    });
+    const [a, b] = await Promise.all([
+      runImport(body("KONFLIKT-A"), own.id),
+      runImport(body("KONFLIKT-B"), own.id),
+    ]);
+    expect([a.status, b.status].sort()).toEqual([201, 409]);
+    const winner = a.status === 201 ? a : b;
+    const loser = a.status === 201 ? b : a;
+    expect(winner.body.report.pageId).toBe(existing.id);
+    expect(winner.body.report.newDraftVersion).toBe(before.draftVersion + 1);
+    expect(loser.body.error).toBeDefined();
+    const after = await env.engine.store.getPage(existing.id);
+    expect(after.draftVersion).toBe(before.draftVersion + 1);
+    const tree = JSON.stringify(after.draft);
+    expect(tree).toContain(winner === a ? "KONFLIKT-A" : "KONFLIKT-B");
+    expect(tree).not.toContain(winner === a ? "KONFLIKT-B" : "KONFLIKT-A");
   }, 60_000);
   it("reicht die Capture-Wahl durch und lehnt einen unbekannten Wert ab", async () => {
     // `capture` ist eine Wahl der Quelle (S2), kein freier Text: der Contract

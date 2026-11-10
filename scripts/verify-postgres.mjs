@@ -24,6 +24,9 @@ const SUITE = [
   "packages/engine/test/redesign-transaction.test.ts",
   "packages/engine/test/site-delete-transaction.test.ts",
   "packages/engine/test/site-delete.test.ts",
+  // Der tatsaechliche Import-Schreibpfad: Konflikt, Revision, Restore,
+  // Kompensation und der konkurrierende Write unter der Datenbanksperre.
+  "packages/engine/test/imports.test.ts",
 ];
 
 if ((process.env.TEST_DATABASE_URL ?? "").length === 0) {
