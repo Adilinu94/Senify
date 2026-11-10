@@ -93,6 +93,25 @@ function hasDynamicLoading(source: string): boolean {
   ].some((pattern) => pattern.test(source));
 }
 
+// The bake's own late loader (`Page.astro`): it defers the local motion layer
+// until the load event, so Lenis and the page script do not compete with fonts
+// and CSS. It is the site's OWN code and loads only two local files. Without
+// this classification the structure build read as `unknown` only because
+// Senify deferred its own scripts — measured on Relay `/`.
+const OWN_LOADER_FILES = ["/assets/vendor/lenis.min.js", "/assets/page.js"] as const;
+
+function isOwnLateLoader(source: string): boolean {
+  if (hasFramerMarker(source)) return false;
+  if (!source.includes("requestIdleCallback")) return false;
+  if (!source.includes("lenis.onload")) return false;
+  if (/https?:|data:|\/\/[a-z]/i.test(source)) return false;
+  const assigned = [...source.matchAll(/\.src\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map(
+    (match) => match[1] ?? match[2] ?? "",
+  );
+  if (assigned.length === 0) return false;
+  return assigned.every((path) => (OWN_LOADER_FILES as readonly string[]).includes(path));
+}
+
 function scriptTags(html: string): ScriptTag[] {
   const tags: ScriptTag[] = [];
   const pattern = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
@@ -137,6 +156,15 @@ function contentSignals(content: string, label: string): RuntimeAuditSignal[] {
   if (hasFramerMarker(content)) {
     return [{ kind: "framer-script", strength: "runtime", detail: `Framer-Marker im Skript: ${label}` }];
   }
+  if (isOwnLateLoader(content)) {
+    return [
+      {
+        kind: "own-motion-loader",
+        strength: "neutral",
+        detail: `Senifys eigener Motion-Lader, laedt nur lokale Dateien: ${label}`,
+      },
+    ];
+  }
   if (hasDynamicLoading(content)) {
     return [
       {
@@ -165,6 +193,28 @@ function scriptSignals(tags: ScriptTag[], provided: RuntimeAuditScript[]): Runti
           strength: "runtime",
           detail: `Skript von einem Framer-Host: ${tag.src}`,
         });
+        continue;
+      }
+      // A script from another origin is third-party code: named as its own
+      // class, so the report can tell it apart from the site's own bundle. Its
+      // content is only known when the caller measured it; otherwise it stays
+      // an open question (a foreign script could hide a runtime).
+      if (/^(?:https?:)?\/\//i.test(tag.src)) {
+        signals.push({
+          kind: "third-party-script",
+          strength: "dependency",
+          detail: `Skript von einem fremden Host: ${tag.src}`,
+        });
+        const external = provided.find((script) => script.url === tag.src);
+        if (external?.content === undefined) {
+          signals.push({
+            kind: "script-not-inspected",
+            strength: "unknown",
+            detail: `Skriptinhalt nicht geprueft: ${tag.src}`,
+          });
+          continue;
+        }
+        signals.push(...contentSignals(external.content, tag.src));
         continue;
       }
       const local = provided.find((script) => pathOf(script.url) === pathOf(tag.src as string));

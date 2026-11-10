@@ -97,6 +97,45 @@ describe("auditFramerRuntime", () => {
     );
   });
 
+  // The bake defers its OWN motion layer (`Page.astro`). Before this
+  // classification the structure build of Relay `/` read as `unknown` only
+  // because Senify loaded its own two local files — no Framer involvement.
+  it("erkennt Senifys eigenen Motion-Lader als neutral", () => {
+    const loader =
+      'window.addEventListener("load",function(){var run=function(){var lenis=document.createElement("script");lenis.src="/assets/vendor/lenis.min.js";lenis.onload=function(){var page=document.createElement("script");page.src="/assets/page.js";document.body.appendChild(page);};document.body.appendChild(lenis);};if("requestIdleCallback" in window){window.requestIdleCallback(run);}else{setTimeout(run,200);}});';
+    const result = auditFramerRuntime({ html: `<script>${loader}</script>` });
+    expect(result.verdict).toBe("refuted");
+    expect(result.signals).toContainEqual(
+      expect.objectContaining({ kind: "own-motion-loader", strength: "neutral" }),
+    );
+  });
+
+  it("erkennt einen Lader mit fremder Adresse nicht als eigenen", () => {
+    const loader =
+      'window.addEventListener("load",function(){var run=function(){var lenis=document.createElement("script");lenis.src="https://cdn.example/lenis.min.js";lenis.onload=function(){var page=document.createElement("script");page.src="/assets/page.js";document.body.appendChild(page);};document.body.appendChild(lenis);};if("requestIdleCallback" in window){window.requestIdleCallback(run);}});';
+    const result = auditFramerRuntime({ html: `<script>${loader}</script>` });
+    expect(result.verdict).toBe("unknown");
+    expect(result.signals).toContainEqual(
+      expect.objectContaining({ kind: "dynamic-loading", strength: "unknown" }),
+    );
+  });
+
+  it("erkennt einen Lader mit Framer-Marker nicht als eigenen", () => {
+    const loader =
+      'window.addEventListener("load",function(){var run=function(){var lenis=document.createElement("script");lenis.src="/assets/vendor/lenis.min.js";window.__framer={};};if("requestIdleCallback" in window){window.requestIdleCallback(run);}});';
+    const result = auditFramerRuntime({ html: `<script>${loader}</script>` });
+    expect(result.verdict).toBe("confirmed");
+  });
+
+  it("nennt ein Skript eines fremden Hosts als Drittanbieter", () => {
+    const result = auditFramerRuntime({
+      html: '<script src="https://cdn.example/app.js"></script>',
+    });
+    expect(result.signals).toContainEqual(
+      expect.objectContaining({ kind: "third-party-script", strength: "dependency" }),
+    );
+  });
+
   it("bleibt unbekannt bei einem dynamischen Import in einem geprueften Skript", () => {
     const result = auditFramerRuntime({
       html: '<script src="/app.js"></script>',
