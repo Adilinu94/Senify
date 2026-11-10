@@ -1,18 +1,20 @@
 # Reduzierte Bewegung für Appear-Regeln
 
-Status: ready-for-agent
-Label: ready-for-agent
+Status: resolved
+Label: resolved
 
 ## Befund
 
-`appearReducedMotionCss` in `packages/framer-import/src/appear-css.ts` erzeugt eine Regel für `prefers-reduced-motion: reduce`, wird aber nirgends aufgerufen. Der bestehende Test in `appear-bake.test.ts` sucht nur die Zeichenkette `prefers-reduced-motion` und wird vom Preset-Pfad im Renderer grün, nicht von dieser Funktion. Bei reduzierter Bewegung kann eine Appear-Regel im Startzustand hängen bleiben.
+`appearReducedMotionCss` erzeugte den passenden Block, wurde aber nie aufgerufen. Der Bake-Test suchte nur `prefers-reduced-motion`; der Preset-Pfad im Renderer machte ihn grün, nicht die importierte Regel. Bei reduzierter Bewegung konnte eine Appear-Regel im Startzustand hängen bleiben.
 
-## Nächster Schritt
+## Ergebnis 10.11.2026
 
-1. Die Funktion beim Anhängen der Appear-Regeln in den Seitenstil aufnehmen, mit den tatsächlich vergebenen Klassen.
-2. Den Test auf `.fi-…-appear-…` und `animation:none` präzisieren, sodass der Preset-Pfad ihn nicht mehr fälschlich grün macht.
-3. Gegenprobe: ohne den Aufruf ist der Test rot.
+Der Block entsteht jetzt im gemeinsamen Seitenstil-Compiler `styleRulesCss` in `packages/renderer/src/style-css.ts`. Die generische Hilfe `appearReducedMotionCss` liegt in `packages/widget-engine/src/css/reduced-motion.ts`; sie erkennt Klassen mit `senify-appear-*`-Keyframes und setzt für sie `animation:none!important` und `opacity:1!important`. Bake und Canvas teilen denselben Pfad.
 
-## Abnahme
+Die ungenutzte Kopie in `packages/framer-import/src/appear-css.ts` ist entfernt. Der Bake-Test prüft jetzt die tatsächlich importierte `fi-…-appear-…`-Klasse im Reduced-Motion-Block, nicht mehr nur das Media-Feature. Der Compiler-Test deckt die Klasse und die Abgrenzung zu normalen Klassen ab. Ohne den neuen Aufruf sind beide Tests rot.
 
-Eine Seite mit Appear-Regeln liefert unter `prefers-reduced-motion: reduce` sichtbare, statische Elemente; der Test prüft die importierte Klasse, nicht nur das Media-Feature.
+Belege: `packages/renderer/test/style-rules-css.test.ts`, `packages/framer-import/test/appear-bake.test.ts`, `packages/widget-engine/src/css/reduced-motion.ts`.
+
+## Rest
+
+Die visuelle Wirkung im Browser mit `prefers-reduced-motion: reduce` ist noch nicht als Screenshot-Vergleich gemessen. Das ist ein eigener Messfall.
