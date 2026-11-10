@@ -21,6 +21,11 @@ export {
 } from "./cascade.ts";
 
 export {
+  appearReducedMotionCss,
+  type AnimatedClassRule,
+} from "./reduced-motion.ts";
+
+export {
   PROP_MAPPINGS,
   STYLE_PROPERTIES,
   declarationsForValues,

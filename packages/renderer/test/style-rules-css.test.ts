@@ -90,6 +90,22 @@ describe("styleRulesCss", () => {
     expect(css).toContain("@keyframes pulse");
   });
 
+  it("gates imported appear classes for reduced motion", () => {
+    const rules: StyleRule[] = [
+      createClassRule({
+        id: "appear",
+        name: "fi-abc123-appear-1",
+        styles: { animation: "senify-appear-a 1.2s ease both" },
+      }),
+      createClassRule({ id: "plain", name: "plain", styles: { color: "#fff" } }),
+    ];
+    const css = styleRulesCss(page(), rules);
+    expect(css).toContain(
+      "@media (prefers-reduced-motion: reduce){.fi-abc123-appear-1{animation:none!important;opacity:1!important}}",
+    );
+    expect(css).not.toContain(".plain{animation:none");
+  });
+
   // The import reads every colour of the source twice: as a `--token-<uuid>`
   // definition (the block in the page's head) and as `var(--token-…)` at each
   // use. Only the uses reach the nodes, so the definitions travel as one

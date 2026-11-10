@@ -131,9 +131,22 @@ describe("the compiled appear channel reaches the baked page", () => {
           .map((name) => join(out, "assets", name)),
       ];
       const css = files.map((file) => readFileSync(file, "utf8")).join("\n");
-      // The style registry compiles the rule's own states; a motion rule that
-      // stops under reduced motion must be visible, not blank.
-      expect(css).toContain("prefers-reduced-motion");
+      // The imported class itself must sit in the reduced-motion gate. The
+      // renderer's preset path emits its own media block; checking only the
+      // media feature stayed green while the import's rule was never wired.
+      const appearClass = run.mapped.rules
+        .map((rule) => rule.name)
+        .find((name) => name.includes("-appear-"));
+      expect(appearClass).toBeDefined();
+      const blocks = [
+        ...css.matchAll(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\}\s*\}/g),
+      ].map((match) => match[0]);
+      expect(
+        blocks.some(
+          (block) =>
+            block.includes(`.${appearClass}`) && block.includes("animation:none!important"),
+        ),
+      ).toBe(true);
     } finally {
       rmSync(out, { recursive: true, force: true });
     }

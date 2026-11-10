@@ -286,16 +286,6 @@ export function compileAppearRules(input: CompileAppearInput): CompileAppearResu
   return { rules, findings, compiled };
 }
 
-// The reduced-motion policy for imported reveals: `static`. The element stays
-// visible and still, which is what the WCAG default asks for. Without this an
-// element whose animation a browser refuses to run would stay at `opacity:0` —
-// the reveal would become a blank spot on the page.
-export function appearReducedMotionCss(rules: readonly CompiledAppearRule[]): string {
-  if (rules.length === 0) return "";
-  const selectors = rules.map((rule) => `.${rule.name}`).join(",");
-  return `@media (prefers-reduced-motion: reduce){${selectors}{animation:none!important;opacity:1!important}}`;
-}
-
 // The selector a compiled rule is keyed on. Exported so a test can assert the
 // mapping without re-deriving it.
 export function appearClassOf(rule: CompiledAppearRule): string {
