@@ -55,6 +55,9 @@ _Avoid_: Animation, Effekt, Übergang
 **Motion-Spec**: Die typisierte Gesamt-Konfiguration auf einem Node (Preset + Intensity-Dial + Tokens + Trigger), die der Renderer deterministisch in GSAP-/CSS-/Motion-Code übersetzt.
 _Avoid_: Animations-Config, Keyframes
 
+**Appear-Effekt**: Die Einblendung eines importierten Framer-Elements beim Laden. Der Import trennt Startzustand (`appearInitial`), gemessenen WAAPI-Aufruf und die daraus erzeugte CSS-Animation.
+_Avoid_: Reveal, Entrance-Animation
+
 **Breakpoint-Override**: Eine responsive Anpassung eines Nodes für Tablet oder Mobile.
 _Avoid_: Responsive-Variante, Media-Query
 

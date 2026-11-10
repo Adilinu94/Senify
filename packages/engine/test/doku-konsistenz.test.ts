@@ -266,7 +266,9 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // Vorher 70: Punkt 13 (CSS-Bildadressen) hat `remoteUrlsInValues` ergaenzt;
     // 69 vor der fremden Browser-Capture-Aenderung (26.10.2026, 539b533).
     // Der Merge ergänzt vier Helfer für Farbschema-Auswertung und Body-Palette.
-    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(76);
+    // 77 seit dem 10.11.2026: `isRevealStart` erkennt die reine
+    // Deblur-Einblendung als Startzustand.
+    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(77);
     // 57 seit dem 26.10.2026: der fremde Commit 7a5b838 (Browser-Abgriff der
     // Animationen) hat drei Funktionen ergaenzt. Der Waechter hat es sofort
     // gemeldet - genau dafuer steht er hier. Der Bericht nennt dieselbe Zahl.
@@ -297,7 +299,7 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
 
     // Und die Begruendung muss die Zahlen tragen, die sie behauptet.
     expect(module).toContain("(21 Funktionen)");
-    expect(module).toContain("76 Funktionen");
+    expect(module).toContain("77 Funktionen");
     expect(module).toContain("58 Funktionen");
     // `mapNode` ist mit der Datei gewachsen (289 -> 336).
     expect(module).toContain("336 Zeilen");
