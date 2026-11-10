@@ -1,7 +1,7 @@
 # Erster Bildschirm von /about weicht stark ab
 
 Type: bug
-Status: needs-triage
+Status: ready-for-agent
 
 ## Problem
 
@@ -17,20 +17,45 @@ Nach dem Navigations-Fix bleibt der erste Bildschirm von `/about` bei
 
 Zum Vergleich vor dem Navigations-Fix: Tablet 24.322 %, Mobil 29.840 %.
 
+## Ursache (untersucht)
+
+Der Build zeigt auf Tablet und Mobil nur das Eyebrow-Label und das Bild.
+Die Überschrift, der Absatz und der Button fehlen im HTML. Die Quelle
+rendert den Hero-Text in id-losen `ssr-variant`-Gruppen, zum Beispiel die
+Überschrift in `<div class="ssr-variant hidden-1tpocsl hidden-18bxkjb">`
+mit den Wörtern als einzelne `span`-Elemente. Die Desktop-Fassung ist im
+Build vorhanden, die Tablet-/Telefon-Fassungen werden nicht ergänzt. Die
+Navigations-Reparatur greift nur für `<nav>`-Gruppen; hier braucht es
+dieselbe Ergänzung für Überschriften- und Rich-Text-Gruppen, rekursiv
+unterhalb des Seitenkopfs.
+
+Die Live-Quelle wechselt den Hero-Text (Astra-A/B). Der eingefügte
+Quelltext zeigt aktuell „Few ...", der Screenshot „Hire managers and do
+work". Die Zuordnung muss sich auf die Struktur, nicht auf den Text
+stützen.
+
 ## Nächster Schritt
 
-- Screenshots seitenweise vergleichen und den Differenzbereich eingrenzen:
-  Hero, Textlink, Farben, Schrift, fehlende Dekoration.
-- DOM und berechnete Stile der sichtbaren Elemente vergleichen; Assets und
-  Bildzuschnitt prüfen.
+- `restoreTopLevelNavVariants` zu einer rekursiven Ergänzung id-loser
+  Gerätevarianten erweitern, zunächst für Gruppen mit `<nav>`, `<h1>` bis
+  `<h3>` und Rich-Text-Containern.
+- Weitere Fälle nur über Basisklasse, `hiddenAt` und disjunkte Sichtbarkeit
+  zuordnen; Kollisions- und Doppelungsprüfung wie beim Navigations-Fix.
+- Minimal-Fixture mit Hero-Überschrift, Absatz und Button; Live-Lauf
+  `/about` bei 768 und 390 px.
 - Erst danach einen Fix bauen oder die Abweichung bewusst dokumentieren.
 
 ## Abnahme
 
-- Ursache benannt und belegt; entweder Fix mit neuem visuellen Lauf oder
-  dokumentierte, begründete Abweichung.
+- Ursache benannt und belegt; der Hero-Text erscheint bei 768 und 390 px
+  wieder, ohne doppelte Inhalte.
+- Fix mit neuem visuellen Lauf oder dokumentierte, begründete Abweichung.
 
 ## Comments
 
 - 09.11.2026: Befund nach dem Navigations-Fix. Der Kopfbereich ist behoben,
   die restliche Abweichung ist noch nicht zugeordnet.
+- 09.11.2026: Ursache eingegrenzt. Die Hero-Überschrift steckt in einer
+  id-losen `ssr-variant`-Gruppe; der Build hat nur die Desktop-Fassung.
+  Nächster Schritt ist die rekursive Ergänzung für Überschriften- und
+  Rich-Text-Gruppen.
