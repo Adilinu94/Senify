@@ -1,7 +1,7 @@
 # Erster Bildschirm von /about weicht stark ab
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 
 ## Problem
 
@@ -50,6 +50,22 @@ stützen.
 - Ursache benannt und belegt; der Hero-Text erscheint bei 768 und 390 px
   wieder, ohne doppelte Inhalte.
 - Fix mit neuem visuellen Lauf oder dokumentierte, begründete Abweichung.
+
+## Answer
+
+Behoben in `restoreIdLessDeviceVariants` (`packages/framer-import/src/import.ts`):
+Der Pass läuft SSR- und Desktop-Baum parallel ab, ordnet id-lose
+Geschwistergruppen über Basisklasse und disjunkte Sichtbarkeit zu, setzt
+die Desktop-Kopie auf `visibleOn: ["desktop"]` und ergänzt Tablet- und
+Telefon-Kopien. Live: `/about` 506 statt 297 Knoten, drei `<nav>`,
+Hero-`<h1>`, Absatz und „Get started" im HTML. 559 Framer-Import-Tests
+grün (2 übersprungen), Visual-Gate-Fixtures innerhalb der Ratchet.
+
+Der visuelle Lauf `visual-herofix3` zeigt Überschrift und Absatz auf
+Tablet und Mobil. Die Quelle hat je Breakpoint eigene Hero-Texte (Desktop
+„Fewer tools.", Tablet „Hire managers"), keine A/B-Fassung; der Build
+trägt beide. Der Hero-Button „Get started" bleibt auf Tablet und Mobil
+unsichtbar und ist als Issue 04 offen.
 
 ## Comments
 

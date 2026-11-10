@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeDeviceVariants, restoreTopLevelNavVariants } from "../src/import.ts";
+import { mergeDeviceVariants, restoreIdLessDeviceVariants } from "../src/import.ts";
 
 // Framer builds ONE breakpoint variant per load. A 1440 px visit never contains
 // the phone copy of a section, so the browser capture marks the phone's own
@@ -172,11 +172,9 @@ describe("mergeDeviceVariants", () => {
       navWrapper("t", ["phone", "desktop"], "Tablet"),
       navWrapper("m", ["tablet", "desktop"], "Mobile"),
     ]);
-    expect(restoreTopLevelNavVariants(browser, statik, "tablet")).toBe(1);
-    expect(restoreTopLevelNavVariants(browser, statik, "mobile")).toBe(1);
+    expect(restoreIdLessDeviceVariants(browser, statik)).toBe(2);
     // A second run must not duplicate the copies.
-    expect(restoreTopLevelNavVariants(browser, statik, "tablet")).toBe(0);
-    expect(restoreTopLevelNavVariants(browser, statik, "mobile")).toBe(0);
+    expect(restoreIdLessDeviceVariants(browser, statik)).toBe(0);
 
     const root = (browser as unknown as NavTestDocument).pages[0]?.root;
     expect(root?.children.map((child) => child.children[0]?.states[0]?.text?.content)).toEqual([
@@ -191,38 +189,63 @@ describe("mergeDeviceVariants", () => {
     ]);
   });
 
-  it("lässt id-lose Nicht-Navigationsgruppen unberührt", () => {
-    const plain = (key: string, hiddenAt: string[], label: string) => ({
+  it("ergänzt auch id-lose Überschriften- und Rich-Text-Gruppen", () => {
+    const heading = (key: string, hiddenAt: string[], label: string) => ({
       ...navWrapper(key, hiddenAt, label),
-      children: [{ ...navNode(label), tag: "div", baseClasses: ["card"] }],
+      children: [{ ...navNode(label), tag: "h1", baseClasses: ["framer-text"] }],
     });
-    const browser = variantDocument([plain("d", [], "Desktop")]);
+    const browser = variantDocument([heading("d", [], "Desktop")]);
     const statik = variantDocument([
-      plain("d", ["phone", "tablet"], "Desktop"),
-      plain("t", ["phone", "desktop"], "Tablet"),
-      plain("m", ["tablet", "desktop"], "Mobile"),
+      heading("d", ["phone", "tablet"], "Desktop"),
+      heading("t", ["phone", "desktop"], "Tablet"),
+      heading("m", ["tablet", "desktop"], "Mobile"),
     ]);
-    expect(restoreTopLevelNavVariants(browser, statik, "tablet")).toBe(0);
-    expect((browser as unknown as NavTestDocument).pages[0]?.root.children).toHaveLength(1);
+    expect(restoreIdLessDeviceVariants(browser, statik)).toBe(2);
+    const root = (browser as unknown as NavTestDocument).pages[0]?.root;
+    expect(root?.children.map((child) => child.children[0]?.states[0]?.text?.content)).toEqual([
+      "Desktop",
+      "Tablet",
+      "Mobile",
+    ]);
   });
 
-  it("ergänzt keine Navigationsgruppe ohne Desktop-Variante", () => {
+  it("verdoppelt keine bereits vorhandene Gerätevariante", () => {
+    const browser = variantDocument([
+      navWrapper("d", [], "Desktop"),
+      navWrapper("t", ["phone", "desktop"], "Tablet"),
+    ]);
+    const statik = variantDocument([
+      navWrapper("d", ["phone", "tablet"], "Desktop"),
+      navWrapper("t", ["phone", "desktop"], "Tablet"),
+      navWrapper("m", ["tablet", "desktop"], "Mobile"),
+    ]);
+    expect(restoreIdLessDeviceVariants(browser, statik)).toBe(1);
+    const root = (browser as unknown as NavTestDocument).pages[0]?.root;
+    expect(root?.children).toHaveLength(3);
+    expect(root?.children.map((child) => child.visibleOn)).toEqual([
+      ["desktop"],
+      ["tablet"],
+      ["mobile"],
+    ]);
+  });
+
+  it("ergänzt keine Gruppe ohne Desktop-Variante", () => {
     const browser = variantDocument([navWrapper("d", [], "Desktop")]);
     const statik = variantDocument([
       navWrapper("t", ["phone", "desktop"], "Tablet"),
       navWrapper("m", ["tablet", "desktop"], "Mobile"),
     ]);
-    expect(restoreTopLevelNavVariants(browser, statik, "tablet")).toBe(0);
+    expect(restoreIdLessDeviceVariants(browser, statik)).toBe(0);
   });
 
-  it("lässt id-tragende Navigationsvarianten dem id-Merge", () => {
+  it("lässt id-tragende Varianten dem id-Merge", () => {
     const browser = variantDocument([navWrapper("d", [], "Desktop", "header")]);
     const statik = variantDocument([
       navWrapper("d", ["phone", "tablet"], "Desktop", "header"),
       navWrapper("t", ["phone", "desktop"], "Tablet", "header"),
       navWrapper("m", ["tablet", "desktop"], "Mobile", "header"),
     ]);
-    expect(restoreTopLevelNavVariants(browser, statik, "tablet")).toBe(0);
+    expect(restoreIdLessDeviceVariants(browser, statik)).toBe(0);
   });
 });
 
