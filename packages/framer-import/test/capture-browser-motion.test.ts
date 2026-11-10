@@ -43,6 +43,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Appear und
   <div class="spacer"></div>
   <div class="stickyish" id="mover"><p>Bewegt</p></div>
   <div><span id="word">Wort</span></div>
+  <div><span id="held">Gehalten</span></div>
 </div>
 <script>
   // Ein Element, das sich beim Scrollen GEGEN die Seite bewegt: genau die Form,
@@ -62,8 +63,28 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Appear und
         { duration: 900, delay: 200, easing: "linear(0, 0.5, 1)", fill: "both" },
       );
     }
+    // Framer's real order: first a long hold pins the start state, then the
+    // actual reveal plays. A probe that keeps the first call bakes the hold as
+    // the end state and the element stays invisible.
+    var held = document.getElementById("held");
+    if (held) {
+      held.animate({ opacity: [0.001, 0.001] }, { duration: 10000, easing: "linear", fill: "both" });
+      held.animate({ opacity: [0.001, 0.5, 1] }, { duration: 900, delay: 100, easing: "linear(0, 0.5, 1)", fill: "both" });
+    }
   });
 </script></body></html>`;
+
+type IrNodeShape = { key: string; states?: { text?: { content?: string } }[]; children: IrNodeShape[] };
+
+function keyByText(node: IrNodeShape | undefined, text: string): string | undefined {
+  if (node === undefined) return undefined;
+  if (node.states?.some((state) => state.text?.content === text) === true) return node.key;
+  for (const child of node.children) {
+    const found = keyByText(child, text);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
 
 function startServer(): Promise<{ server: import("node:http").Server; origin: string }> {
   const server = createServer((_request, response) => {
@@ -111,6 +132,23 @@ describe.skipIf(!browserAvailable)("captureBrowser erhält die Motion des SSR", 
       };
       visit(result.document.pages[0]?.root as unknown as IrShape);
       expect(scroll.every((sample) => sample.nodeKey !== null && keys.has(sample.nodeKey))).toBe(true);
+    } finally {
+      await new Promise<void>((done) => server.close(() => done()));
+    }
+  }, 120_000);
+
+  it("nimmt die echte Einblendung statt der Halteanimation", async () => {
+    const { server, origin } = await startServer();
+    try {
+      const result = await captureBrowser({ url: `${origin}/`, settleMs: 300, motion: "live" });
+      const key = keyByText(result.document.pages[0]?.root as unknown as IrNodeShape, "Gehalten");
+      expect(key).toBeDefined();
+      const spec = (result.document.appear ?? []).find((entry) => entry.appearId === key);
+      const variant = spec?.variants["default"];
+      // The first call holds opacity at 0.001 for 10 s. The second is the
+      // reveal; only its end state may become the keyframe's `to`.
+      expect(variant?.initial?.opacity).toBe(0.001);
+      expect(variant?.animate?.opacity).toBe(1);
     } finally {
       await new Promise<void>((done) => server.close(() => done()));
     }

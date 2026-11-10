@@ -183,6 +183,19 @@ function transitionPropertiesOf(transition: string): string[] {
   return namen;
 }
 
+// A reveal start state: almost transparent and either moving in or coming out
+// of a blur. A deblur alone is a reveal too (the word arrives in place), and
+// the live capture meets exactly that form: `opacity:0.001;filter:blur(4px);
+// transform:none`. Without this, the words stay at 0.1 % for good.
+function isRevealStart(opacity: string | undefined, transform: string | undefined, filter: string | undefined): boolean {
+  const value = Number.parseFloat(opacity ?? "");
+  if (!Number.isFinite(value) || value > 0.01) return false;
+  const movement = (transform ?? "").trim();
+  if (movement !== "" && movement !== "none") return true;
+  const blur = Number.parseFloat(/blur\(([\d.]+)px\)/.exec(filter ?? "")?.[1] ?? "0");
+  return Number.isFinite(blur) && blur > 0.5;
+}
+
 // The start state of an effect is no look, and the inner markup keeps the raw
 // declarations of the source. The words of a heading would come with
 // `opacity:0.001` and stay invisible for good — the same rule the visual
@@ -196,10 +209,9 @@ function ohneStartzustaende(markup: string): string {
       const paar = parseDeclaration(deklaration);
       if (paar !== null) werte.set(paar[0].toLowerCase(), paar[1]);
     }
-    const opacity = Number.parseFloat(werte.get("opacity") ?? "");
     const transform = (werte.get("transform") ?? "").trim();
     const startzustand =
-      (Number.isFinite(opacity) && opacity <= 0.01 && transform !== "" && transform !== "none") ||
+      isRevealStart(werte.get("opacity"), werte.get("transform"), werte.get("filter")) ||
       ((werte.get("will-change") ?? "").includes("transform") && transform !== "" && transform !== "none");
     const uebergangen = werte.has("transition") ? transitionPropertiesOf(werte.get("transition") ?? "") : [];
     const behalten = deklarationen.filter((deklaration) => {
@@ -998,13 +1010,13 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
   const appearInitial: Record<string, string> = {};
   // Framer writes the same kind of start state for appear effects
   // (`data-framer-appear-id`) and for scroll reveals (`opacity:0` together with
-  // a `translate` that moves the element in). Those are never the intended look
-  // in a static import. A plain `opacity:0` is: the closed menu of a phone
-  // header, a collapsed FAQ answer, a hover overlay stay hidden as designed.
-  const startOpacity = Number.parseFloat(visual["opacity"] ?? "");
+  // a `translate` that moves the element in, or a blur it comes out of). Those
+  // are never the intended look in a static import. A plain `opacity:0` is: the
+  // closed menu of a phone header, a collapsed FAQ answer, a hover overlay
+  // stay hidden as designed.
   const movesIn = visual["transform"] !== undefined && visual["transform"].trim() !== "none";
   const hasStartState =
-    attrs["data-framer-appear-id"] !== undefined || (Number.isFinite(startOpacity) && startOpacity <= 0.01 && movesIn);
+    attrs["data-framer-appear-id"] !== undefined || isRevealStart(visual["opacity"], visual["transform"], visual["filter"]);
   if (hasStartState) {
     for (const property of START_STATE_PROPERTIES) {
       const value = visual[property];

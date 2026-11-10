@@ -1957,6 +1957,15 @@ export function mapDocument(
     if (node === undefined) continue;
     const built = appearStyleRulesOf(rule, rules.length + appearStyleRules.length, context.fontSlots);
     appearStyleRules.push(...built);
+    // The node's own `animation` would override the appear class: class rules
+    // are the weaker authored level (ADR-0031) and the node base is emitted
+    // after them. Framer writes `animation: none` into the source style, so the
+    // imported reveal never played on 74 of 93 nodes (measured 10.11.2026).
+    // The class owns this animation; the node may not compete with it.
+    for (const property of Object.keys(node.props)) {
+      const base = property.replace(/_(?:tablet|mobile)$/, "");
+      if (base === "animation" || base.startsWith("animation")) delete node.props[property];
+    }
     node.classes = [...(node.classes ?? []), ...built.map((entry) => entry.name)];
   }
   if (appearStyleRules.length > 0) {

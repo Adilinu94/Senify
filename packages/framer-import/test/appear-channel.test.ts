@@ -83,6 +83,33 @@ describe("what names a start state", () => {
     expect(node?.states[0]?.visual.transform).toBeUndefined();
   });
 
+  it("erkennt eine reine Deblur-Einblendung ohne Bewegung", () => {
+    // The live capture meets the word reveal as `opacity:0.001; filter:blur(4px);
+    // transform:none`. Without the deblur in the predicate the words stayed at
+    // 0.1 % for good (measured on the Astra start page, 10.11.2026).
+    const document = captureHtml({
+      html: page(`<div style="opacity:0.001;filter:blur(4px);transform:none">x</div>`),
+    });
+    const node = nodeWithTag(document.pages[0]?.root as IrNode, "div");
+    expect(node?.appearInitial?.opacity).toBe("0.001");
+    expect(node?.appearInitial?.filter).toBe("blur(4px)");
+    expect(node?.states[0]?.visual.opacity).toBeUndefined();
+    expect(node?.states[0]?.visual.filter).toBeUndefined();
+  });
+
+  it("entfernt eine reine Deblur-Einblendung aus dem Inline-Markup", () => {
+    const document = captureHtml({
+      html: page(
+        `<h1>Hello <span style="display:inline-block;opacity:0.001;filter:blur(4px);transform:none">Run</span> world</h1>`,
+      ),
+    });
+    const heading = nodeWithTag(document.pages[0]?.root as IrNode, "h1");
+    expect(heading?.innerHtml).toBeDefined();
+    expect(heading?.innerHtml).not.toContain("opacity");
+    expect(heading?.innerHtml).not.toContain("blur");
+    expect(heading?.children[0]?.states[0]?.visual.opacity).toBeUndefined();
+  });
+
   it("keeps a shifted element that carries no will-change", () => {
     // A centring transform is a design, not a start state. Measured on the
     // site: the three hover offsets and the two centring transforms carry no

@@ -336,7 +336,12 @@ function motionProbe() {
     const seen = new Set();
     // One entry per element and property set: a Framer word reveal arrives as
     // two calls (opacity, filter) on the SAME element. Merging them is what
-    // makes one animation out of the two.
+    // makes one animation out of the two. A later call may be RICHER than the
+    // first: Framer first holds the start state (`opacity [0.001,0.001]`,
+    // 10 s) and then plays the real reveal (`opacity [0.001,…,1]`, 0.99 s).
+    // Keeping the first cut the reveal off and baked a keyframe that ended at
+    // the start value, leaving the text invisible for good.
+    const recordedIndex = new Map();
     const byTarget = new Map();
     for (const entry of recorded) {
       try {
@@ -389,10 +394,10 @@ function motionProbe() {
         // (`@keyframes`) and a script loop can run on the same element at the
         // same time, and they are two animations, not one.
         const dedupe = identity + '|' + clean.sort().join(',') + '|' + String(entry.source ?? '');
-        if (seen.has(dedupe)) continue;
-        seen.add(dedupe);
         // How many properties the same element animates: the count of samples
-        // per property, which is what a CSS @keyframes block needs.
+        // per property, which is what a CSS @keyframes block needs. This is also
+        // the tie-breaker below: the real reveal carries more samples than the
+        // hold that pins its start state.
         let samples = 0;
         try {
           for (const p of clean) {
@@ -401,7 +406,7 @@ function motionProbe() {
           }
         } catch (_) {}
         byTarget.set(identity, (byTarget.get(identity) || 0) + 1);
-        out.waapi.push({
+        const record = {
           type: 'Animation',
           source: 'element.animate',
           target,
@@ -419,7 +424,16 @@ function motionProbe() {
           // The frames are already CSS values in Framer's output (`blur(12px)`,
           // `translateY(28px)`), so they are kept as they are.
           keyframes: Array.isArray(frames) ? frames.slice(0, 12) : frames,
-        });
+        };
+        const previousIndex = recordedIndex.get(dedupe);
+        if (previousIndex !== undefined) {
+          const previous = out.waapi[previousIndex];
+          if ((previous && previous.sampledFrames ? previous.sampledFrames : 0) >= samples) continue;
+          out.waapi[previousIndex] = record;
+          continue;
+        }
+        recordedIndex.set(dedupe, out.waapi.length);
+        out.waapi.push(record);
       } catch (_) {}
     }
     if (recorded.length > 0) {

@@ -84,6 +84,24 @@ describe("gemessene Einblendung als CSS", () => {
     expect(animation).toContain("100.0000%)");
   });
 
+  it("verwirft eine Messung, die im Startzustand endet", () => {
+    // Framer pins the start state with a hold call before the real reveal.
+    // If that hold is read as the end state, the element stays invisible.
+    const result = compile([
+      {
+        appearId: "held",
+        variants: {
+          default: {
+            initial: { opacity: 0.001 },
+            animate: { opacity: 0.001, transition: { type: "sampled", duration: 0.99 } },
+          },
+        },
+      },
+    ]);
+    expect(result.compiled).toBe(0);
+    expect(result.findings[0]?.reason).toContain("keinen Endzustand");
+  });
+
   it("löst ohne gemessene Kurve die Feder des Kanals exakt", () => {
     // Der Kanal nennt stiffness/damping/mass, aber keine Kurve. Frueher wurde
     // daraus ein festes `ease-out` bzw. `cubic-bezier` - eine Naeherung, die

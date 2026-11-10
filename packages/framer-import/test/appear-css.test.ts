@@ -215,6 +215,24 @@ describe("the rules reach the mapped document", () => {
     expect(withClass).toHaveLength(3);
   });
 
+  it("entfernt die eigene Animation des Knotens, damit die Appear-Klasse greift", () => {
+    // Framer writes `animation:none` into the source style. The class rule is
+    // the weaker authored level and the node base is emitted after it, so the
+    // imported reveal would never run.
+    const withAnimation = page(
+      { hero: { default: variant({ y: 40 }, {}, { type: "duration", duration: 1.4 }) } },
+      '<div data-framer-appear-id="hero" style="opacity:0.001;transform:translateY(40px);animation:none;animation-name:none">Held</div>',
+    );
+    const document = captureHtml({ html: withAnimation });
+    const normalized = normalize(document, { mode: "fidelity" });
+    const mapped = mapDocument(document, normalized.rules);
+    const hero = Object.values(mapped.document.nodes).find(
+      (node) => (node.classes ?? []).some((name) => name.includes("appear-1")),
+    );
+    expect(hero).toBeDefined();
+    expect(Object.keys(hero?.props ?? {}).filter((key) => key.startsWith("animation"))).toEqual([]);
+  });
+
   it("keeps the effect that has a preset out of the duplicate path", () => {
     // The hero (a fade-up) is both a preset mapping and a keyframe rule. Both
     // must exist: the preset is what the editor shows, the keyframes are what

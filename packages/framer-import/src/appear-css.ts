@@ -192,6 +192,16 @@ export function compileAppearRules(input: CompileAppearInput): CompileAppearResu
       if (variant === null || variant === undefined) return false;
       const animate = variant.animate;
       if (animate === undefined || animate === null) return false;
+      // A measured reveal that ends where it started is not settled: Framer
+      // first pins `opacity:0.001` and the real reveal was cut off in the
+      // probe. Written as the end state, the element would stay invisible for
+      // good (measured on the Astra hero eyebrow, 10.11.2026). Such a variant
+      // gets no rule; the element keeps its resting look instead.
+      const startOpacity = variant.initial?.opacity;
+      const endOpacity = (animate as { opacity?: number }).opacity;
+      if (startOpacity !== undefined && startOpacity <= 0.01 && endOpacity !== undefined && endOpacity <= 0.01) {
+        return false;
+      }
       const name = `senify-appear-${safeId(spec.appearId)}-${safeId(hash)}`;
       const transition = (animate as { transition?: IrAppearTransition }).transition;
       const duration = round(appearSettleSeconds(transition), 3);
