@@ -27,6 +27,9 @@ _Avoid_: Stil, Style, Design
 **Asset**: Eine hochgeladene Mediendatei mit Metadaten.
 _Avoid_: Datei, Media, Upload
 
+**Einbettung (Embed)**: Ein externer Inhalt, den eine Seite als iframe lädt. Der Framer-Import übernimmt nur ein https-Ziel; im Release steht es hinter dem Consent-Gate. Ein `srcdoc`-Dokument, ein fremdes Schema oder eine fehlende Adresse bleibt ein sichtbarer Platzhalter mit dem Befund `embed-blocked`.
+_Avoid_: iFrame-Kopie, Fremdcode, Payload
+
 ### Architektur
 
 **Renderer**: Die Komponente, die aus NodeTree + Theme die statische Site-Ausgabe erzeugt (Astro, Sektionen als React-Komponenten).

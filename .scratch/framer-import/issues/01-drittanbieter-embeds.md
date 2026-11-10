@@ -1,18 +1,27 @@
 # Drittanbieter-Embeds werden still entfernt
 
-Status: needs-triage
-Label: needs-triage
+Status: resolved 10.11.2026
+Label: ready-for-agent
 
 ## Befund
 
-Die Quelle `/contact` enthält genau ein iframe mit einem Calendly-Inline-Widget im `srcdoc`. Der Relay-Build enthält 0 iframes und 0 Calendly-Verweise. Der Importbericht nennt dafür keinen eigenen Befund. Die rechte Spalte bleibt im Build leer, der erste Bildschirm weicht auf Desktop um 3.520 Prozent ab; die linke Spalte stimmt.
+Die Quelle `/contact` enthält genau ein iframe mit einem Calendly-Inline-Widget im `srcdoc`. Der Relay-Build enthielt 0 iframes und 0 Calendly-Verweise. Der Importbericht nannte dafür keinen eigenen Befund. Die rechte Spalte blieb im Build leer, der erste Bildschirm wich auf Desktop um 3.520 Prozent ab; die linke Spalte stimmte.
 
-## Nächster Schritt
+**Ursache (am Code reproduziert):** `kindFor` in `capture-html.ts` kannte `<iframe>` nicht und fiel auf `frame` zurück. Das Element blieb als leerer Rahmen stehen; `src`, `title` und `srcdoc` wurden nie gelesen, und es gab keinen Befund. Das `embed`-Primitive existierte bereits, wurde aber vom HTML-Capture nie erzeugt.
 
-1. Die Iframe-Stelle im Capture und Mapper lokalisieren. Wird das Element verworfen, gefaltet oder als leerer Rahmen gemappt?
-2. Eine Produktentscheidung treffen: sandboxed iframe erhalten, durch einen sicheren Link oder Platzhalter ersetzen, oder bewusst verwerfen und melden.
-3. Kein stiller Drop: mindestens ein Befund mit Quelle, Ziel und Grund.
+## Umsetzung
+
+- `<iframe>` wird jetzt IR-Kind `embed`. Der Capture liest `src` und `title` (`embedFieldsOf`).
+- Nur ein **https**-Ziel wird übernommen; der Mapper schreibt `url` und `title` in das `embed`-Primitive. Im Bake rendert die Registry-Sektion `embed` mit Consent-Gate: ohne Zustimmung ein Platzhalter mit Link, nie ein fremder Abruf.
+- `srcdoc`, ein fremdes Schema und eine fehlende Adresse ergeben den Befund `embed-blocked` (warn) mit Quelle und Grund. Der Knoten bleibt als sichtbarer Platzhalter stehen.
+- Kein stiller Drop mehr.
 
 ## Abnahme
 
-Ein kontrolliertes iframe erzeugt entweder eine sichtbare, sichere Einbettung oder einen erklärten Befund und Platzhalter. Ein Test deckt den Fall ab; der Relay-Vergleich zeigt keine leere rechte Spalte mehr oder benennt sie ausdrücklich.
+- `packages/framer-import/test/embed.test.ts` (5 Fälle): https-Frame mit Adresse und Titel, `srcdoc`-Befund, http-Befund, fehlende Adresse, gewöhnlicher Frame ohne Befund. Gegenprobe: ohne `return "embed"` sind 4 von 5 rot.
+- Relay4-Lauf (`structure-relay4-2026-11-10`, 10.11.2026, `https://gracious-balance-599544.framer.app`): `/contact` meldet genau 1 `embed-blocked`; der Build enthält 0 iframes und die Meldung „Embed blockiert“ an der Stelle.
+- Framer-Import-Suite 577 bestanden, 2 übersprungen; Typecheck und ESLint grün.
+
+## Grenze
+
+Der Calendly-Rahmen selbst wird nicht geladen, weil sein Inhalt in `srcdoc` steht (ein eigenes Dokument). Die Stelle ist jetzt benannt und sichtbar; ein echter Embed braucht ein https-Ziel oder eine manuelle Ersetzung im Editor.

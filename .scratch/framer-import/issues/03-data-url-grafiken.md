@@ -1,18 +1,26 @@
 # Data-URL-Grafiken als lokales Asset übernehmen
 
-Status: ready-for-agent
+Status: resolved 10.11.2026
 Label: ready-for-agent
 
 ## Befund
 
-Relay `/` meldet 48, `/contact` 16 Grafiken als Data-URL in einem Stilausdruck; sie werden nach ADR-0005 nicht übernommen. Im Build fehlen dadurch sichtbare Flächen. Auf `/` wird das Badge-Icon als schwarzer Fleck statt als Ring gezeichnet, auf `/contact` fehlen mehrere kleine Grafiken. Drei `css-value-dropped`-Warnungen betreffen `backgroundImage`.
+Relay `/` meldet 48, `/contact` 16 Grafiken als Data-URL in einem Stilausdruck. Im Build fehlten dadurch sichtbare Flächen: Auf `/` wurde das Badge-Icon als schwarzer Fleck statt als Ring gezeichnet, auf `/contact` fehlten mehrere kleine Grafiken. Drei `css-value-dropped`-Warnungen betrafen `backgroundImage`.
 
-## Nächster Schritt
+**Ursache (am laufenden Import gemessen):** Der Weg Data-URL → lokales Asset war für Inline-Stile und Klassenregeln bereits vorhanden. Die zwei fehlenden Grafiken standen aber **nur** in den Tablet-/Telefon-Dokumenten. `mergeDeviceVariants` vereinigte Knoten, Zustände und Breakpoints, nicht aber `assets`; der Desktop-Lauf kannte die Adressen nicht. Die Werte blieben als Data-URL im Stil und wurden beim Backen verworfen.
 
-1. Data-URLs beim Import dekodieren und als lokale Asset-Datei speichern, statt sie in CSS zu schreiben.
-2. Den Stil auf die Asset-Adresse umschreiben; die Sicherheitsgrenze aus ADR-0005 bleibt erhalten, weil kein Data-URL im ausgelieferten CSS landet.
-3. Einen Test mit einer Data-URL als Hintergrundbild ergänzen: Asset existiert, CSS enthält keine Data-URL, der Build rendert die Grafik.
+## Umsetzung
+
+- `mergeAssets` vereinigt die Assetlisten beider Geräte-Dokumente (URL-dedupliziert); dasselbe gilt für das SSR-Dokument nach `restoreIdLessDeviceVariants`. Ein Bild, das nur eine Breite nennt, erreicht jetzt die Asset-Pipeline.
+- Der Befund heißt jetzt korrekt „werden als lokales Asset übernommen“ und ist `info` statt `warn`; ein echter Fehlschlag bleibt über Asset-Bericht und Bau-Warnung sichtbar.
 
 ## Abnahme
 
-Ein Data-URL-Hintergrund wird als lokales Asset dargestellt. Der Bericht zählt weiterhin die Quelle, aber der sichtbare Verlust entfällt. Der Relay-Vergleich zeigt das Badge-Icon als Ring.
+- `packages/framer-import/test/svg-assets.test.ts` (15 Fälle, ein neuer: Data-URL im eigenen `style`-Attribut wird hochgeladen, der Stil nennt die Asset-Adresse, kein Data-URL bleibt).
+- `packages/framer-import/test/device-variants.test.ts` (neuer Fall: die Assetlisten beider Geräte-Dokumente werden vereinigt; ohne `mergeAssets` fehlt das zweite).
+- Live-Gegenprobe am 10.11.2026 (`https://gracious-balance-599544.framer.app/`): vor dem Fix blieben 2 SVG-Data-URLs im Entwurf, der Build meldete 3 `css-value-dropped`. Nach dem Fix: Entwurf 0 Data-URLs, Build 0 `css-value-dropped`, `style-rules.css` nennt 67 lokale Grafiken (vorher 63), 0 Data-URLs im ausgelieferten CSS.
+- Relay4-Lauf (`structure-relay4-2026-11-10`): 0 Bauwarnungen, 0 `data:image` in HTML und CSS.
+
+## Grenze
+
+Die Pixelabnahme des Badge-Rings im Browser steht aus; belegt ist der Asset-Weg und der verschwundene Bauverlust. Die Live-Quelle ist veränderlich, für Wiederholungen eine eingefrorene Kopie verwenden.

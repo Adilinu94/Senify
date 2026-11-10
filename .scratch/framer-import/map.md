@@ -4,12 +4,13 @@ Kontext: Generalisierungstest an der zweiten Framer-Seite Relay am 10.11.2026. D
 
 ## Issues
 
-- [Drittanbieter-Embeds werden still entfernt](./issues/01-drittanbieter-embeds.md), needs-triage.
+- [Drittanbieter-Embeds werden still entfernt](./issues/01-drittanbieter-embeds.md), resolved 10.11.2026; `srcdoc` bleibt ein benannter Platzhalter.
 - [Eigene Skripte bleiben im Struktur-Build](./issues/02-eigene-skripte.md), needs-triage.
-- [Data-URL-Grafiken als lokales Asset übernehmen](./issues/03-data-url-grafiken.md), ready-for-agent.
+- [Data-URL-Grafiken als lokales Asset übernehmen](./issues/03-data-url-grafiken.md), resolved 10.11.2026; Badge-Pixelabnahme offen.
 
 ## Belege
 
+- `.scratch/framer-live-2026-11-09/structure-relay4-2026-11-10/result.json`
 - `.scratch/framer-live-2026-11-09/structure-relay-2026-11-10/result.json`
 - `.scratch/framer-live-2026-11-09/visual-relay-2026-11-10/result.json`
 - `.scratch/motion-import/issues/02-verwaiste-appear-ids.md`
