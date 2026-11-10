@@ -210,7 +210,7 @@ function mergeStates(states: IrState[]): MergedState {
 
 const ALL_DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
 
-type IrBreakpointMap = Map<string, { minWidth: number; maxWidth: number | null }>;
+export type IrBreakpointMap = Map<string, { minWidth: number; maxWidth: number | null }>;
 
 // The devices a Framer duplicate is visible on. `hiddenAt` names the
 // breakpoints that hide the copy. A copy is visible on the devices that
@@ -224,7 +224,7 @@ type IrBreakpointMap = Map<string, { minWidth: number; maxWidth: number | null }
 // hides itself on tablet and desktop (`1yjwnyq`, `72rtr7`) — the universe
 // method called it visible on mobile AND desktop, so the desktop showed the
 // quote twice and the section grew by the height of the hidden copy.
-function visibleDevicesOf(
+export function visibleDevicesOf(
   hiddenAt: readonly string[],
   universe: ReadonlySet<string>,
   breakpoints: IrBreakpointMap,
@@ -266,7 +266,7 @@ function visibleDevicesOf(
 // base-class token list. Measured in S0 (befund §4/5): the three <header>
 // variants share `framer-dttxA…framer-14hdl1s` and differ only in the
 // `framer-v-<hash>` class.
-function baseSignature(node: IrNode): string {
+export function baseSignature(node: IrNode): string {
   const module = node.kind === "placeholder"
     ? `foreign:${node.componentType ?? node.tag}:${node.codeModule?.path ?? ""}:${node.codeModule?.adapter ?? ""}`
     : node.codeModule === undefined || node.codeModule === null
@@ -280,7 +280,7 @@ function baseSignature(node: IrNode): string {
 // breakpoint, but the inner nodes carry no marker of their own, so the shape
 // is the only proof. A copy with different text or links is a different
 // element for that device and must not be folded (its content would be lost).
-function sameShape(a: IrNode, b: IrNode): boolean {
+export function sameShape(a: IrNode, b: IrNode): boolean {
   if (a.tag !== b.tag || a.kind !== b.kind || a.children.length !== b.children.length) return false;
   if ((a.states[0]?.text?.content ?? "") !== (b.states[0]?.text?.content ?? "")) return false;
   if (a.href !== b.href || (a.assetUrl ?? null) !== (b.assetUrl ?? null)) return false;

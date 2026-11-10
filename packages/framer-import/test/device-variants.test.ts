@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeDeviceVariants } from "../src/import.ts";
+import { mergeDeviceVariants, restoreTopLevelNavVariants } from "../src/import.ts";
 
 // Framer builds ONE breakpoint variant per load. A 1440 px visit never contains
 // the phone copy of a section, so the browser capture marks the phone's own
@@ -25,6 +25,60 @@ const document = (root: ReturnType<typeof node>) =>
     breakpoints: [],
     findings: [],
   }) as never;
+
+const navNode = (label: string) => ({
+  key: `nav-${label}`,
+  tag: "nav",
+  kind: "element",
+  htmlId: null,
+  baseClasses: ["nav"],
+  states: [{ device: "desktop", hiddenAt: [], text: { content: label } }],
+  children: [],
+});
+
+const navWrapper = (key: string, hiddenAt: string[], label: string, htmlId: string | null = null) => ({
+  key,
+  tag: "div",
+  kind: "element",
+  htmlId,
+  baseClasses: ["framer-1ivqe2h-container"],
+  states: [{ device: "desktop", hiddenAt }],
+  children: [navNode(label)],
+});
+
+const variantDocument = (children: unknown[]) =>
+  ({
+    pages: [
+      {
+        root: {
+          key: "root",
+          tag: "div",
+          kind: "element",
+          htmlId: null,
+          baseClasses: [],
+          states: [{ device: "desktop", hiddenAt: [] }],
+          children,
+        },
+      },
+    ],
+    breakpoints: [
+      { id: "phone", minWidth: 0, maxWidth: 809.98, name: null },
+      { id: "tablet", minWidth: 810, maxWidth: 1199.98, name: null },
+      { id: "desktop", minWidth: 1200, maxWidth: null, name: null },
+    ],
+    findings: [],
+  }) as never;
+
+type NavTestDocument = {
+  pages: {
+    root: {
+      children: {
+        visibleOn?: string[];
+        children: { states: { text?: { content: string } }[] }[];
+      }[];
+    };
+  }[];
+};
 
 describe("mergeDeviceVariants", () => {
   it("nimmt einer Sektion das fälschliche „nur Desktop“", () => {
@@ -109,6 +163,66 @@ describe("mergeDeviceVariants", () => {
     };
     // The key matches, the id does not: nothing is merged from the phone build.
     expect(merged.pages[0]?.root.states).toHaveLength(1);
+  });
+
+  it("ergänzt id-lose Navigationsvarianten für Tablet und Telefon", () => {
+    const browser = variantDocument([navWrapper("d", [], "Desktop")]);
+    const statik = variantDocument([
+      navWrapper("d", ["phone", "tablet"], "Desktop"),
+      navWrapper("t", ["phone", "desktop"], "Tablet"),
+      navWrapper("m", ["tablet", "desktop"], "Mobile"),
+    ]);
+    expect(restoreTopLevelNavVariants(browser, statik, "tablet")).toBe(1);
+    expect(restoreTopLevelNavVariants(browser, statik, "mobile")).toBe(1);
+    // A second run must not duplicate the copies.
+    expect(restoreTopLevelNavVariants(browser, statik, "tablet")).toBe(0);
+    expect(restoreTopLevelNavVariants(browser, statik, "mobile")).toBe(0);
+
+    const root = (browser as unknown as NavTestDocument).pages[0]?.root;
+    expect(root?.children.map((child) => child.children[0]?.states[0]?.text?.content)).toEqual([
+      "Desktop",
+      "Tablet",
+      "Mobile",
+    ]);
+    expect(root?.children.map((child) => child.visibleOn)).toEqual([
+      ["desktop"],
+      ["tablet"],
+      ["mobile"],
+    ]);
+  });
+
+  it("lässt id-lose Nicht-Navigationsgruppen unberührt", () => {
+    const plain = (key: string, hiddenAt: string[], label: string) => ({
+      ...navWrapper(key, hiddenAt, label),
+      children: [{ ...navNode(label), tag: "div", baseClasses: ["card"] }],
+    });
+    const browser = variantDocument([plain("d", [], "Desktop")]);
+    const statik = variantDocument([
+      plain("d", ["phone", "tablet"], "Desktop"),
+      plain("t", ["phone", "desktop"], "Tablet"),
+      plain("m", ["tablet", "desktop"], "Mobile"),
+    ]);
+    expect(restoreTopLevelNavVariants(browser, statik, "tablet")).toBe(0);
+    expect((browser as unknown as NavTestDocument).pages[0]?.root.children).toHaveLength(1);
+  });
+
+  it("ergänzt keine Navigationsgruppe ohne Desktop-Variante", () => {
+    const browser = variantDocument([navWrapper("d", [], "Desktop")]);
+    const statik = variantDocument([
+      navWrapper("t", ["phone", "desktop"], "Tablet"),
+      navWrapper("m", ["tablet", "desktop"], "Mobile"),
+    ]);
+    expect(restoreTopLevelNavVariants(browser, statik, "tablet")).toBe(0);
+  });
+
+  it("lässt id-tragende Navigationsvarianten dem id-Merge", () => {
+    const browser = variantDocument([navWrapper("d", [], "Desktop", "header")]);
+    const statik = variantDocument([
+      navWrapper("d", ["phone", "tablet"], "Desktop", "header"),
+      navWrapper("t", ["phone", "desktop"], "Tablet", "header"),
+      navWrapper("m", ["tablet", "desktop"], "Mobile", "header"),
+    ]);
+    expect(restoreTopLevelNavVariants(browser, statik, "tablet")).toBe(0);
   });
 });
 

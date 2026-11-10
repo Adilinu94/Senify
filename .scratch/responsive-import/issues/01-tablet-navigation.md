@@ -1,15 +1,17 @@
 # Tablet- und Mobilnavigation zeigt Desktop-Variante
 
 Type: task
-Status: ready-for-human
+Status: resolved
 
 ## Problem
 
-Der Struktur-Build zeigt bei 768 px und 390 px die Desktop-Navigation
-(Home, Pricing, About, Blog, Contact, Book a demo). Die Quelle zeigt dort
-den Hamburger und die schmale Navigation. Auf 1440 px stimmt die Navigation.
+Der Struktur-Build zeigte bei 768 px und 390 px die Desktop-Navigation
+(Home, Pricing, About, Blog, Contact, Book a demo). Die Quelle zeigte dort
+den Hamburger und die schmale Navigation. Auf 1440 px stimmte die Navigation.
 
 ## Beleg
+
+Vor dem Fix:
 
 - `.scratch/framer-live-2026-11-09/visual-before-2026-11-09/result.json`
 - Screenshots `start/tablet/*.png` und `start/mobil/*.png`
@@ -17,41 +19,56 @@ den Hamburger und die schmale Navigation. Auf 1440 px stimmt die Navigation.
   Mobil 7.304 % und 9.765 %, Desktop 0.899 % und 0.251 %.
 - Messung für `/about`: Desktop 1.261 % und 0.557 %, Tablet 7.224 % und
   24.322 %, Mobil 10.746 % und 29.840 %.
-- Der erste Lauf lieferte für `/about` einen 404, weil der statische Server
-  `/about` nicht auf `about/index.html` abbildete. Der korrigierte Lauf
-  ersetzt diese Zahlen; er steht in derselben `result.json`.
+
+Nach dem Fix:
+
+- `.scratch/framer-live-2026-11-09/structure-navfix5-2026-11-09/result.json`
+- `.scratch/framer-live-2026-11-09/visual-navfix-2026-11-09/result.json`
+- Drei `<nav>` im Build, Knoten 744/297.
+- Erster Bildschirm: `/` Tablet 5.560 %, Mobil 8.043 %; `/about` Tablet
+  23.869 %, Mobil 28.012 %. Die Navigation ist nicht mehr die Ursache der
+  verbleibenden Abweichung.
 
 ## Ursache (untersucht)
 
-Die Quelle rendert mehrere Navigationsvarianten. Die Desktop-Navigation
-steht in der Basis. Eine schmale Variante steht in
-`<div class="ssr-variant hidden-10cxdd5 hidden-72rtr7">`, also tablet- und
-desktop-hidden. Weitere Varianten für Tablet sind zu prüfen.
+Die Quelle rendert drei Navigationsvarianten: Desktop, Tablet und Telefon.
+Jede Variante ist ein eigener id-loser Container mit eigener `hiddenAt`-
+Menge. Die Browser-Aufnahme bei 1440 px sieht nur die Desktop-Variante.
+`mergeDeviceVariants` in `packages/framer-import/src/import.ts` glich
+statischen und Browser-Baum nur über die HTML-ID ab und fügte nur
+telefon-exklusive **Sections** ein. Die Navigationscontainer haben keine
+HTML-ID. Deshalb fehlten die schmalen Varianten, und die Desktop-Variante
+behielt keine `visibleOn`-Einschränkung.
 
-Die Browser-Aufnahme bei 1440 px sieht nur die Desktop-Variante.
-`mergeDeviceVariants` in `packages/framer-import/src/import.ts` gleicht
-statischen und Browser-Baum nur über die HTML-ID ab und fügt nur
-telefon-exklusive **Sections** ein. Die Navigationsvarianten haben keine
-HTML-ID. Deshalb wird die schmale Navigation nicht eingefügt und die
-Desktop-Navigation behält keine `visibleOn`-Einschränkung.
+## Umgesetzt
 
-## Nächster Schritt
-
-Eine sichere Zuordnung für id-lose Kind-Teilbäume entwerfen. Die IR-Keys
-sind laut Kommentar über Breiten hinweg nicht stabil. Kandidaten sind
-`data-framer-name` plus Komponentenklasse oder die Position unter demselben
-Elternknoten, jeweils mit Kollisionsprüfung und einem Minimal-Fixture als
-Regression. Keine Zuordnung nur über die Position ohne Prüfung.
+`restoreTopLevelNavVariants` in `packages/framer-import/src/import.ts`
+sucht im SSR-Aufbau die Gruppe der id-losen Navigationsvarianten, setzt die
+Desktop-Kopie auf `visibleOn: ["desktop"]` und ergänzt die Tablet- und
+Telefon-Kopien aus dem jeweiligen SSR-Aufbau. Die Zuordnung erfolgt über
+die Basisklasse, nicht über die Form, weil die hydratisierte Desktop-
+Navigation ein anderes SVG trägt. Der Lauf ist auf Navigationsgruppen am
+Seitenkopf begrenzt; allgemeine id-lose Kind-Varianten bleiben offen.
 
 ## Abnahme
 
-- Minimal-Fixture mit Desktop- und schmaler Navigation: Desktop-Variante
-  `visibleOn: ["desktop"]`, schmale Variante `visibleOn: ["tablet", "mobile"]`.
-- Live-Lauf `/` und `/about`: 768 px und 390 px zeigen den Hamburger und
-  nicht die Desktop-Links; 1440 px bleibt unverändert.
-- Der visuelle Vergleich dokumentiert die neuen Zahlen.
+- Minimal-Test in `packages/framer-import/test/device-variants.test.ts`:
+  Desktop-Kopie `visibleOn: ["desktop"]`, Tablet `["tablet"]`, Telefon
+  `["mobile"]`; idempotent und ohne Nicht-Navigationsgruppen.
+- Live-Lauf `/` und `/about`: 768 px und 390 px zeigen den Hamburger, die
+  Desktop-Links sind nicht sichtbar; 1440 px bleibt unverändert.
+- Visueller Vergleich mit neuen Zahlen dokumentiert.
+
+## Answer
+
+Behoben in `restoreTopLevelNavVariants` (Import-Merge) mit
+`device-variants.test.ts` und dem Live-Lauf `structure-navfix5`. Die
+verbleibenden Bildabweichungen auf `/about` sind nicht mehr der Navigation
+zuzuordnen und bleiben als eigener visueller Fall offen.
 
 ## Comments
 
-- 09.11.2026: Befund aus dem visuellen Vergleich. Desktop ist nah (0.873 %),
-  Tablet und Mobil brechen an der Navigation.
+- 09.11.2026: Befund aus dem visuellen Vergleich. Desktop ist nah, Tablet
+  und Mobil brachen an der Navigation.
+- 09.11.2026: Fix umgesetzt; drei `<nav>` im Build, Hamburger erscheint auf
+  Tablet und Mobil. 558 Framer-Import-Tests grün.

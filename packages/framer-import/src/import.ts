@@ -23,7 +23,14 @@ import {
 } from "./capture-browser.ts";
 import type { FramerIrDocument, IrDevice, IrFinding, IrNode } from "./ir.ts";
 import { normalize, ruleScopeOf, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
-import { mapDocument, type MapperResult, type ThemePatch } from "./mapper.ts";
+import {
+  baseSignature,
+  mapDocument,
+  visibleDevicesOf,
+  type IrBreakpointMap,
+  type MapperResult,
+  type ThemePatch,
+} from "./mapper.ts";
 import { buildFidelityReport, type FidelityReport } from "./fidelity.ts";
 import { importAssets, type AssetReport, type AssetUploader } from "./assets.ts";
 import { extractPayloads, type ExtractedPayload } from "./payloads.ts";
@@ -470,6 +477,132 @@ export function mergeDeviceVariants(
   return browser;
 }
 
+// Framer's SSR renders one copy of a component per breakpoint, each hidden on
+// the other two. The browser capture at 1440 px sees only the desktop copy, and
+// the id-based merge above pairs nodes only by HTML id. The navigation wrappers
+// carry no id, so the tablet and phone copies never reached the tree and the
+// desktop nav stayed visible at every width.
+//
+// This pass inserts the missing top-level copies that contain a <nav>. The
+// copies come from the device build, so their resolved styles travel with
+// them. It deliberately limits itself to the header: arbitrary id-less child
+// variants below the top level are a separate, wider change.
+export function restoreTopLevelNavVariants(
+  browser: FramerIrDocument,
+  statik: FramerIrDocument,
+  device: Exclude<IrDevice, "desktop">,
+): number {
+  const browserRoot = browser.pages[0]?.root;
+  const staticRoot = statik.pages[0]?.root;
+  if (browserRoot === undefined || staticRoot === undefined) return 0;
+  // Find the parent whose children form the nav variant group. The static
+  // capture may keep an extra <body>/root wrapper around the page; the browser
+  // capture may not. The page container is identified by the group itself and
+  // matched on the browser side by its base signature.
+  const staticParent = findNavGroupParent(staticRoot) ?? staticRoot;
+  const browserParent =
+    findBySignature(browserRoot, baseSignature(staticParent)) ?? browserRoot;
+
+  const breakpointMap: IrBreakpointMap = new Map(
+    (browser.breakpoints.length > 0 ? browser.breakpoints : statik.breakpoints).map((entry) => [
+      entry.id,
+      { minWidth: entry.minWidth, maxWidth: entry.maxWidth },
+    ]),
+  );
+  const universe = new Set<string>();
+  for (const child of staticParent.children) {
+    for (const state of child.states) for (const hash of state.hiddenAt) universe.add(hash);
+  }
+
+  const groups = new Map<string, IrNode[]>();
+  for (const child of staticParent.children) {
+    if (child.htmlId) continue;
+    const hiddenAt = child.states.find((state) => state.hiddenAt.length > 0)?.hiddenAt ?? [];
+    if (hiddenAt.length === 0) continue;
+    const signature = baseSignature(child);
+    const group = groups.get(signature) ?? [];
+    group.push(child);
+    groups.set(signature, group);
+  }
+
+  let inserted = 0;
+  for (const [signature, group] of groups) {
+    if (group.length < 2 || !group.some((node) => containsTag(node, "nav"))) continue;
+    const copies = group.map((node) => ({
+      node,
+      visible: visibleDevicesOf(
+        node.states.find((state) => state.hiddenAt.length > 0)?.hiddenAt ?? [],
+        universe,
+        breakpointMap,
+      ),
+    }));
+    const desktopCopy = copies.find((copy) => copy.visible.includes("desktop"));
+    if (desktopCopy === undefined) continue;
+    const browserDesktop = browserParent.children.find(
+      (child) => baseSignature(child) === signature,
+    );
+    if (browserDesktop === undefined) continue;
+    browserDesktop.visibleOn = [...desktopCopy.visible];
+
+    const copy = copies.find((entry) => entry.visible.includes(device));
+    if (copy === undefined) continue;
+    const already = browserParent.children.some(
+      (child) =>
+        child !== browserDesktop &&
+        baseSignature(child) === signature &&
+        (child.visibleOn ?? []).includes(device),
+    );
+    if (already) continue;
+    const clone = structuredClone(copy.node);
+    clone.visibleOn = [...copy.visible];
+    let at = browserParent.children.indexOf(browserDesktop);
+    for (const [index, child] of browserParent.children.entries()) {
+      if (baseSignature(child) === signature) at = index;
+    }
+    browserParent.children.splice(at + 1, 0, clone);
+    inserted += 1;
+  }
+  return inserted;
+}
+
+function containsTag(node: IrNode, tag: string): boolean {
+  return node.tag === tag || node.children.some((child) => containsTag(child, tag));
+}
+
+function isNavVariantGroup(children: readonly IrNode[]): boolean {
+  const groups = new Map<string, IrNode[]>();
+  for (const child of children) {
+    if (child.htmlId) continue;
+    const hiddenAt = child.states.find((state) => state.hiddenAt.length > 0)?.hiddenAt ?? [];
+    if (hiddenAt.length === 0) continue;
+    const signature = baseSignature(child);
+    const group = groups.get(signature) ?? [];
+    group.push(child);
+    groups.set(signature, group);
+  }
+  return [...groups.values()].some(
+    (group) => group.length >= 2 && group.some((node) => containsTag(node, "nav")),
+  );
+}
+
+function findNavGroupParent(node: IrNode): IrNode | undefined {
+  if (isNavVariantGroup(node.children)) return node;
+  for (const child of node.children) {
+    const found = findNavGroupParent(child);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function findBySignature(node: IrNode, signature: string): IrNode | undefined {
+  if (baseSignature(node) === signature) return node;
+  for (const child of node.children) {
+    const found = findBySignature(child, signature);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
 function mirrorFolders(rootDir: string, pagePath: string): { root: string; pageDir: string } {  return { root: rootDir, pageDir: dirname(resolve(pageFileOf(rootDir, pagePath))) };
 }
 
@@ -549,6 +682,30 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
           pagePath: input.pagePath ?? "/",
         });
         document = mergeDeviceVariants(document, deviceDocument, device);
+      }
+      // The device captures are hydrated and carry only the copy of their own
+      // width. The SSR HTML carries all three copies of the navigation, so it is
+      // the document that can say which copy belongs to which width.
+      const staticCss = await fetchLinkedCss(html, input.source.url);
+      const staticDocument = captureHtml({
+        html,
+        url: input.source.url,
+        pagePath: input.pagePath ?? "/",
+        css: staticCss,
+      });
+      let restoredNavVariants = 0;
+      for (const device of ["tablet", "mobile"] as const) {
+        restoredNavVariants += restoreTopLevelNavVariants(document, staticDocument, device);
+      }
+      if (restoredNavVariants > 0) {
+        document.findings.push({
+          kind: "breakpoint-collapse",
+          nodeKey: null,
+          message: `${restoredNavVariants} id-lose Navigationsvariante(n) für Tablet und Telefon ergänzt.`,
+          evidence: "SSR-Varianten mit eigenem <nav>",
+          severity: "info",
+          suggestion: "Ohne die Ergänzung blieb die Desktop-Navigation auf Tablet und Telefon sichtbar.",
+        });
       }
       capturePath = "browser";
     } else {

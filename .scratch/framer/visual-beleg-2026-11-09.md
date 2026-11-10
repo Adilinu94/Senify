@@ -1,8 +1,8 @@
 # Visueller Vergleich der Strukturseiten
 
 **Stand:** 09.11.2026 · **Quelle:** `https://chocolate-attributes-385353.framer.app`
-· **Build:** `.scratch/framer-live-2026-11-09/structure-linkfix-2026-11-09/chocolate/before`
-· **Rohdaten:** `.scratch/framer-live-2026-11-09/visual-before-2026-11-09/result.json`
+· **Build:** `.scratch/framer-live-2026-11-09/structure-navfix5-2026-11-09/chocolate/before`
+· **Rohdaten:** `.scratch/framer-live-2026-11-09/visual-navfix-2026-11-09/result.json`
 
 Die Quelle liefert aktuell die Seite „Astra", nicht mehr den alten
 Chocolate-Inhalt. Verglichen wurde der Build **vor** der Textänderung, damit
@@ -17,46 +17,46 @@ der Testmarker nicht als Unterschied zählt.
 - `pixelmatch` mit Schwelle 0.12 auf der überlappenden Fläche; Prozentwerte
   sind der Anteil abweichender Pixel, keine semantische Bewertung.
 - Nur Scrollposition 0. Hover, Bewegung und echte Editoränderungen fehlen.
+- In zwei von zwölf Vorbereitungen lief die 20-s-Grenze ab; die Screenshots
+  wurden trotzdem genommen und sind entsprechend weniger beruhigt.
 
-## Ergebnis
+## Ergebnis nach dem Navigations-Fix
 
 | Seite | Breite | Höhe Build / Original | Ganzseite | Erster Bildschirm |
 |---|---|---|---|---|
 | `/` | Desktop | 8966 / 8966 | 0.899 % | 0.251 % |
-| `/` | Tablet | 11209 / 11206 | 6.520 % | 6.245 % |
-| `/` | Mobil | 12698 / 12790 | 7.304 % | 9.765 % |
-| `/about` | Desktop | 5537 / 5537 | 1.261 % | 0.557 % |
-| `/about` | Tablet | 7183 / 7205 | 7.224 % | 24.322 % |
-| `/about` | Mobil | 7993 / 8032 | 10.746 % | 29.840 % |
+| `/` | Tablet | 11209 / 11206 | 6.457 % | 5.560 % |
+| `/` | Mobil | 12698 / 12790 | 7.189 % | 8.043 % |
+| `/about` | Desktop | 5537 / 5537 | 1.389 % | 1.327 % |
+| `/about` | Tablet | 7183 / 7205 | 7.178 % | 23.869 % |
+| `/about` | Mobil | 7993 / 8032 | 10.589 % | 28.012 % |
 
 Der Build hatte in allen sechs Messungen keine Konsolenfehler und keine
 fehlgeschlagenen Anfragen.
 
-## Befund
+## Was der Fix geändert hat
 
-Auf Desktop ist die Darstellung nah. Auf Tablet und Mobil zeigt der Build
-die Desktop-Navigation (Home, Pricing, About, Blog, Contact, Book a demo),
-während die Quelle den Hamburger und die schmale Navigation zeigt. Auf dem
-Telefon ragt die Desktop-Navigation links aus dem Bild. Das erklärt den
-hohen Unterschied im ersten Bildschirm, besonders auf `/about`.
+Der Build enthält jetzt drei `<nav>`-Elemente statt einem. Auf Tablet und
+Mobil erscheint der Hamburger, die Desktop-Links sind dort nicht mehr
+sichtbar. Auf Desktop bleibt die Navigation unverändert.
 
-Die Höhen weichen nur wenig ab: `/` Tablet +3 px und Mobil -92 px,
-`/about` Tablet -22 px und Mobil -39 px. Der Fehler sitzt damit sichtbar
-im Kopfbereich, nicht in einem fehlenden ganzen Abschnitt.
+Der erste Bildschirm verbesserte sich dadurch bei `/` von 6.245 auf
+5.560 Prozent (Tablet) und von 9.765 auf 8.043 Prozent (Mobil); bei
+`/about` von 24.322 auf 23.869 und von 29.840 auf 28.012 Prozent. Die
+Ganzseitenwerte änderten sich nur wenig, weil dort viele andere Pixel
+zählen.
 
-## Offener Fall
+## Verbleibende Abweichung
 
-`.scratch/responsive-import/issues/01-tablet-navigation.md`
-
-Die Quelle rendert getrennte Navigationsvarianten. Die Browser-Aufnahme bei
-1440 px sieht nur die Desktop-Variante; der statische Merge ordnet
-id-lose Kind-Teilbäume nicht zu. Ein Fix braucht eine stabile Zuordnung
-über Breiten hinweg und ein Minimal-Fixture.
+Die Navigation ist nicht mehr die Ursache der hohen Werte auf `/about`.
+Dort bleibt der erste Bildschirm bei 23,9 beziehungsweise 28,0 Prozent.
+Die Ursache ist noch nicht untersucht; Kandidaten sind der Hero-Textlink,
+Schrift- und Farbunterschiede sowie die fehlende Framer-Dekoration.
 
 ## Nicht belegt
 
 - Keine Parität der Darstellung, auch nicht auf Desktop.
 - Keine Bewegung, kein Hover, kein Scrollzustand außer Position 0.
 - Keine echte Editoränderung im Live-Lauf.
-- Keine Aussage über Tablet- und Telefonvarianten einzelner Abschnitte
-  außerhalb des Kopfbereichs.
+- Keine Aussage über weitere Seiten, CMS oder Gerätevarianten außerhalb
+  des Kopfbereichs.
