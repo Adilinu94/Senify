@@ -279,7 +279,9 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // `scopedTokenText`, `scopedTokenValue`, `scopeTokenRules`,
     // `scopeTokenNodes`), damit Mehrseitenimporte mit gleicher Token-ID aber
     // unterschiedlichen Werten sich nicht gegenseitig überschreiben.
-    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(63);
+    // 64 seit dem 10.11.2026: `flatTextOf` und `plainTextOfHtml` lesen den
+    // Volltext und das Inline-Markup eines Textlinks; `deepTextOf` ist entfallen.
+    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(64);
 
     // Der CSS-Block wird ueber ANKER geprueft, nicht ueber Zeilennummern.
     //
@@ -301,6 +303,7 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     expect(module).toContain("(21 Funktionen)");
     expect(module).toContain("77 Funktionen");
     expect(module).toContain("58 Funktionen");
+    expect(module).toContain("64 Funktionen");
     // `mapNode` ist mit der Datei gewachsen (289 -> 336).
     expect(module).toContain("336 Zeilen");
   });
