@@ -465,6 +465,30 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
   // The primitive decision runs AFTER the sibling merge: the merged children
   // decide whether a `list` stays a list or degrades to a frame.
   let primitive = primitiveFor(node, siblings);
+  // A third-party frame the import cannot embed safely stays an `embed` node,
+  // but without a usable address: the registry renders its visible blocked
+  // placeholder instead of an empty box, and the report names source and
+  // reason. `srcdoc` is a whole foreign document; only https frames load.
+  if (primitive === "embed" && node.embedBlocked !== undefined && node.embedBlocked !== null) {
+    const reason =
+      node.embedBlocked === "srcdoc"
+        ? "Der Rahmen trägt sein Dokument in `srcdoc`; der Inhalt ist ein eigenes Dokument."
+        : node.embedBlocked === "scheme"
+          ? `Die Adresse ${node.embedUrl ?? ""} nutzt kein https.`
+          : "Der Rahmen nennt keine Adresse.";
+    context.findings.push({
+      kind: "embed-blocked",
+      nodeKey: node.key,
+      message: `Externe Einbettung nicht übernommen: ${reason}`,
+      evidence:
+        node.embedBlocked === "srcdoc"
+          ? "iframe[srcdoc]"
+          : `iframe[src="${node.embedUrl ?? ""}"]`,
+      severity: "warn",
+      suggestion:
+        "Im Editor durch einen sicheren https-Embed oder einen Link auf die Quelle ersetzen.",
+    });
+  }
   if (node.kind === "placeholder" && (node.codeModule === undefined || node.codeModule === null)) {
     context.stats.placeholders += 1;
     context.findings.push({
@@ -647,6 +671,15 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
     // container that lacks the id) the sanitizer has nothing to draw, so the icon
     // keeps its ring instead of an empty box.
     if (node.svg !== null && sanitizeSvgMarkup(node.svg) !== undefined) props["svg"] = node.svg;
+  } else if (primitive === "embed") {
+    // Only a safe https address is handed on; a blocked frame keeps its node
+    // (and therefore its box and title) but no target, so the registry draws
+    // its blocked placeholder instead of loading anything.
+    const blocked = node.embedBlocked !== undefined && node.embedBlocked !== null;
+    if (!blocked && node.embedUrl !== undefined && node.embedUrl !== null && node.embedUrl !== "") {
+      props["url"] = node.embedUrl;
+    }
+    props["title"] = node.embedTitle ?? "Einbettung";
   } else if (primitive === "frame") {
     props["semantic"] = node.tag === "header" || node.tag === "footer" || node.tag === "nav" || node.tag === "section" || node.tag === "main" ? node.tag : "div";
   }

@@ -268,7 +268,9 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // Der Merge ergänzt vier Helfer für Farbschema-Auswertung und Body-Palette.
     // 77 seit dem 10.11.2026: `isRevealStart` erkennt die reine
     // Deblur-Einblendung als Startzustand.
-    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(77);
+    // 78 seit dem 10.11.2026: `embedFieldsOf` liest Adresse, Titel und den
+    // Grund, warum ein iframe nicht uebernommen wird (`srcdoc`, Schema, fehlend).
+    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(78);
     // 57 seit dem 26.10.2026: der fremde Commit 7a5b838 (Browser-Abgriff der
     // Animationen) hat drei Funktionen ergaenzt. Der Waechter hat es sofort
     // gemeldet - genau dafuer steht er hier. Der Bericht nennt dieselbe Zahl.
@@ -301,7 +303,7 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
 
     // Und die Begruendung muss die Zahlen tragen, die sie behauptet.
     expect(module).toContain("(21 Funktionen)");
-    expect(module).toContain("77 Funktionen");
+    expect(module).toContain("78 Funktionen");
     expect(module).toContain("58 Funktionen");
     expect(module).toContain("64 Funktionen");
     // `mapNode` ist mit der Datei gewachsen (289 -> 336).

@@ -809,6 +809,10 @@ function kindFor(raw: RawNode): IrNodeKind {
   }
   if (tag === "img") return "image";
   if (tag === "video") return "video";
+  // A third-party frame is the `embed` primitive, not an empty frame: as a
+  // frame it kept its box and lost its address — measured on Relay `/contact`,
+  // where the Calendly widget disappeared without a finding.
+  if (tag === "iframe") return "embed";
   if (tag === "a") return "link";
   if (tag === "ul" || tag === "ol") return "list";
   if (tag === "h1" || tag === "h2" || tag === "h3" || tag === "h4" || tag === "h5" || tag === "h6") {
@@ -822,6 +826,23 @@ function kindFor(raw: RawNode): IrNodeKind {
 
 function rawHasDirectText(node: RawNode): boolean {
   return node.text !== null && node.text !== "" && node.children.length === 0;
+}
+
+// What a third-party frame carries: its address and accessible title, and
+// whether the import may load it. Only an https address is handed on — the
+// registry's embed refuses everything else and draws a visible placeholder.
+// `srcdoc` is a whole foreign document, not an address, and stays a
+// placeholder with a finding.
+function embedFieldsOf(tag: string, attrs: Record<string, string>): Pick<IrNode, "embedUrl" | "embedTitle" | "embedBlocked"> {
+  if (tag !== "iframe") return {};
+  const title = attrs["title"] !== undefined && attrs["title"] !== "" ? attrs["title"] : null;
+  if (attrs["srcdoc"] !== undefined) {
+    return { embedUrl: null, embedTitle: title, embedBlocked: "srcdoc" };
+  }
+  const src = (attrs["src"] ?? "").trim();
+  if (src === "") return { embedUrl: null, embedTitle: title, embedBlocked: "missing" };
+  if (!/^https:\/\//i.test(src)) return { embedUrl: src, embedTitle: title, embedBlocked: "scheme" };
+  return { embedUrl: src, embedTitle: title, embedBlocked: null };
 }
 
 // The attributes a stylesheet's selectors ask about (`[data-framer-component-type=Text]`):
@@ -1135,6 +1156,7 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     ...(attrs["id"] !== undefined && attrs["id"] !== "" ? { htmlId: attrs["id"] } : {}),
     ...(attrs["alt"] !== undefined ? { alt: attrs["alt"] } : {}),
     ...(attrs["target"] !== undefined ? { target: attrs["target"] } : {}),
+    ...embedFieldsOf(raw.tag, attrs),
     ...(raw.innerHtml !== null ? { innerHtml: raw.innerHtml } : {}),
     ...(Object.keys(appearInitial).length > 0 ? { appearInitial } : {}),
     appearId: attrs["data-framer-appear-id"] ?? null,
@@ -1622,8 +1644,9 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   // A graphic in a style value, carried as a data URL, cannot become a style
   // value: ADR-0005 keeps `data:image/svg+xml` out of CSS values, because SVG
   // can carry a script. The graphic becomes an asset instead — the asset
-  // pipeline cleans the SVG up and the value names the asset. What is left
-  // over (a data URL the pipeline could not turn into an asset) is reported.
+  // pipeline cleans the SVG up and the value names the asset. The finding
+  // counts the source; a failed takeover stays visible in the asset report and
+  // the build warnings.
   const dataUrlValues = dataUrlValuesOf(root);
   const wertAssets = dataUrlsInValues(root);
   for (const url of wertAssets) {
@@ -1644,11 +1667,11 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     findings.push({
       kind: "unsupported-declaration",
       nodeKey: null,
-      message: `${dataUrlValues.length} Grafik(en) als Data-URL in einem Stilausdruck wurden nicht übernommen.`,
+      message: `${dataUrlValues.length} Grafik(en) als Data-URL in einem Stilausdruck werden als lokales Asset übernommen; im ausgelieferten CSS steht die Asset-Adresse (ADR-0005).`,
       evidence: dataUrlValues.slice(0, 3).join(", "),
-      severity: "warn",
+      severity: "info",
       suggestion:
-        "Ein Data-URL im Stilausdruck ist aus Sicherheitsgründen nicht zugelassen (ADR-0005). Die Grafik im Editor als Bild einsetzen.",
+        "Nichts zu tun. Schlägt die Übernahme einer Grafik fehl, nennen der Asset-Bericht und die Bau-Warnung die Stelle.",
     });
   }
 

@@ -320,6 +320,14 @@ function mergeStatesBySignature(
   return merged;
 }
 
+// Two documents describe one page; their asset lists describe two sets of
+// pictures. The union keeps every address the merged page can name.
+function mergeAssets(target: FramerIrDocument, source: FramerIrDocument): void {
+  for (const asset of source.assets) {
+    if (!target.assets.some((entry) => entry.url === asset.url)) target.assets.push(asset);
+  }
+}
+
 export function mergeDeviceVariants(
   browser: FramerIrDocument,
   statik: FramerIrDocument,
@@ -467,6 +475,13 @@ export function mergeDeviceVariants(
   if (browser.breakpoints.length === 0 && statik.breakpoints.length > 0) {
     browser.breakpoints = statik.breakpoints;
   }
+  // Every build is its own document, so it collects its own assets: a picture
+  // that only this width uses (a data URL in a device-only style, an image
+  // that only the phone variant names) stands in THIS document's list. Without
+  // the union the merged page keeps the value but the asset pipeline never
+  // sees the address — measured on Relay `/`: two SVG data URLs existed only
+  // in the device builds, stayed in the style and were dropped at bake.
+  mergeAssets(browser, statik);
   // The per-device VALUES for every node, not only the sections: the width, the
   // padding, the font size, and the variant class the width resolved. Without it
   // the baked page uses the desktop variant at every width (measured: the product
@@ -699,6 +714,9 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
         css: staticCss,
       });
       const restoredVariants = restoreIdLessDeviceVariants(document, staticDocument);
+      // The restored copies bring their own values (and pictures) from the
+      // server HTML; their asset addresses have to reach the merged document.
+      mergeAssets(document, staticDocument);
       if (restoredVariants > 0) {
         document.findings.push({
           kind: "breakpoint-collapse",

@@ -24,6 +24,7 @@ const document = (root: ReturnType<typeof node>) =>
     pages: [{ root }],
     breakpoints: [],
     findings: [],
+    assets: [],
   }) as never;
 
 const navNode = (label: string) => ({
@@ -67,6 +68,7 @@ const variantDocument = (children: unknown[]) =>
       { id: "desktop", minWidth: 1200, maxWidth: null, name: null },
     ],
     findings: [],
+    assets: [],
   }) as never;
 
 type NavTestDocument = {
@@ -292,6 +294,21 @@ describe("mergeDeviceVariants", () => {
       navWrapper("m", ["tablet", "desktop"], "Mobile", "header"),
     ]);
     expect(restoreIdLessDeviceVariants(browser, statik)).toBe(0);
+  });
+});
+
+describe("assets of a second device build", () => {
+  // Each build is read as its own document, so it collects its own assets. A
+  // graphic that only the tablet or phone build names (a data URL in a
+  // device-only style) stayed out of the merged list before — measured on
+  // Relay `/`: two SVG data URLs existed only there, stayed in the style and
+  // were dropped at bake (`css-value-dropped`).
+  it("takes the assets of the device document into the merged page", () => {
+    const asset = (url: string) => ({ url, kind: "image", hash: null, alt: null, width: null, height: null });
+    const browser = { ...(variantDocument([navWrapper("d", [], "Desktop")]) as object), assets: [asset("a")] } as never;
+    const tablet = { ...(variantDocument([navWrapper("d", [], "Desktop")]) as object), assets: [asset("b"), asset("a")] } as never;
+    const merged = mergeDeviceVariants(browser, tablet, "tablet") as unknown as { assets: { url: string }[] };
+    expect(merged.assets.map((entry) => entry.url)).toEqual(["a", "b"]);
   });
 });
 

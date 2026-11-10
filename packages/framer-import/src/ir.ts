@@ -118,6 +118,10 @@ export const IR_FINDING_KINDS = [
   // measured dump). The runtime effect stays with the browser capture
   // (ADR-0027); the report says so instead of dropping it silently.
   "motion-absent",
+  // embed-blocked — a third-party frame the import cannot take over safely
+  // (`srcdoc`, a non-https scheme, a missing address). The box stays as a
+  // placeholder and the report names source and reason.
+  "embed-blocked",
 ] as const;
 
 export type IrFindingKind = (typeof IR_FINDING_KINDS)[number];
@@ -252,6 +256,13 @@ export type IrNode = {
   visibleOn?: IrDevice[];
   alt?: string | null;
   target?: string | null;
+  // A third-party frame (`<iframe>`): the address as the source wrote it and
+  // its accessible title. `embedBlocked` names why the frame cannot be taken
+  // over (a `srcdoc` document, a scheme other than https, a missing address);
+  // the node then keeps its box as a named placeholder.
+  embedUrl?: string | null;
+  embedTitle?: string | null;
+  embedBlocked?: "srcdoc" | "scheme" | "missing" | null;
   innerHtml?: string | null;
   // The `style` attribute of the source, as written. The visual holds the
   // resolved cascade; this holds the source's own declarations — they are
@@ -668,6 +679,11 @@ function asIrNode(value: unknown): IrNode | undefined {
     ...(asString(value.htmlId) === undefined ? {} : { htmlId: asString(value.htmlId) ?? null }),
     ...(asString(value.alt) === undefined ? {} : { alt: asString(value.alt) ?? null }),
     ...(asString(value.target) === undefined ? {} : { target: asString(value.target) ?? null }),
+    ...(asString(value.embedUrl) === undefined ? {} : { embedUrl: asString(value.embedUrl) ?? null }),
+    ...(asString(value.embedTitle) === undefined ? {} : { embedTitle: asString(value.embedTitle) ?? null }),
+    ...(asString(value.embedBlocked) === undefined
+      ? {}
+      : { embedBlocked: (asString(value.embedBlocked) as "srcdoc" | "scheme" | "missing") ?? null }),
     ...(asString(value.innerHtml) === undefined ? {} : { innerHtml: asString(value.innerHtml) ?? null }),
     ...(isRecord(value.appearInitial)
       ? {

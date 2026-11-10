@@ -102,6 +102,42 @@ describe("a graphic in a style value", () => {
       rmSync(work, { recursive: true, force: true });
     }
   });
+
+  // The same graphic can stand in the element's own style attribute instead of
+  // a class rule (measured on Relay `/`: the badge icon arrives this way). The
+  // value is collected into `document.assets`, decoded, cleaned up and
+  // uploaded; the style names the asset. The source count stays as an info
+  // finding, the visible graphic does not disappear.
+  it("makes a data URL in the element's own style an asset", async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0 L24 24"/></svg>';
+    const encoded = encodeURIComponent(svg).replace(/'/g, "%27");
+    const document = captureHtml({
+      html: page(`<div style="width:24px;height:24px;background-image:url('data:image/svg+xml,${encoded}')">x</div>`),
+    });
+    const uploaded: { filename: string; data: Buffer }[] = [];
+    const { document: mitAssets } = await importAssets({
+      document,
+      uploader: async (input) => {
+        uploaded.push({ filename: input.filename, data: input.data });
+        return { assetId: "up-1", url: "/assets/up-1/import-image.svg" };
+      },
+    });
+    expect(uploaded.length).toBe(1);
+    expect(uploaded[0]?.data.toString("utf8")).toContain("<path");
+    const werte: string[] = [];
+    const sammle = (node: IrNode): void => {
+      for (const state of node.states) {
+        for (const wert of Object.values(state.visual)) {
+          if (typeof wert === "string") werte.push(wert);
+        }
+      }
+      for (const kind of node.children) sammle(kind);
+    };
+    sammle(mitAssets.pages[0]?.root as IrNode);
+    expect(werte.some((wert) => wert.includes("data:image/svg+xml"))).toBe(false);
+    expect(werte.some((wert) => wert.includes("/assets/up-1/import-image.svg"))).toBe(true);
+    expect(document.findings.some((finding) => finding.message.includes("als lokales Asset übernommen"))).toBe(true);
+  });
 });
 
 describe("the spaces between inline elements", () => {
