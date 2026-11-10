@@ -40,6 +40,7 @@ import {
   type RuntimeFileLoader,
 } from "./runtime-payload.ts";
 import { mapFramerMotion } from "./motion-mapping.ts";
+import { nearestMappedNodeByIrKey } from "./motion-owner.ts";
 import { discoverPagePaths } from "./link-paths.ts";
 import { siteBreakpointsOf } from "./site-breakpoints.ts";
 
@@ -904,8 +905,12 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     document,
     input.baseDurationMs === undefined ? {} : { baseDurationMs: input.baseDurationMs },
   );
+  // A motion sample can name a folded node (a word inside a text link). It
+  // still belongs to the page: the nearest mapped ancestor carries it. This
+  // map is separate from `nodeIdByIrKey` so the node mapping stays untouched.
+  const motionTargets = nearestMappedNodeByIrKey(document.pages[0]?.root, mapped.nodeIdByIrKey);
   for (const mapping of motion.mappings) {
-    const editorNodeId = mapping.nodeKey === null ? undefined : mapped.nodeIdByIrKey[mapping.nodeKey];
+    const editorNodeId = mapping.nodeKey === null ? undefined : motionTargets.get(mapping.nodeKey);
     if (editorNodeId === undefined) continue;
     const editorNode = mapped.document.nodes[editorNodeId];
     if (editorNode === undefined) continue;

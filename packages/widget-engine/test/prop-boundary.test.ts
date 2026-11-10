@@ -40,6 +40,16 @@ describe("prop boundary: structured links", () => {
     expect(checkPropValue(linkControl, "link", link)).toBeUndefined();
     expect(describePrimitive("link", { label: "Kontakt", link })?.attrs?.href).toBe("/kontakt");
   });
+
+  it("renders rich link content and sanitizes it", () => {
+    const spec = describePrimitive("link", {
+      label: "Fallback",
+      html: 'Hallo <strong>Welt</strong><script>alert(1)</script>',
+    });
+    expect(spec?.html).toContain("<strong>Welt</strong>");
+    expect(spec?.html).not.toContain("<script");
+    expect(spec?.text).toBeUndefined();
+  });
 });
 describe("prop boundary: the style grammar stays loud", () => {
   it("accepts a well-formed token reference for a color", () => {

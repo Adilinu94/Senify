@@ -246,7 +246,7 @@ function parseAttrs(raw: string): RawAttr {
   return attrs;
 }
 
-function decodeEntities(value: string): string {
+export function decodeEntities(value: string): string {
   return value
     .replace(/&quot;/g, '"')
     .replace(/&amp;/g, "&")

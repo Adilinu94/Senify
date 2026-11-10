@@ -109,6 +109,38 @@ describe("mapDocument", () => {
     if (links.length > 0) expect(withUrl).toBeDefined();
   });
 
+  it("keeps the full mixed text and inline markup of a text link", () => {
+    const document = captureHtml({
+      html:
+        `<html lang="de"><head><title>t</title></head><body>` +
+        `<div id="main" data-framer-hydrate-v2><div>` +
+        `<a href="/x">Hallo <strong>Welt</strong> fertig</a>` +
+        `</div></div></body></html>`,
+      pagePath: "/",
+    });
+    const mapped = mapDocument(document, normalize(document).rules);
+    const link = Object.values(mapped.document.nodes).find((node) => node.primitive === "link");
+    expect(link?.props["label"]).toBe("Hallo Welt fertig");
+    expect(String(link?.props["html"] ?? "")).toContain("<strong");
+    expect(String(link?.props["html"] ?? "")).toContain("Hallo");
+    expect(String(link?.props["html"] ?? "")).toContain("fertig");
+  });
+
+  it("keeps a plain link without an html prop", () => {
+    const document = captureHtml({
+      html:
+        `<html lang="de"><head><title>t</title></head><body>` +
+        `<div id="main" data-framer-hydrate-v2><div>` +
+        `<a href="/y">Direkt</a>` +
+        `</div></div></body></html>`,
+      pagePath: "/",
+    });
+    const mapped = mapDocument(document, normalize(document).rules);
+    const link = Object.values(mapped.document.nodes).find((node) => node.primitive === "link");
+    expect(link?.props["label"]).toBe("Direkt");
+    expect(link?.props["html"]).toBeUndefined();
+  });
+
   it("derives a theme patch from the font faces", () => {
     const document = captureFixture(join(FIXTURES, "framer-fluffy-rectangle-418998"));
     const normalized = normalize(document);

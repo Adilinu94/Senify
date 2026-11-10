@@ -254,6 +254,7 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
     case "link": {
       const target = linkOf(props, "link");
       const newTab = flag(props, "newTab") || target.newTab;
+      const html = text(props, "html");
       return {
         tag: "a",
         classes: [primitiveClass("link")],
@@ -261,7 +262,9 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
           href: target.href !== "" && isSafeHref(target.href) ? target.href : "#",
           ...(newTab ? { target: "_blank", rel: "noopener noreferrer" } : {}),
         },
-        text: text(props, "label"),
+        ...(html !== ""
+          ? { html: sanitizeInlineHtml(html) }
+          : { text: text(props, "label") }),
         root: true,
       };
     }

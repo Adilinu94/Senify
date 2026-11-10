@@ -17,6 +17,7 @@ import type {
   EditorNode,
 } from "@senify/editor/state";
 import { sanitizeInlineHtml, sanitizeSvgMarkup, type DeviceValueMap, type StyleRule } from "@senify/widget-engine";
+import { decodeEntities } from "./capture-html.ts";
 import { brandColorOf } from "./brand-color.ts";
 import { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
 import { devicesContaining } from "./devices.ts";
@@ -587,9 +588,33 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
     // containers) stays a link; an <a> wrapping blocks (cards, logos) is a
     // frame — the `link` primitive accepts no children. Nothing is lost (the
     // frame keeps the target and the children), so it is reported as an info.
-    const label = deepTextOf(node) ?? baseText?.content ?? "";
+    //
+    // The full text and the inline markup come from `innerHtml`: the capture
+    // stores the mixed content there and keeps only the marked-up elements as
+    // child nodes. Reading the first child text alone dropped "Hallo" and
+    // "fertig" from `<a>Hallo <strong>Welt</strong> fertig</a>`.
+    const innerHtml = node.innerHtml ?? "";
+    const fullText =
+      innerHtml !== ""
+        ? plainTextOfHtml(innerHtml)
+        : flatTextOf(node) || baseText?.content || "";
+    const markup =
+      innerHtml !== ""
+        ? attachInlineReveals(
+            framerVarsAsCss(
+              withTextTypography(node, sanitizeInlineHtml(innerHtml)),
+              lineHeightFactorOf(node),
+            ),
+            node,
+            context,
+          )
+        : hasElementChildren
+          ? inlineHtmlOf(node, baseText?.content ?? "", context)
+          : "";
+    const html = /<[a-z][^>]*>/i.test(markup) ? markup : "";
     if (hasElementChildren && isTextOnlyLink(node)) {
-      props["label"] = label;
+      props["label"] = fullText;
+      if (html !== "") props["html"] = html;
       if (node.href !== null) props["link"] = { url: node.href, newTab: node.target === "_blank" };
     } else if (hasElementChildren) {
       // A card/logo wrapper: the frame itself becomes the anchor, so the whole
@@ -609,7 +634,8 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
         suggestion: "Link-URL als Fund im Bericht behalten; bei Bedarf als eigenes link-Kind ergänzen.",
       });
     } else {
-      props["label"] = label;
+      props["label"] = fullText;
+      if (html !== "") props["html"] = html;
       if (node.href !== null) props["link"] = { url: node.href, newTab: node.target === "_blank" };
     }
   } else if (primitive === "image") {
@@ -1383,14 +1409,13 @@ function typographyOf(visual: { [key: string]: string | undefined }): { [key: st
   return Object.fromEntries(Object.entries(visual).filter(([property]) => TYPOGRAPHY_PROPERTY.test(property)));
 }
 
-function deepTextOf(node: IrNode): string | null {
-  const own = node.states[0]?.text?.content ?? null;
-  if (own !== null && own !== "") return own;
-  for (const child of node.children) {
-    const inner = deepTextOf(child);
-    if (inner !== null && inner !== "") return inner;
-  }
-  return null;
+function flatTextOf(node: IrNode): string {
+  const own = node.states[0]?.text?.content ?? "";
+  return `${own}${node.children.map(flatTextOf).join("")}`.replace(/\s+/g, " ").trim();
+}
+
+function plainTextOfHtml(html: string): string {
+  return decodeEntities(html.replace(/<[^>]*>/g, "")).replace(/\s+/g, " ").trim();
 }
 
 // A link whose children are only text/rich-text wrappers (no blocks) keeps

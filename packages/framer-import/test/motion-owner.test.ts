@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import { editorDocumentToNodeTree } from "@senify/engine";
 import { bakeSite } from "@senify/renderer";
 import { defaultTheme, emitCss, resolveTheme } from "@senify/tokens";
+import type { IrNode } from "../src/ir.ts";
+import { nearestMappedNodeByIrKey } from "../src/motion-owner.ts";
 import { runImport } from "../src/index.ts";
 
 // A node can have TWO sources of motion: the closed preset registry (what the
@@ -119,4 +121,18 @@ describe("one motion, one owner", () => {
       rmSync(out, { recursive: true, force: true });
     }
   }, 90_000);
+
+  it("maps a folded link child's motion to the link node", () => {
+    const strong = { key: "strong", children: [] } as unknown as IrNode;
+    const span = { key: "span", children: [strong] } as unknown as IrNode;
+    const link = { key: "link", children: [span] } as unknown as IrNode;
+    const root = { key: "root", children: [link] } as unknown as IrNode;
+    const owners = nearestMappedNodeByIrKey(root, { root: "root-node", link: "link-node" });
+    expect(owners.get("root")).toBe("root-node");
+    expect(owners.get("link")).toBe("link-node");
+    // The link folds its word spans into inline markup. A motion sample on one
+    // of those spans still plays on the link, not on nothing.
+    expect(owners.get("span")).toBe("link-node");
+    expect(owners.get("strong")).toBe("link-node");
+  });
 });

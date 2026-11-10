@@ -341,6 +341,7 @@ export const PRIMITIVES: readonly PrimitiveDefinition[] = [
     slots: {},
     controls: [
       text("label", "Beschriftung", "Link"),
+      area("html", "Inhalt", ""),
       url("link", "Ziel", "#"),
       toggle("newTab", "Neuer Tab", false),
     ],
