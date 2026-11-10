@@ -1984,8 +1984,10 @@ export function mapDocument(
       nodeKey: null,
       message: finding.reason,
       evidence: finding.appearId,
-      severity: "warn",
-      suggestion: "Ohne Endzustand im Kanal bleibt nur der Startzustand — der Effekt wird nicht nachgebaut.",
+      severity: finding.severity ?? "warn",
+      suggestion:
+        finding.suggestion ??
+        "Ohne Endzustand im Kanal bleibt nur der Startzustand — der Effekt wird nicht nachgebaut.",
     });
   }
   return {
@@ -2043,6 +2045,7 @@ function appearRulesOf(
 ): CompileAppearResult & { nodeIdByAppearId: ReadonlyMap<string, string> } {
   const specs = document.appear ?? [];
   const nodeIdByAppearId = new Map<string, string>();
+  const measuredInlineIds = new Map<string, string>();
   if (specs.length === 0) {
     return { rules: [], findings: [], compiled: 0, nodeIdByAppearId };
   }
@@ -2064,10 +2067,23 @@ function appearRulesOf(
     }
     // A reveal MEASURED on the live page names its target by the IR key the
     // capture stamped on the element (`n4`), not by an appear id — the static
-    // JSON never names a word span. Without this line the measurement reaches
-    // the compiler and is dropped for "no node", which is exactly the effect
-    // that was missing: 67 measured reveals, 0 rules.
-    if (own !== undefined && !nodeIdByAppearId.has(node.key)) nodeIdByAppearId.set(node.key, own);
+    // JSON never names a word span. It resolves like the element's static twin:
+    // a folded element maps to its nearest mapped ancestor. Leaving folded
+    // elements out made 910 measured reveals look lost on Relay although their
+    // static or derived rule was already playing (10.11.2026).
+    if (mapped !== undefined && !nodeIdByAppearId.has(node.key)) nodeIdByAppearId.set(node.key, mapped);
+    // A folded word span gets its own class in the container's markup. Its
+    // measured twin must target that class, not the container, or every word
+    // collapses into one block animation.
+    const revealId = node.derivedAppearId ?? node.appearId;
+    if (
+      own === undefined &&
+      revealId !== null &&
+      revealId !== undefined &&
+      context.inlineRevealIds?.has(revealId) === true
+    ) {
+      measuredInlineIds.set(node.key, revealId);
+    }
     for (const child of node.children) index(child, mapped);
   };
   index(document.pages[0]?.root, undefined);
@@ -2094,8 +2110,22 @@ function appearRulesOf(
   };
   const ordered = [...compiled.rules].sort((a, b) => Number(measuredSpec(b)) - Number(measuredSpec(a)));
   const seen = new Set<string>();
+  const seenInline = new Set<string>();
   const rules: CompiledAppearRule[] = [];
-  const findings = [...compiled.findings];
+  // One warning for all measured reveals whose element is not in the visible
+  // tree. One warning per id turned a single cause into 910 entries on Relay.
+  const orphan = compiled.findings.filter((finding) => finding.reason.includes("keinem Knoten"));
+  const findings = compiled.findings.filter((finding) => !orphan.includes(finding));
+  if (orphan.length > 0) {
+    const sample = orphan.slice(0, 5).map((finding) => finding.appearId).join(", ");
+    findings.push({
+      appearId: "measured-orphans",
+      reason: `${orphan.length} gemessene Einblendung(en) ohne Ziel im sichtbaren Baum (Element entfernt oder in einer nicht übernommenen Kopie; ${sample}${orphan.length > 5 ? ", ..." : ""}). Die statische oder abgeleitete Einblendung bleibt, die gemessene Zeit entfällt.`,
+      severity: "warn",
+      suggestion:
+        "Wenn eines der Elemente sichtbar ist, die Messung am nächsten erhaltenen Knoten prüfen; sonst gehören die IDs zu entfernten Kopien.",
+    });
+  }
   let counted = 0;
   let inline = 0;
   for (const rule of ordered) {
@@ -2104,8 +2134,14 @@ function appearRulesOf(
     // class there (`senify-inline-<id>`). Its rule targets that class directly:
     // falling back to the container would play one block instead of eight
     // staggered words, which is exactly what the source does not do.
-    if (context.inlineRevealIds?.has(appearId) === true) {
-      const name = `senify-inline-${appearId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+    const inlineId =
+      context.inlineRevealIds?.has(appearId) === true ? appearId : measuredInlineIds.get(appearId);
+    if (inlineId !== undefined) {
+      const name = `senify-inline-${inlineId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+      // Measured rules come first (the sort above), so the browser's own timing
+      // wins over the derived 0.6 s default for the same span.
+      if (seenInline.has(name)) continue;
+      seenInline.add(name);
       rules.push({ ...rule, name, id: `${rule.id}-inline` });
       counted += rule.appearIds.length;
       inline += 1;
@@ -2122,13 +2158,17 @@ function appearRulesOf(
     findings.push({
       appearId: "inline",
       reason: `${inline} Wort-Einblendung(en) laufen auf ihrem eigenen <span> im Text (Klasse senify-inline-…), nicht auf dem Container — die Staffelung der Quelle bleibt damit erhalten.`,
+      severity: "info",
+      suggestion: "Die gemessene Zeit gilt für die Inline-Klasse; keine Änderung nötig.",
     });
   }
   const merged = compiled.rules.length - rules.length;
   if (merged > 0) {
     findings.push({
       appearId: rules.map((rule) => rule.appearIds[0] ?? "").find((id) => id !== "") ?? "appear",
-      reason: `${merged} Einblendung(en) teilen sich mit einer anderen ein Zielelement (die Wörter einer Überschrift liegen im selben Knoten) — die erste gilt, die Bewegung bleibt am Element erhalten.`,
+      reason: `${merged} Einblendung(en) teilen sich mit einer anderen ein Zielelement oder eine Inline-Klasse (die Wörter einer Überschrift liegen im selben Knoten) — die erste gilt, die Bewegung bleibt am Element erhalten.`,
+      severity: "info",
+      suggestion: "Die erste Regel trägt die Bewegung; die zusammengefassten IDs brauchen keine eigene Regel.",
     });
   }
   return { rules, findings, compiled: counted, nodeIdByAppearId };

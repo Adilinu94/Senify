@@ -53,8 +53,9 @@ export type CompileAppearResult = {
   rules: CompiledAppearRule[];
   // Appear ids that produced nothing, with the reason. The report shows them
   // instead of dropping them silently (that was finding U5 b: four of eleven
-  // pages lost every effect without a word).
-  findings: { appearId: string; reason: string }[];
+  // pages lost every effect without a word). `severity` separates a real loss
+  // from a handled inline reveal or a shared target.
+  findings: { appearId: string; reason: string; severity?: "info" | "warn"; suggestion?: string }[];
   // How many (id, variant) pairs became a rule.
   compiled: number;
 };
@@ -180,6 +181,9 @@ export function compileAppearRules(input: CompileAppearInput): CompileAppearResu
         appearId: spec.appearId,
         reason:
           "Die appear-id gehört zu keinem Knoten des Imports (Element gefaltet oder entfernt) — der Effekt entfällt.",
+        severity: "warn",
+        suggestion:
+          "Wenn das Element sichtbar ist, die Einblendung am nächsten erhaltenen Knoten prüfen; sonst gehört die ID zu einer bewusst entfernten Kopie.",
       });
       continue;
     }
@@ -263,6 +267,8 @@ export function compileAppearRules(input: CompileAppearInput): CompileAppearResu
       findings.push({
         appearId: spec.appearId,
         reason: "Der Kanal nennt diesen Effekt, aber keinen Endzustand — es gibt nichts zu animieren.",
+        severity: "warn",
+        suggestion: "Den Endzustand im Kanal prüfen; ohne ihn bleibt das Element im Ruhezustand.",
       });
       continue;
     }
