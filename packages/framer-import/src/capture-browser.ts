@@ -181,15 +181,23 @@ const SETTLE_READ_MS = 350;
 // This stamp mirrors `toIrNode` exactly and runs in the page: pre-order over
 // `#main`'s element tree, an ordinal per VISITED element (the dissolved
 // `ssr-variant` wrapper consumes one, its child the next), `style`/`script`/
-// `noscript`/`template` never visited. The attributes are removed again before
-// `page.content()`, so the static capture reads the page unchanged.
+// `noscript`/`template` never visited. An `<svg>` and a `<select>` are ONE node
+// in the IR — `toIrNode` reads their content as markup and never descends — so
+// they are stamped but not walked. Descending here shifted every key behind the
+// first inline SVG by its children; measured on Relay `/`: 1959 live elements
+// against 1922 IR nodes, and a measured reveal landed on a key that no longer
+// existed. The attributes are removed again before `page.content()`, so the
+// static capture reads the page unchanged.
 const KEY_STAMP = `
 function senifyStampKeys() {
   const SKIP = new Set(["style", "script", "noscript", "template"]);
+  const LEAF = new Set(["svg", "select"]);
   let ordinal = 0;
   const visit = (el) => {
     ordinal += 1;
     el.setAttribute("data-senify-ir-key", "n" + ordinal);
+    const tag = el.tagName.toLowerCase();
+    if (LEAF.has(tag)) return;
     const classes = typeof el.className === "string" ? el.className.split(/\\s+/) : [];
     if (classes.includes("ssr-variant") && el.children.length === 1) {
       visit(el.children[0]);

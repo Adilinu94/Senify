@@ -44,6 +44,11 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Appear und
   <div class="stickyish" id="mover"><p>Bewegt</p></div>
   <div><span id="word">Wort</span></div>
   <div><span id="held">Gehalten</span></div>
+  <!-- An inline SVG is ONE IR node: its children must not consume ordinals,
+       or every key behind it shifts and a measured reveal lands nowhere.
+       It stands BEFORE the element it would shift. -->
+  <svg width="12" height="12" viewBox="0 0 12 12"><path d="M0 0 L12 12" fill="#000"/></svg>
+  <div id="after-svg"><span id="after">Danach</span></div>
 </div>
 <script>
   // Ein Element, das sich beim Scrollen GEGEN die Seite bewegt: genau die Form,
@@ -70,6 +75,12 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Appear und
     if (held) {
       held.animate({ opacity: [0.001, 0.001] }, { duration: 10000, easing: "linear", fill: "both" });
       held.animate({ opacity: [0.001, 0.5, 1] }, { duration: 900, delay: 100, easing: "linear(0, 0.5, 1)", fill: "both" });
+    }
+    // AFTER the inline SVG: its key only survives when the SVG's children do
+    // not consume ordinals.
+    var after = document.getElementById("after");
+    if (after) {
+      after.animate({ opacity: [0.001, 1] }, { duration: 700, easing: "linear", fill: "both" });
     }
   });
 </script></body></html>`;
@@ -149,6 +160,35 @@ describe.skipIf(!browserAvailable)("captureBrowser erhält die Motion des SSR", 
       // reveal; only its end state may become the keyframe's `to`.
       expect(variant?.initial?.opacity).toBe(0.001);
       expect(variant?.animate?.opacity).toBe(1);
+    } finally {
+      await new Promise<void>((done) => server.close(() => done()));
+    }
+  }, 120_000);
+
+  it("vergibt hinter einem Inline-SVG keinen verschobenen Schlüssel", async () => {
+    const { server, origin } = await startServer();
+    try {
+      const result = await captureBrowser({ url: `${origin}/`, settleMs: 300, motion: "live" });
+      // The measured reveal names the key of the element that played it. With
+      // the SVG's children counted, every key behind the SVG moved by one and
+      // the reveal pointed at a node that does not exist (Relay `/`: 1959 live
+      // elements against 1922 IR nodes, one orphaned reveal).
+      const keys = new Set<string>();
+      type IrShape = { key: string; children: IrShape[] };
+      const visit = (node: IrShape): void => {
+        keys.add(node.key);
+        for (const child of node.children) visit(child);
+      };
+      visit(result.document.pages[0]?.root as unknown as IrShape);
+      const measured = result.document.motion.filter((sample) => /^n\d+$/.test(sample.nodeKey ?? ""));
+      expect(measured.length).toBeGreaterThan(0);
+      expect(measured.every((sample) => keys.has(sample.nodeKey as string))).toBe(true);
+      // The element AFTER the SVG played a reveal of its own. Its measured key
+      // must be the key the IR gave it; with the SVG's child counted, the key
+      // points one past the tree and the reveal has no target.
+      const afterKey = keyByText(result.document.pages[0]?.root as unknown as IrNodeShape, "Danach");
+      expect(afterKey).toBeDefined();
+      expect(measured.some((sample) => sample.nodeKey === afterKey)).toBe(true);
     } finally {
       await new Promise<void>((done) => server.close(() => done()));
     }
