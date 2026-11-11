@@ -16,6 +16,12 @@ Ein Textlink wird als `link`-Primitiv mit `label` abgebildet; seine Kinder werde
 
 Belege: `packages/framer-import/src/mapper.ts`, `import.ts`, `motion-owner.ts`, `packages/widget-engine/src/catalog.ts`, `markup.ts`, `packages/framer-import/test/mapper.test.ts`, `textlink-content.test.ts`, `motion-owner.test.ts`, `packages/widget-engine/test/prop-boundary.test.ts`.
 
+## Live-Sample 11.11.2026
+
+Gemessen am gebackenen Relay6-Build, Desktop 1440 px, Link `fi-8a5eda-756` (Blog-Karte mit gemessener Einblendung). Der Link trägt die eigene Animation `senify-appear-derived-931-default`; ihre Deckkraft steigt über 50 / 250 / 600 / 1000 / 1600 ms von 0,071 auf 0,773 auf 1,0 und bleibt bei 1,0. Nach dem Scrollen in den Sichtbereich ist der Link sichtbar, die Animation steht auf `currentTime = 600` (Ende), und 13 Kinder haben eine sichtbare Box.
+
+Beleg: `.scratch/framer-live-2026-11-09/visual-settle2-2026-11-10/result.json` (`linkSample.desktop`), Bild `start/desktop/link-sample.png`.
+
 ## Rest
 
-Ein Live-Hover- oder Scroll-Sample auf einem Link ist nicht gemessen. Der Editor zeigt Beschriftung und Inhalt nebeneinander; diese Oberfläche ist nicht visuell abgenommen. Ein Link ohne Motion bleibt unverändert.
+Ein Hover-Sample ist nicht möglich: der Build enthält keine `:hover`-Regel, und der Import übernimmt keine Hover-Interaktionen. Der Editor zeigt Beschriftung und Inhalt nebeneinander; diese Oberfläche ist nicht visuell abgenommen. Ein Link ohne Motion bleibt unverändert.

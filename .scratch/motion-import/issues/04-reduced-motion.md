@@ -15,6 +15,8 @@ Die ungenutzte Kopie in `packages/framer-import/src/appear-css.ts` ist entfernt.
 
 Belege: `packages/renderer/test/style-rules-css.test.ts`, `packages/framer-import/test/appear-bake.test.ts`, `packages/widget-engine/src/css/reduced-motion.ts`.
 
-## Rest
+## Browser-Beleg 11.11.2026
 
-Die visuelle Wirkung im Browser mit `prefers-reduced-motion: reduce` ist noch nicht als Screenshot-Vergleich gemessen. Das ist ein eigener Messfall.
+Chromium mit `reducedMotion: "reduce"`, Relay6-Build, Startseite 1440 px: 39 von 39 Elementen mit einer `-appear-`-Klasse haben `animation-name: none` und `opacity: 1`; kein Element weicht ab. Der Reduced-Motion-Block im ausgelieferten CSS nennt dieselben Klassen wie die Animationen (39).
+
+Beleg: `.scratch/framer-live-2026-11-09/visual-settle2-2026-11-10/result.json` (`reduzierteBewegung["/@desktop"]`), Bild `reduziert-top.png`. Das ist ein Browser-Beleg, kein Pixelvergleich gegen die Live-Quelle; die Quelle reagiert auf dieselbe Media-Abfrage, aber ihre Appear-Animationen laufen über die Framer-Runtime.
