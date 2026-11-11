@@ -15,6 +15,8 @@
 
 ## Produktpriorität: Framer-Import
 
+**Editor-Korrektur, 11.11.2026:** Das Neuladen nach dem Anlegen einer globalen Klasse erhält im geprüften Ablauf die History; ein zuvor roter Browserfall prüft Speichern, Reload, Undo und Redo (`packages/editor/src/inspector/inspector.ts`, `packages/app/test/class-history-reload-browser.test.ts`). Der allgemeine Elementor-Vergleich und Astryx-Prototyp bleiben separate Arbeiten; Testumfang und Grenzen stehen in `docs/current/qualitaet.md`.
+
 Das vorrangige Produktziel ist der lokale Import einer Framer-Site über Framer- und Unframer-Zugang: Das Ergebnis soll ohne Framer Runtime laufen, visuell und in der Bewegung möglichst exakt entsprechen und für den Agenten vollständig bearbeitbar sein. Dieses Ziel ist noch nicht erreicht. Die technischen P0–P3-Gates bleiben für betroffene Änderungen gültig; weitere reine Aufräumarbeiten stehen hinter dem Importziel zurück.
 
 Die detaillierte Planung für dieses Produktziel steht in der [Framer-Roadmap](framer-roadmap.md). Ihre Phasen F0–F8 konkretisieren die nachfolgenden Arbeitspakete. Erste vertikale Scheibe: F0 → F1 → F2 in kleinem Umfang → F3 für die Beispielseite → F4 für deren Appear-Effekte → F7; danach breitere Abdeckung von Seiten, CMS und Interaktionen. Architekturänderungen setzen die jeweils genannten ADR-Entscheidungen voraus.

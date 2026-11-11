@@ -2027,7 +2027,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       if (name === "") return;
       const previous = selectedClassId;
       try {
-        const rule = createClassRule({ id: newNodeId(), name, order: rules.length });
+        const rule = { ...createClassRule({ id: newNodeId(), name, order: rules.length }), authoredBy: "user" as const };
         selectedClassId = rule.id;
         options.store.applyBatch([
           { op: "upsertStyleRule", rule },
