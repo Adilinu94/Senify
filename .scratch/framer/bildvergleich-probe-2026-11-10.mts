@@ -58,13 +58,19 @@ const browser = await chromium.launch({ headless: true });
 async function sammeln(page: import("playwright").Page): Promise<Map<string, object>> {
   await page.evaluate(async () => {
     await document.fonts.ready;
+    for (const image of Array.from(document.images)) image.loading = "eager";
+    await Promise.all(
+      Array.from(document.images).map((image) =>
+        image.decode().catch(() => undefined),
+      ),
+    );
     const step = Math.max(320, window.innerHeight * 0.8);
     for (let y = 0; y < Math.min(document.body.scrollHeight, 16000); y += step) {
       window.scrollTo(0, y);
       await new Promise((done) => setTimeout(done, 100));
     }
     window.scrollTo(0, 0);
-    await new Promise((done) => setTimeout(done, 800));
+    await new Promise((done) => setTimeout(done, 1200));
   });
   const liste = await page.evaluate(() => {
     return Array.from(document.images).map((image) => {
@@ -81,7 +87,16 @@ async function sammeln(page: import("playwright").Page): Promise<Map<string, obj
   });
   const map = new Map<string, object>();
   for (const eintrag of liste) {
-    if (eintrag.schluessel && !map.has(eintrag.schluessel)) map.set(eintrag.schluessel, eintrag);
+    if (!eintrag.schluessel) continue;
+    const vorhanden = map.get(eintrag.schluessel) as { box: number[]; anzahl: number } | undefined;
+    if (vorhanden === undefined) {
+      map.set(eintrag.schluessel, { ...eintrag, anzahl: 1 });
+      continue;
+    }
+    vorhanden.anzahl += 1;
+    const flaeche = eintrag.box[2] * eintrag.box[3];
+    const alteFlaeche = vorhanden.box[2] * vorhanden.box[3];
+    if (flaeche > alteFlaeche) map.set(eintrag.schluessel, { ...eintrag, anzahl: vorhanden.anzahl });
   }
   return map;
 }
@@ -104,12 +119,12 @@ try {
         console.log(`nur im Build: ${schluessel}`);
         continue;
       }
-      const a = wert as { box: number[]; nodeId: string | null };
-      const b = gegen as { box: number[] };
+      const a = wert as { box: number[]; nodeId: string | null; anzahl: number };
+      const b = gegen as { box: number[]; anzahl: number };
       const delta = a.box.map((zahl, index) => Math.round(zahl - b.box[index]));
       if (delta.some((zahl) => Math.abs(zahl) > 5)) {
         abweichend += 1;
-        console.log(`abweichend ${schluessel}: build=${a.box.join("x")} original=${b.box.join("x")} delta=${delta.join(",")} node=${a.nodeId}`);
+        console.log(`abweichend ${schluessel}: build=${a.box.join("x")} (${a.anzahl}x) original=${b.box.join("x")} (${b.anzahl}x) delta=${delta.join(",")} node=${a.nodeId}`);
       }
     }
     console.log(`Abweichende Bilder: ${abweichend}`);
