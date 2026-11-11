@@ -274,6 +274,8 @@ export const PRIMITIVES: readonly PrimitiveDefinition[] = [
       area("text", "Überschrift", "Neue Überschrift"),
       choose("level", "Ebene", S("h1", "h2", "h3", "h4", "h5", "h6"), "h2"),
       text("eyebrow", "Kicker", ""),
+      url("link", "Link-Ziel", ""),
+      toggle("newTab", "Neuer Tab", false),
     ],
     styleGroups: ["spacing", "typography", "color", "effects"],
   },

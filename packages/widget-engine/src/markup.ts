@@ -215,6 +215,22 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
       const eyebrow = text(props, "eyebrow");
       const children: ElementSpec[] =
         eyebrow === "" ? [] : [{ tag: "span", classes: [modifier("heading", "eyebrow")], text: eyebrow }];
+      // A safe target wraps the text in an anchor inside the heading (the level
+      // stays the heading's); an empty or unsafe one renders no link at all.
+      const target = linkOf(props, "link");
+      if (target.href !== "" && isSafeHref(target.href)) {
+        const newTab = flag(props, "newTab") || target.newTab;
+        children.push({
+          tag: "a",
+          classes: [modifier("heading", "link")],
+          attrs: {
+            href: target.href,
+            ...(newTab ? { target: "_blank", rel: "noopener noreferrer" } : {}),
+          },
+          text: text(props, "text"),
+        });
+        return { tag, classes: [primitiveClass("heading")], children, root: true };
+      }
       return { tag, classes: [primitiveClass("heading")], children, text: text(props, "text"), root: true };
     }
 
@@ -804,6 +820,9 @@ const PART_RESET: Readonly<Record<string, readonly string[]>> = {
     "text-align: left;",
   ],
   ".w-accordion--summary": ["cursor: pointer;"],
+  // The anchor inside a linked heading takes the heading's type and colour; the
+  // heading's own style is what the author sets.
+  ".w-heading--link": ["color: inherit;", "font: inherit;"],
 };
 
 export function primitiveResetCss(): string {
