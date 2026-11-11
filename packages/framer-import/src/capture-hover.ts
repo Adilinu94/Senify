@@ -38,13 +38,21 @@ export type HoverMeasurement = {
   childrenChanged: boolean;
 };
 
-// Bounds the pass: one candidate costs about 0.7 s (rest, double read, hover).
+// Bounds the pass: one candidate costs about 1 s (rest, double read, hover with
+// at least HOVER_MIN_MS), up to 2 s for an element that never rests.
 const MAX_CANDIDATES = 40;
 const DEADLINE_MS = 45_000;
 const REST_MS = 150;
 const STABLE_MS = 80;
-const HOVER_MS = 450;
+// The hover read starts after HOVER_MIN_MS (past the onset of the runtime's
+// animation) and gives up after HOVER_MAX_MS.
+const HOVER_MIN_MS = 300;
+const HOVER_MAX_MS = 1_500;
 const MIN_SIDE_PX = 4;
+
+function sameOwn(a: Record<string, string>, b: Record<string, string>): boolean {
+  return HOVER_PROPERTIES.every((property) => a[property] === b[property]);
+}
 
 // Runs in the page. `window.senifyHoverCandidates()` lists the stamped links
 // and buttons that have a size; `window.senifyHoverRead(key)` reads the fixed
@@ -93,6 +101,21 @@ export async function measureHover(page: import("playwright").Page): Promise<Hov
   const keys = (await page.evaluate("window.senifyHoverCandidates()")) as string[];
   const read = async (key: string): Promise<HoverRead> =>
     (await page.evaluate(`window.senifyHoverRead(${JSON.stringify(key)})`)) as HoverRead;
+  // The runtime animates the switch (measured on the Relay source: it starts
+  // after 100-160 ms and runs about 300 ms). Read on until two reads 80 ms
+  // apart agree; an element that never rests ends at the cap and is dropped by
+  // the rest check above.
+  const readSettled = async (key: string): Promise<HoverRead> => {
+    let last = await read(key);
+    const started = Date.now();
+    while (last !== null && Date.now() - started < HOVER_MAX_MS) {
+      await page.waitForTimeout(STABLE_MS);
+      const next = await read(key);
+      if (next === null || (next.kids === last.kids && sameOwn(next.own, last.own))) return next;
+      last = next;
+    }
+    return last;
+  };
   const out: HoverMeasurement[] = [];
   const started = Date.now();
   for (const key of keys) {
@@ -105,8 +128,8 @@ export async function measureHover(page: import("playwright").Page): Promise<Hov
       const settled = await read(key);
       if (before === null || settled === null) continue;
       await page.locator(`[data-senify-ir-key="${key}"]`).first().hover({ timeout: 2_000 });
-      await page.waitForTimeout(HOVER_MS);
-      const after = await read(key);
+      await page.waitForTimeout(HOVER_MIN_MS);
+      const after = await readSettled(key);
       if (after === null) continue;
       const values: Record<string, string> = {};
       for (const property of HOVER_PROPERTIES) {

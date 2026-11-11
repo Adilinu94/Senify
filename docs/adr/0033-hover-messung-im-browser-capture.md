@@ -20,6 +20,10 @@ Die vier offenen Fragen aus Issue 08 sind klein entschieden:
    `box-shadow`, `text-decoration-line`, `filter`. Eine Eigenschaft zählt nur, wenn sie sich beim Hover
    ändert und vorher zweimal im Abstand von 80 ms gleich war. Selbst animierte Elemente (Puls, Marquee)
    liefern so keinen falschen Hover. Es wird keine Übergangszeit abgeleitet; der Hover springt.
+   **Messzeitpunkt (Nachtrag 11.11.2026):** Die Laufzeit animiert den Wechsel selbst. An der Relay-Quelle
+   beginnt er nach etwa 100 bis 160 ms und läuft rund 300 ms; bei zwei von fünf Knoten stand nach den
+   ursprünglich fest gewarteten 450 ms noch ein Zwischenwert. Der Capture wartet deshalb mindestens 300 ms
+   und liest dann weiter, bis zwei Messungen im Abstand von 80 ms gleich sind, höchstens 1,5 s.
 2. **Zuordnung:** über den IR-Schlüsselstempel (`senifyStampKeys`), der nach dem Auslesen von Markup und
    CSS erneut gesetzt wird, weil Hovern die Laufzeit Varianten umschalten lässt und danach kein Markup mehr
    gelesen wird.
@@ -28,12 +32,13 @@ Die vier offenen Fragen aus Issue 08 sind klein entschieden:
 4. **Geräte:** nur Desktop, gemessen bei der Capture-Breite. Kein `(hover: hover)`-Schutz.
 
 Eine Regel aus dem Stylesheet gewinnt: die Messung ergänzt nur Eigenschaften, die das Stylesheet nicht nennt.
-Mit `hover: "off"` entfällt der Durchlauf (etwa 0,7 s je Kandidat).
+Mit `hover: "off"` entfällt der Durchlauf (etwa 1 s je Kandidat, bei selbst animierten Elementen bis 2 s).
 
 ## Folgen
 
 - Gegen die Relay-Quelle liefert der Capture dieselben 5 Knoten wie die Handmessung.
-- Offen: Übergangszeit, Eltern-Hover mit Kindern, Tablet/Mobil und Touch.
+- Offen: Übergangszeit (an der Relay-Quelle gemessen: Verzögerung etwa 100 bis 160 ms, Dauer rund 300 ms,
+  Skript `.scratch/motion-import/hover-dauer-probe.mts`; im Import springt der Hover weiter), Eltern-Hover mit Kindern, Tablet/Mobil und Touch.
 - Der Ausgangspunkt der Maus (Ecke 1,1) kann selbst ein Hover-Ziel sein; ein Element dort zeigt keinen Unterschied.
 - Belegt durch `packages/framer-import/test/capture-hover.test.ts` (lokale Seite, Laufzeit-Stil per Skript,
   Pipeline bis ins gebackene `:hover`-CSS).

@@ -27,3 +27,7 @@ Ein Import mit `capture: "browser"` müsste Hover-Zustände messen: Kandidaten (
 ## Nicht entschieden
 
 Die Messung belegt das Vorkommen auf einer Quelle. Sie belegt nicht, wie häufig das bei anderen Framer-Seiten ist.
+
+## Nachtrag 11.11.2026: Übergang der Quelle
+
+Gemessen mit .scratch/motion-import/hover-uebergang-probe.mts und hover-dauer-probe.mts an derselben Quelle: Alle 5 Hover-Knoten gleiten (Zwischenwerte nach 30 und 120 ms), obwohl das CSS 	ransition-duration: 0s hat. Der Wechsel beginnt nach etwa 100 bis 160 ms und endet nach rund 300 ms (letzter Wertwechsel bei 214 bis 457 ms). Folge 1 (umgesetzt): Der Messzeitpunkt wartet auf das Ende der Animation. Folge 2 (offen): Der Import gibt 	ransition nicht weiter, der Hover springt dort. Ob eine Übergangszeit ableitbar ist, entscheidet ein eigener Schritt mit eigener ADR.

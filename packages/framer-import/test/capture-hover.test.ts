@@ -37,6 +37,7 @@ body { margin: 0; }
 <a class="still" href="#b" data-framer-name="Ruhig" style="background-color: rgb(255, 255, 255)">Ruhig</a>
 <a class="sheet" href="#c" data-framer-name="Stylesheet">Stylesheet</a>
 <a class="pulse" href="#d" data-framer-name="Puls" style="opacity: 1">Puls</a>
+<a class="slow" href="#e" data-framer-name="Langsam" style="background-color: rgb(255, 255, 255)">Langsam</a>
 <div class="card" data-framer-name="Karte" style="width:160px;height:40px"><span class="kid" style="color: rgb(0, 0, 0)">Kind</span></div>
 </div>
 <script>
@@ -52,6 +53,22 @@ body { margin: 0; }
   var sheet = document.querySelector(".sheet");
   sheet.addEventListener("mouseenter", function () { sheet.style.color = "rgb(9, 9, 9)"; sheet.style.opacity = "0.5"; });
   sheet.addEventListener("mouseleave", function () { sheet.style.color = ""; sheet.style.opacity = ""; });
+  var slow = document.querySelector(".slow");
+  var slowRun = 0;
+  slow.addEventListener("mouseenter", function () {
+    var run = ++slowRun;
+    setTimeout(function () {
+      var t0 = performance.now();
+      (function frame(now) {
+        if (run !== slowRun) return;
+        var p = Math.min(1, (now - t0) / 500);
+        var v = Math.round(255 - (255 - 17) * p);
+        slow.style.backgroundColor = "rgb(" + v + ", " + v + ", " + v + ")";
+        if (p < 1) requestAnimationFrame(frame);
+      })(t0);
+    }, 150);
+  });
+  slow.addEventListener("mouseleave", function () { slowRun++; slow.style.backgroundColor = "rgb(255, 255, 255)"; });
   var pulse = document.querySelector(".pulse");
   setInterval(function () { pulse.style.opacity = String(0.3 + Math.random() * 0.7); }, 15);
   var card = document.querySelector(".card");
@@ -102,6 +119,14 @@ describe.skipIf(!browserAvailable)("captureBrowser misst Hover-Zustände", () =>
     expect(hover?.["opacity"]).toBe("0.8");
     // Nur Eigenschaften, die sich ändern: die Textfarbe blieb gleich.
     expect(hover?.["color"]).toBeUndefined();
+  }, 90_000);
+
+  it("wartet, bis ein langsamer Übergang fertig ist, und legt den Endwert ab", async () => {
+    // Per Skript animiert, wie die Laufzeit: 150 ms Verzögerung plus 500 ms Dauer,
+    // nach 450 ms steht erst ein Zwischenwert. CSS-Übergänge friert der Capture ein.
+    const result = await captureBrowser({ url: `${origin}/`, settleMs: 200 });
+    const hover = byName(result.document, "Langsam").states[0]?.interactions?.hover;
+    expect(hover?.["background-color"]).toBe("rgb(17, 17, 17)");
   }, 90_000);
 
   it("lässt einen Link ohne Hover-Änderung und einen selbst animierten Link unberührt", async () => {
