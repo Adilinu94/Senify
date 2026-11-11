@@ -23,4 +23,4 @@ Relay `/` meldet 48, `/contact` 16 Grafiken als Data-URL in einem Stilausdruck. 
 
 ## Grenze
 
-Die Pixelabnahme des Badge-Rings im Browser steht aus; belegt ist der Asset-Weg und der verschwundene Bauverlust. Die Live-Quelle ist veränderlich, für Wiederholungen eine eingefrorene Kopie verwenden.
+Die Pixelabnahme des Badge-Rings im Browser steht aus; belegt ist der Asset-Weg und der verschwundene Bauverlust. Die Messung am 11.11.2026 zeigt am Punkt vor „200+ Firms already enrolled“ einen eigenen Motion-Fall: Der Build verliert die Inline-Zentrierung und blendet aus statt zu pulsieren (`.scratch/motion-import/issues/07-punkt-puls.md`). Die Live-Quelle ist veränderlich, für Wiederholungen eine eingefrorene Kopie verwenden.

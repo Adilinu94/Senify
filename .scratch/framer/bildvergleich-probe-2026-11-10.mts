@@ -4,7 +4,9 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { chromium } from "playwright";
 
-const BUILD = resolve(".scratch/framer-live-2026-11-09/structure-relay6-2026-11-10/relay/before");
+const BUILD = resolve(
+  process.env["SENIFY_PROBE_DIR"] ?? ".scratch/framer-live-2026-11-09/structure-relay6-2026-11-10/relay/before",
+);
 const ORIGIN = "https://gracious-balance-599544.framer.app";
 
 if (!existsSync(BUILD)) throw new Error(`Build fehlt: ${BUILD}`);
@@ -102,7 +104,7 @@ async function sammeln(page: import("playwright").Page): Promise<Map<string, obj
 }
 
 try {
-  for (const breite of [768, 390]) {
+  for (const breite of [1440, 768, 390]) {
     const context = await browser.newContext({ viewport: { width: breite, height: 1024 } });
     const buildSeite = await context.newPage();
     const originalSeite = await context.newPage();

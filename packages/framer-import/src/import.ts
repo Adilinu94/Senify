@@ -261,22 +261,37 @@ function mergeStatesBySignature(
   // "Careers" button carry the same base classes, so the outline button's
   // transparent background and inset border landed on the hero button: dark
   // text on the transparent dark hero, the button disappeared.
-  const signature = (node: SigNode): string =>
-    `${node.tag}|${[...(node.baseClasses ?? [])].sort().join("|")}|${[...(node.variantClasses ?? [])].sort().join("|")}|${node.htmlId ?? ""}`;
+  const signature = (node: SigNode, context: string): string => {
+    const own = `${node.tag}|${[...(node.baseClasses ?? [])].sort().join("|")}|${[...(node.variantClasses ?? [])].sort().join("|")}|${node.htmlId ?? ""}`;
+    // An element without a class, a variant or an id has no name of its own:
+    // every such `<div>` shares the bare tag, and the pairing fell back to
+    // document order. Measured on Relay `/`: the portrait wrapper took the
+    // tablet state of a logo card (190 x 70 instead of the parent's aspect
+    // ratio), and one logo card took 330 x 210. The nearest classed ancestor
+    // supplies the missing context; elements with their own tokens keep the
+    // signature that the repeated cards rely on.
+    const named =
+      (node.baseClasses ?? []).length > 0 ||
+      (node.variantClasses ?? []).length > 0 ||
+      (node.htmlId ?? null) !== null;
+    return named ? own : `${own}|${context}`;
+  };
   const bySignature = new Map<string, SigNode[]>();
-  const collect = (node: SigNode): void => {
-    const key = signature(node);
+  const collect = (node: SigNode, context: string): void => {
+    const key = signature(node, context);
     const list = bySignature.get(key) ?? [];
     list.push(node);
     bySignature.set(key, list);
-    for (const child of node.children) collect(child);
+    const nextContext =
+      (node.baseClasses ?? []).length > 0 ? [...(node.baseClasses ?? [])].sort().join("|") : context;
+    for (const child of node.children) collect(child, nextContext);
   };
-  collect(statik.pages[0]?.root as SigNode);
+  collect(statik.pages[0]?.root as SigNode, "");
 
   const used = new Map<string, number>();
   let merged = 0;
-  const apply = (node: SigNode): void => {
-    const key = signature(node);
+  const apply = (node: SigNode, context: string): void => {
+    const key = signature(node, context);
     const list = bySignature.get(key);
     const at = used.get(key) ?? 0;
     if (list !== undefined && at < list.length) {
@@ -314,9 +329,11 @@ function mergeStatesBySignature(
         }
       }
     }
-    for (const child of node.children) apply(child);
+    const nextContext =
+      (node.baseClasses ?? []).length > 0 ? [...(node.baseClasses ?? [])].sort().join("|") : context;
+    for (const child of node.children) apply(child, nextContext);
   };
-  apply(browser.pages[0]?.root as SigNode);
+  apply(browser.pages[0]?.root as SigNode, "");
   return merged;
 }
 
