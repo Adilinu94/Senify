@@ -99,10 +99,10 @@ describe.skipIf(!browserAvailable)("die gebackene Feder l├ñuft wie die Quelle
   it("tr├ñgt die gel├╢ste Kurve als linear() und die Staffelung als Verz├╢gerung", () => {
     // The declaration must be the solved curve, not `ease-out`: a spring is not
     // a timing function, and Framer hands the browser sampled values.
-    expect(css).toMatch(/animation:\s*senify-appear-word0-default\s+[\d.]+s\s+linear\(/);
+    expect(css).toMatch(/animation:\s*senify-appear-[0-9a-f]{6}-word0-default\s+[\d.]+s\s+linear\(/);
     for (const [index, delay] of STAGGER.entries()) {
       expect(css).toMatch(
-        new RegExp(`senify-appear-word${index}-default\\s+[\\d.]+s\\s+linear\\([^)]*\\)\\s*${delay}s both`),
+        new RegExp(`senify-appear-[0-9a-f]{6}-word${index}-default\\s+[\\d.]+s\\s+linear\\([^)]*\\)\\s*${delay}s both`),
       );
     }
   });
