@@ -744,6 +744,11 @@ dialog.ask-dialog p {
   overflow-wrap: anywhere;
 }
 
+/* Ein langer Name ohne Leerzeichen steht auch in der Ueberschrift. */
+dialog.ask-dialog h2 {
+  overflow-wrap: anywhere;
+}
+
 dialog.ask-dialog [aria-invalid="true"] {
   border-color: var(--danger, var(--ui-signal-danger));
 }
