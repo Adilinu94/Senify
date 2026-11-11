@@ -1,5 +1,7 @@
 # Elementor-Abgleich: erster geprüfter Ablauf
 
+> **Korrektur (11.11.2026):** Die Gegenüberstellung `Content / Style / Advanced` unten stammt aus der englischen Core-Referenz 4.3.6. In der live geprüften Installation 4.2.3 (deutsch) heißen die Heading-Tabs ebenfalls `Allgemein / Stil / Interaktionen`. Der Unterschied ist ein Umgebungsunterschied, kein Senify-Unterschied. Fortsetzung mit Live-Abgleich: `elementor-live/befunde-2026-11-11.md`.
+
 Stand: 11.11.2026. Basis dieses isolierten Editor-Arbeitszweigs: `821d2bd`. Der Hauptarbeitsbaum wurde parallel weiterentwickelt; vor Integration und weiterer Bewertung ist der aktuelle Stand abzugleichen.
 
 ## Umfang und Methode
