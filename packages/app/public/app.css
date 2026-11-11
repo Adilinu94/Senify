@@ -3948,6 +3948,15 @@ body.is-editor .view.editor-view > .toolbar > .senify-canvas__topbar {
   background: transparent;
   font-size: inherit;
 }
+@media (max-width: 1100px) {
+  /* Unter 1100 px stapelt der Editor ohnehin; die Leiste bricht um, statt die
+     Seite seitwaerts zu verbreitern (Elementor-Abgleich 11.11.2026). */
+  body.is-editor .view.editor-view > .toolbar {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+    padding-block: 0.4rem;
+  }
+}
 @media (min-width: 1101px) {
   body.is-editor {
     overflow: hidden;
