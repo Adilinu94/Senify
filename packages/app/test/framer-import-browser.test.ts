@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -21,7 +21,7 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
       openBrowser: false,
       rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 },
     });
-    const html = `<!doctype html><html><head><title>Import Dialog</title></head><body><div id="main"><main><h1>Import Dialog</h1><p>Bericht sichtbar</p></main></div></body></html>`;
+    const html = `<!doctype html><html><head><title>Import Dialog</title></head><body><div id="main"><main><h1>Import Dialog</h1><p>Bericht sichtbar</p><a href="/ziel">Hallo <strong>Welt</strong> fertig</a></main></div></body></html>`;
     const sourceFile = join(dataDir, "source.html");
     writeFileSync(sourceFile, html, "utf8");
     const browser = await chromium.launch({ headless: true });
@@ -130,6 +130,76 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
         { timeout: 20000 },
       ).toBe(0);
       expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+      await running.close();
+      await database.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("zeigt den gemischten Link im Editor mit Beschriftung und Inhalt", async () => {
+    const { chromium } = await import("playwright");
+    const database = memoryDb();
+    const dataDir = mkdtempSync(join(tmpdir(), "senify-framer-link-"));
+    const running = await startProgram({
+      db: database.db,
+      dataDir,
+      programTokenFile: join(dataDir, "program-token.json"),
+      enginePort: 0,
+      appPort: 0,
+      openBrowser: false,
+      rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 },
+    });
+    const html = `<!doctype html><html><head><title>Link</title></head><body><div id="main"><main><a href="/ziel">Hallo <strong>Welt</strong> fertig</a></main></div></body></html>`;
+    const mirrorDir = join(dataDir, "mirror");
+    mkdirSync(mirrorDir, { recursive: true });
+    writeFileSync(join(mirrorDir, "index.html"), html, "utf8");
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const post = (path: string, body: unknown): Promise<Response> =>
+        fetch(`${running.dashboardUrl}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      const site = (await (await post("/api/sites", { name: "Link-Import" })).json()) as { id: string };
+      const page = (await (
+        await post(`/api/sites/${site.id}/pages`, { title: "Start", path: "/" })
+      ).json()) as { id: string };
+      const context = await browser.newContext({ viewport: { width: 1600, height: 1000 } });
+      const tab = await context.newPage();
+      await tab.goto(`${running.dashboardUrl}/#/projects/${site.id}/pages/${page.id}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await tab.waitForSelector('[data-action="canvas-overflow"]', { timeout: 30000 });
+      await tab.locator('[data-action="canvas-overflow"]').click();
+      await tab.waitForSelector('[data-action="framer-import-open"]', { state: "visible" });
+      await tab.locator('[data-action="framer-import-open"]').click();
+      await tab.waitForSelector('[data-role="framer-import-dialog"]', { timeout: 10000 });
+      await tab.selectOption('[data-role="framer-source-mode"]', "mirror");
+      await tab.fill('[data-role="framer-source-input"]', mirrorDir);
+      await tab.selectOption('[data-role="framer-output"]', "structure");
+      await tab.selectOption('[data-role="framer-target"]', "current");
+      await tab.locator('[data-role="framer-import-dialog"] button[type="submit"]').click();
+      await tab.waitForSelector('[data-role="framer-import-report"] .framer-report', { timeout: 30000 });
+      await tab.locator('[data-action="framer-import-apply"]').click();
+      await tab.waitForSelector('[data-action="framer-import-close"]', { timeout: 30000 });
+      await tab.locator('[data-action="framer-import-close"]').click();
+
+      const rahmen = tab.locator('.senify-canvas__frame[data-device="desktop"] iframe').contentFrame();
+      await expect.poll(() => rahmen.locator('[data-widget="link"]').count(), { timeout: 20000 }).toBe(1);
+      await rahmen.locator('[data-widget="link"]').click();
+      await expect.poll(
+        () => tab.locator('.senify-inspector__field[data-key="label"]').count(),
+        { timeout: 10000 },
+      ).toBe(1);
+      expect(
+        await tab.locator('.senify-inspector__field[data-key="label"] input').inputValue(),
+      ).toBe("Hallo Welt fertig");
+      expect(
+        await tab.locator('.senify-inspector__field[data-key="html"] textarea').inputValue(),
+      ).toContain("<strong>Welt</strong>");
     } finally {
       await browser.close();
       await running.close();

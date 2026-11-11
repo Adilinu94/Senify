@@ -22,6 +22,10 @@ Gemessen am gebackenen Relay6-Build, Desktop 1440 px, Link `fi-8a5eda-756` (Blog
 
 Beleg: `.scratch/framer-live-2026-11-09/visual-settle2-2026-11-10/result.json` (`linkSample.desktop`), Bild `start/desktop/link-sample.png`.
 
+## Editor-Abnahme 11.11.2026
+
+`packages/app/test/framer-import-browser.test.ts` importiert `<a href="/ziel">Hallo <strong>Welt</strong> fertig</a>` über den Mirror-Pfad, schließt den Importdialog und klickt den Link im Canvas. Der Inspector zeigt das Feld `label` mit „Hallo Welt fertig“ und das Feld `html` mit `<strong>Welt</strong>`; die Datei ist 4/4 grün (der neue Fall und die drei bestehenden).
+
 ## Rest
 
-Ein Hover-Sample ist nicht möglich: der Build enthält keine `:hover`-Regel, und der Import übernimmt keine Hover-Interaktionen. Der Editor zeigt Beschriftung und Inhalt nebeneinander; diese Oberfläche ist nicht visuell abgenommen. Ein Link ohne Motion bleibt unverändert.
+Ein Hover-Sample ist nicht möglich: der Build enthält keine `:hover`-Regel, und der Import übernimmt keine Hover-Interaktionen. Ein Link ohne Motion bleibt unverändert.
