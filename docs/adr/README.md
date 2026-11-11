@@ -35,10 +35,11 @@
 | [ADR-0030](0030-historische-tokenmigration-bei-umbenennung.md) | Historische Tokenverweise bei einer Umbenennung | angenommen |
 | [ADR-0031](0031-lokale-stile-vor-globalen-klassen.md) | Bedingung vor Herkunft, lokal vor global bei gleicher Bedingung | angenommen |
 | [ADR-0032](0032-ausgabeart-framer-import.md) | Ausgabeart beim Framer-Import | angenommen |
+| [ADR-0033](0033-hover-messung-im-browser-capture.md) | Hover-Zustände aus dem Browser-Capture | angenommen |
 
 ## Nächste Nummer
 
-Die nächste freie Nummer ist `ADR-0033`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
+Die nächste freie Nummer ist `ADR-0034`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
 
 ## Regeln
 

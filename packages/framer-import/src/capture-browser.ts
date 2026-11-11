@@ -67,6 +67,7 @@ import { fileURLToPath } from "node:url";
 import { SenifyError } from "@senify/core";
 import { blockedAddressError, isAllowedBrowserUrl } from "@senify/core/net";
 import { captureHtml, type CaptureHtmlInput } from "./capture-html.ts";
+import { measureHover, mergeHoverMeasurements, type HoverMeasurement } from "./capture-hover.ts";
 import type {
   FramerIrDocument,
   IrAppearSpec,
@@ -90,6 +91,10 @@ export type CaptureBrowserInput = {
   // "off" (default) never starts the runtime's own motion — the capture
   // reads the settled baseline. "live" is the diagnostic mode for S3/S5.
   motion?: "off" | "live";
+  // "measure" (default) hovers links and buttons of the live page and files
+  // what the runtime changes as `interactions.hover` (capture-hover.ts).
+  // "off" skips the pass, which costs about 0.7 s per candidate.
+  hover?: "measure" | "off";
 };
 
 export type BrowserCaptureResult = {
@@ -754,6 +759,16 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
       }
       return result.join("\n");
     });
+    // The hover pass comes LAST among the reads of the live page: hovering lets
+    // the runtime switch variants, so no markup is taken after it. The markup is
+    // already in `ssrHtml`; the stamp goes back on (same walk, same tree, same
+    // keys) so a hovered element can be named by its IR key.
+    let hoverMeasurements: HoverMeasurement[] = [];
+    if (input.hover !== "off") {
+      await page.evaluate("window.senifyStampKeys()");
+      hoverMeasurements = await measureHover(page);
+      await page.evaluate("window.senifyUnstampKeys()");
+    }
     // A probe names its target three ways: by the IR key the stamp wrote (the
     // exact node), by a CSS selector (`keyIndex`), or — for an element outside
     // the stamped tree — by its nth-child path, which addresses no node and
@@ -824,6 +839,7 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     };
     const document = captureHtml(capture);
     document.source.kind = "browser";
+    mergeHoverMeasurements(document, hoverMeasurements);
     // MERGE, never replace: `captureHtml` has already turned the page's appear
     // JSON into samples with their start values, and those are the ones the
     // motion mapper can translate. The browser adds what the static channels

@@ -1,6 +1,6 @@
 # Hover-Zustände der Framer-Quelle
 
-Status: needs-triage (gemessen, nicht umgesetzt)
+Status: erste Stufe umgesetzt (ADR-0033), Rest offen: Uebergangszeit, Eltern-Hover, Tablet/Mobil
 Label: needs-triage
 
 ## Befund
