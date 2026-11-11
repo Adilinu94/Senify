@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRegistry } from "@senify/registry";
 import { defaultTheme } from "@senify/tokens";
-import { createClassRule, createScopedRule } from "@senify/widget-engine";
+import { createClassRule, createScopedRule, PRIMITIVES } from "@senify/widget-engine";
 import { buildInspector, motionSpecFrom, numberPart, tokenRefOf, unitOfValue } from "@senify/editor";
 import {
   createComponent,
@@ -71,6 +71,48 @@ describe("buildInspector", () => {
       .find((field) => field.key === "level");
     expect(level?.kind).toBe("select");
     expect(level?.options?.map((option) => option.value)).toContain("h2");
+  });
+
+  // Elementor-Abgleich 11.11.2026, Befund B1: a fresh heading carries no props,
+  // the canvas renders the catalog default h2, the select used to show the
+  // first option (h1). Shown value and rendered value must agree.
+  it("shows the catalog default in a select whose prop is not set", () => {
+    const store = baseStore();
+    store.apply({
+      op: "insertNode",
+      parent: { nodeId: "sec0000001" },
+      node: { primitive: "heading", id: "head000002", props: {} },
+    });
+    const model = buildInspector({ document: store.document, nodeId: "head000002", breakpoint: "desktop" });
+    const level = model?.tabs
+      .find((tab) => tab.id === "content")
+      ?.groups.flatMap((group) => group.fields)
+      .find((field) => field.key === "level");
+    expect(level?.value).toBe("h2");
+  });
+
+  it("falls back to the catalog default for every select control of the catalog", () => {
+    const store = baseStore();
+    const misses: string[] = [];
+    for (const [index, primitive] of PRIMITIVES.entries()) {
+      if (primitive.type === "root") continue;
+      const id = `probe${String(index).padStart(5, "0")}`;
+      store.apply({
+        op: "insertNode",
+        parent: { nodeId: "sec0000001" },
+        node: { primitive: primitive.type, id, props: {} },
+      });
+      const model = buildInspector({ document: store.document, nodeId: id, breakpoint: "desktop" });
+      const fields = model?.tabs.flatMap((tab) => tab.groups.flatMap((group) => group.fields)) ?? [];
+      for (const control of primitive.controls) {
+        if (control.kind !== "select" && control.kind !== "choose") continue;
+        const field = fields.find((entry) => entry.key === control.key);
+        if (field !== undefined && field.value !== control.default) {
+          misses.push(`${primitive.type}.${control.key}: ${String(field.value)} != ${String(control.default)}`);
+        }
+      }
+    }
+    expect(misses).toEqual([]);
   });
 
   // The twin names (divider/embed) are rendered by the running section until

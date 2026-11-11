@@ -783,13 +783,18 @@ function controlToField(
   breakpoint: Device,
   theme: Theme | undefined,
 ): InspectorField {
-  const value = resolveDeviceValue(node.props, control.key, breakpoint);
+  const kind = kindForControl(control);
+  // A select cannot show "unset": the browser would display its first option
+  // while the renderer uses the catalog default. Only the shown value falls
+  // back; `base` and `overridden` keep describing what the node really stores.
+  const stored = resolveDeviceValue(node.props, control.key, breakpoint);
+  const value = stored === undefined && kind === "select" ? control.default : stored;
   const base = resolveDeviceValue(node.props, control.key, "desktop");
   const responsive = control.responsive !== false;
   const field: InspectorField = {
     key: control.key,
     label: control.label,
-    kind: kindForControl(control),
+    kind,
     commit: { kind: "prop" },
     value,
     base,
