@@ -109,7 +109,7 @@ describe("one motion, one owner", () => {
       ];
       const css = files.map((file) => readFileSync(file, "utf8")).join("\n");
       // The CSS reveal is there …
-      expect(css).toMatch(/senify-appear-hero-default\s+1\.4s/);
+      expect(css).toMatch(/senify-appear-[0-9a-f]{6}-hero-default\s+1\.4s/);
       // … and no preset animation was stamped onto the same node. The page
       // script reads its entries from `motion-data`; an entry for this node
       // would start a second reveal.

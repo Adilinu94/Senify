@@ -1,31 +1,41 @@
 # Puls-Punkt vor „200+ Firms already enrolled“
 
-Status: ready-for-agent
+Status: resolved 11.11.2026
 Label: ready-for-agent
 
 ## Befund
 
-Auf Relay `/` steht vor der Zeile „200+ Firms already enrolled“ ein 8 x 8 px großer Punkt (`fi-8a5eda-59`). Die Quelle rendert **einen** Punkt: Das Kästchen hat zwei Kinder, beide 8 x 8 px an derselben Stelle; das erste pulsiert (Inline `transform: translate(-50%, -50%) scale(0.353582)` mit `will-change: transform`, `opacity: 0.5`), das zweite ist der statische Punkt (`opacity: 1`). Der Build zeigt an derselben Stelle **zwei versetzte Punkte** (Ausschnitt `build-punkt.png` gegen `original-punkt.png`).
+Auf Relay `/` steht vor der Zeile „200+ Firms already enrolled“ ein 8 x 8 px großer Punkt (`fi-8a5eda-59`). Die Quelle rendert **einen** Punkt: Das Kästchen hat zwei Kinder, beide 8 x 8 px an derselben Stelle; das erste pulsiert (Inline `transform: translate(-50%, -50%) scale(0.353582)` mit `will-change: transform`, `opacity: 0.5`), das zweite ist der statische Punkt (`opacity: 1`). Der Build zeigte an derselben Stelle **zwei versetzte Punkte** (Ausschnitt `build-punkt.png` gegen `original-punkt.png`).
 
-## Ursache (am Build gemessen)
+## Ursache (drei Stellen, alle am Build gemessen)
 
-- Der Build schreibt für `fi-8a5eda-60` `animation: senify-appear-n47-default 0.7s … both` mit `@keyframes senify-appear-n47-default{from{opacity:0.5;transform:none}to{opacity:0;transform:none}}`. Der Punkt blendet also **aus** statt zu pulsieren, und die Zentrierung fehlt.
-- Die Zentrierung steht in der Quelle nur im Inline-Stil: `transform: translate(-50%, -50%) scale(...)`. Der Capture verschiebt einen Inline-`transform` mit `will-change: transform` nach `appearInitial` und löscht ihn aus dem visuellen Zustand (Regel für Scroll-Reveals und Varianten). Beim Punkt liefert die Klassenregel keine Ersatz-Zentrierung, deshalb bleibt im Desktop-Zustand `top: 50%; left: 50%` ohne `translate(-50%, -50%)`; das Element sitzt 4 px versetzt.
-- Der gemessene Puls (`scale`, unendlich) ist nicht als Puls übernommen; übrig bleibt eine einmalige Ausblendung `0.5 → 0`.
+1. **Keyframe-Namen kollidierten zwischen Seiten.** Der Name war `senify-appear-<appearId>-<variante>`, und die Appear-ID ist der Stempel-Schlüssel des Browsers, der auf jeder Seite bei `n…` beginnt. Im gemeinsamen `style-rules.css` überschrieb die zweite Seite (`n47`, `0.001 → 1`) den Punkt der Startseite (`0.5 → 0`). Gemessen: 2 Definitionen von `senify-appear-n47-default` in Relay7, die zweite gewann.
+2. **Ein reiner Fade schrieb `transform:none`.** Der Keyframe überschrieb damit die Zentrierung des Elements für die Dauer des Effekts.
+3. **Die Inline-Zentrierung wanderte nach `appearInitial`.** `will-change:transform` mit `translate(-50%, -50%) scale(...)` schob den ganzen Transform in den Startzustand; die Klassenregel trägt die Zentrierung nicht, also blieb `top:50%; left:50%` ohne `translate` und der Punkt saß 4 px versetzt.
 
-## Nächster Schritt
+## Korrektur
 
-1. Im Capture unterscheiden: Ein Inline-`transform` mit `will-change: transform` ist nur dann Startzustand, wenn die Klassenregel den Ruhezustand trägt. Trägt sie ihn nicht (nur `top/left`), bleibt der verschiebende Anteil (`translate`) im visuellen Zustand.
-2. Im Appear-Compiler den gemessenen Puls erhalten (Iterationen unendlich) und die Keyframes mit der Zentrierung kombinieren, statt `transform:none` zu schreiben.
-3. Test: Ein Punkt mit `translate(-50%, -50%) scale(...)` und `will-change: transform`, dessen Klassenregel keine Zentrierung nennt, bleibt im Desktop-Zustand zentriert; die Keyframes behalten das `translate` und enden nicht bei `opacity: 0`, wenn die Quelle weiterpulsiert.
+- `compileAppearRules` nimmt die Seitenscope in den Keyframe-Namen: `senify-appear-<scope>-<appearId>-<variante>`. Relay9: 216 Keyframes, 0 doppelte Namen.
+- `frameOf` schreibt `transform` nur, wenn der Variantenzustand wirklich einen Transform-Kanal hat (`hasTransformChannel`). Ein reiner Fade lässt den Transform des Elements stehen.
+- `splitAppearTransform` trennt eine prozentuale `translate`-Zentrierung vom Bewegungsanteil. Der Capture hält die Zentrierung im visuellen Zustand und verschiebt nur `scale`, `rotate`, `skew` und Pixel-Translates nach `appearInitial`.
 
-## Abnahme
+## Ergebnis 11.11.2026
 
-Der Ausschnitt bei 1440 px zeigt **einen** 8-px-Punkt, keinen versetzten zweiten Punkt; die Zentrierung ist im Desktop-Zustand vorhanden. Ein Test deckt den Fall ab. Der Live-Vergleich nennt Datum und Quelle.
+- Relay9 (Live-Quelle `https://gracious-balance-599544.framer.app`, 11.11.2026): Basisregel des Punkts `width:8px; border-radius:125%; transform:translate(-50%, -50%)`; Keyframes `senify-appear-8a5eda-n47-default{from{opacity:0.5}…}` ohne `transform`.
+- Messung im Build bei 1440 px: Knoten `fi-8a5eda-60` und `fi-8a5eda-61` liegen beide auf `608,161` mit 8 x 8 px; der Fade-Knoten steht nach dem Abschluss auf `opacity:0`, der statische Punkt bleibt sichtbar. Ausschnitt `build-punkt-relay9.png` zeigt einen Punkt wie die Quelle.
+- Frischer IR-Capture: Desktop 8 px, Tablet 8 px, Mobil 48 px, Zentrierung in allen Zuständen. Relay8 hatte an dieser Stelle einen Ausreißer der veränderlichen Live-Quelle (Desktop-Zustand 48 px); Relay9 und der frische Capture stimmen.
+- Tests: `appear-channel.test.ts` (Zentrierung bleibt, Bewegung wandert), `appear-css.test.ts` (Namenscope, Fade ohne `transform`). Framer-Import-Suite 584 bestanden, 2 übersprungen; Typecheck und Lint grün.
+
+## Grenze
+
+Der Skalierungspuls der Quelle läuft über Framer-Motion im JavaScript und erscheint nicht als WAAPI-Keyframe; gemessen ist nur die einmalige Deckkraft-Einblendung `0.5 → 0`. Der Build hält deshalb den Ruhepunkt und die gemessene Einblendung, reproduziert aber den Puls selbst nicht. Das ist eine benannte Grenze, kein stiller Verlust.
 
 ## Belege
 
 - `.scratch/framer/badge-quelle-2026-11-11.mts` (Quellstruktur und Inline-Stil)
-- `.scratch/framer-live-2026-11-09/badge-2026-11-11/build-punkt.png` und `original-punkt.png`
-- `.scratch/framer-live-2026-11-09/structure-relay7-2026-11-11/relay/before/assets/style-rules.css` (`@keyframes senify-appear-n47-default`, Regel `fi-8a5eda-60`)
-- `packages/framer-import/src/capture-html.ts` (Inline-`transform` mit `will-change` → `appearInitial`)
+- `.scratch/framer/quelle-regel-2026-11-11.mts` (Quellregeln: generisch 8 px, variantengebunden 48 px)
+- `.scratch/framer/punkt-ir-2026-11-11.mts` (IR-Zustände: Desktop 8 px, Mobil 48 px)
+- `.scratch/framer/punkt-build-2026-11-11.mts` (Build-Messung und Ausschnitt)
+- `.scratch/framer-live-2026-11-09/badge-2026-11-11/build-punkt.png`, `original-punkt.png`, `build-punkt-relay9.png`
+- `.scratch/framer-live-2026-11-09/structure-relay9-2026-11-11/relay/before/assets/style-rules.css`
+- `packages/framer-import/src/appear-css.ts`, `capture-html.ts`; `packages/framer-import/test/appear-css.test.ts`, `appear-channel.test.ts`

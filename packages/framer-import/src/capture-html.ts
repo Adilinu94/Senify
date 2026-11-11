@@ -183,6 +183,28 @@ function transitionPropertiesOf(transition: string): string[] {
   return namen;
 }
 
+// A `will-change:transform` inline style carries the state before a reveal, but
+// not every part of that transform is motion. A percentage translate centres
+// the element in its box and stays at rest; only the rest (scale, rotate, pixel
+// translate) belongs to the effect. Moving the whole string into
+// `appearInitial` put the pulsing dot of Relay `/` four pixels off its centre.
+const PERCENTAGE_TRANSLATE = new Set(["translate", "translateX", "translateY", "translate3d"]);
+
+function splitAppearTransform(transform: string): { layout: string; motion: string } {
+  const layout: string[] = [];
+  const motion: string[] = [];
+  let matched = false;
+  for (const match of transform.matchAll(/([a-zA-Z0-9]+)\(([^()]*)\)/g)) {
+    matched = true;
+    const name = match[1] ?? "";
+    const args = match[2] ?? "";
+    if (PERCENTAGE_TRANSLATE.has(name) && args.includes("%")) layout.push(match[0]);
+    else motion.push(match[0]);
+  }
+  if (!matched) return { layout: "", motion: transform.trim() };
+  return { layout: layout.join(" "), motion: motion.join(" ") };
+}
+
 // A reveal start state: almost transparent and either moving in or coming out
 // of a blur. A deblur alone is a reveal too (the word arrives in place), and
 // the live capture meets exactly that form: `opacity:0.001;filter:blur(4px);
@@ -1053,8 +1075,10 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
   // runtime. Kept as a permanent style, the testimonial quote stays scaled
   // to 60 % (672 px instead of 1125 px) for good.
   if (!hasStartState && movesIn && (visual["will-change"] ?? "").includes("transform")) {
-    appearInitial["transform"] = visual["transform"] as string;
-    delete visual["transform"];
+    const split = splitAppearTransform(visual["transform"] as string);
+    if (split.motion !== "") appearInitial["transform"] = split.motion;
+    if (split.layout !== "") visual["transform"] = split.layout;
+    else delete visual["transform"];
     delete visual["will-change"];
   }
   // The same convention for an effect that animates a property instead of

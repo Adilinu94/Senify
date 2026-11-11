@@ -110,6 +110,19 @@ describe("what names a start state", () => {
     expect(heading?.children[0]?.states[0]?.visual.opacity).toBeUndefined();
   });
 
+  it("hält eine prozentuale Zentrierung, wenn der Marker nur eine Bewegung ankündigt", () => {
+    // Ein Puls-Punkt schreibt `translate(-50%, -50%) scale(...)` mit
+    // `will-change: transform` inline. Der verschiebende Anteil gehört zur
+    // Bewegung, die prozentuale Zentrierung aber zum Ruhezustand: ohne sie
+    // sitzt der Punkt vier Pixel versetzt (gemessen an Relay `/`, 11.11.2026).
+    const document = captureHtml({
+      html: page(`<div style="will-change:transform;transform:translate(-50%, -50%) scale(0.35)">x</div>`),
+    });
+    const node = nodeWithTag(document.pages[0]?.root as IrNode, "div");
+    expect(node?.states[0]?.visual.transform).toBe("translate(-50%, -50%)");
+    expect(node?.appearInitial).toEqual({ transform: "scale(0.35)" });
+  });
+
   it("keeps a shifted element that carries no will-change", () => {
     // A centring transform is a design, not a start state. Measured on the
     // site: the three hover offsets and the two centring transforms carry no
