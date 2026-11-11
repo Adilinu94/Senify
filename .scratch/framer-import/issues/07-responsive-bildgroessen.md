@@ -1,11 +1,11 @@
 # Responsive Bildgroessen und Sichtbarkeit
 
-Status: ready-for-agent
+Status: resolved 11.11.2026
 Label: ready-for-agent
 
 ## Befund
 
-Auf Tablet und Telefon weichen zwei Bilder in der Groesse von der Quelle ab, obwohl die Quelle je genau eine sichtbare Kopie hat. Der Messlauf `visual-settle2-2026-11-10` zeigt die Abweichung als Abschnittsdifferenz von 25,109 % auf `/` Tablet (y = 6552) und 18,866 % auf `/` Mobil (y = 5400).
+Auf Tablet und Telefon wichen zwei Bilder in der Groesse von der Quelle ab, obwohl die Quelle je genau eine sichtbare Kopie hat. Der Messlauf `visual-settle2-2026-11-10` zeigte die Abweichung als Abschnittsdifferenz von 25,109 % auf `/` Tablet (y = 6552) und 18,866 % auf `/` Mobil (y = 5400).
 
 Gemessen mit `bildvergleich-probe-2026-11-10.mts` (Bildboxen nach echtem Durchscrollen, Lazy-Loading abgeschaltet, Toleranz 5 px):
 
@@ -14,29 +14,34 @@ Gemessen mit `bildvergleich-probe-2026-11-10.mts` (Bildboxen nach echtem Durchsc
 | `carlpPM1kN3CInhX3cyoiSaBeY.png` | 190 x 70 | 728 x 579 | 190 x 70 | 350 x 373 | `fi-8a5eda-256` / `-257` |
 | `kKgWSPAXQwKw028gXV4A7jSvFQ.png` | 330 x 210 | 190 x 70 | 330 x 210 | 190 x 70 | `fi-8a5eda-476` |
 
-Desktop 1440 ist bei beiden deckungsgleich. Die uebrigen Bildabweichungen im Vergleich sind Positionen einer laufenden Marquee (gleiche Groesse, anderer Takt) und keine Groessenfehler. Ein erster Probelauf ohne abgeschaltetes Lazy-Loading meldete zusaetzlich vier 0-x-0-Bilder; das waren nicht geladene Bilder, kein Layoutfehler.
+Desktop 1440 war bei beiden deckungsgleich. Die uebrigen Bildabweichungen im Vergleich sind Positionen einer laufenden Marquee (gleiche Groesse, anderer Takt) und keine Groessenfehler. Ein erster Probelauf ohne abgeschaltetes Lazy-Loading meldete zusaetzlich vier 0-x-0-Bilder; das waren nicht geladene Bilder, kein Layoutfehler.
 
-## Ursache (eingegrenzt)
+## Ursache
 
-- Beide Bilder liegen in derselben rotierenden Logokarte (`counterRotate360`/`rotate360`). Die IR-Probe `ir-gerade-2026-11-10.mts` zeigt beim Portraet: Der Wrapper `n1095` traegt im IR **desktop keine Groesse**, aber **tablet und mobil 190 x 70**. Das ist die Groesse der Logokarte, nicht des Portraets. Die Quelle hat an dieser Stelle keine feste Groesse: der Wrapper ist `position:absolute; inset:0`, der Elternteil setzt `aspect-ratio:0.9395973154362416` und wird 728 x 579 breit.
-- Die Logokarte `kKgWSP` bekommt umgekehrt 330 x 210 statt 190 x 70. Die beiden Groessen scheinen zwischen den Karten vertauscht.
-- Beide Knoten haben keine HTML-id; die Gerätevarianten werden ueber das Framer-CSS gelesen. Die Vermutung ist eine falsche Zuordnung der Komponenten-Variante beim Falten der Breakpoint-Kopien: Die Karte erbt die Groesse einer anderen Variante desselben Bausteins.
+`mergeStatesBySignature` paart die Knoten der Geraetebauten ueber `tag|Klassen|Varianten|id`. Ein Element ohne Klasse, Variante und id hat nur `div||||`; alle solchen Divs der Seite teilten sich eine Signatur, und die Paarung fiel auf die Dokumentreihenfolge zurueck. Im Relay-Build bekam der Portraet-Wrapper (`n1095`, keine Klasse) den Tablet-Zustand einer Logokarte (190 x 70), die Logokarte `kKgWSP` umgekehrt 330 x 210. Beide Groessen stehen in der Quelle an dieser Stelle nicht: Der Portraet-Wrapper ist `position:absolute; inset:0`, der Elternteil setzt `aspect-ratio:0.9395973154362416` und wird 728 x 579 breit.
 
-## Naechster Schritt
+## Korrektur
 
-1. Fuer `fi-8a5eda-256` und `fi-8a5eda-476` die Komponenten-Instanz und ihre Variantenklasse (`framer-v-*`) im IR ausgeben und die Quelle der 190-x-70- beziehungsweise 330-x-210-Zustaende belegen.
-2. Im Mapper die `_tablet`/`_mobile`-Props dieser Karten gegen die Quell-CSS-Regeln und die Variantenklasse pruefen.
-3. Einen Test bauen, der eine Komponenten-Instanz mit zwei Varianten unterschiedlicher Groesse abbildet.
+`signature(node, context)` nimmt fuer Elemente ohne eigene Token (Klasse, Variante, id) den naechsten klassierten Vorfahren als Kontext. Elemente mit eigenen Token behalten die bisherige Signatur, damit die wiederholten Karten weiter ueber die Reihenfolge gepaart werden. Neuer Test `merge-signature.test.ts`: zwei klassenlose Kinder unter verschiedenen klassierten Eltern, der Geraetebau steht in umgekehrter Reihenfolge. Ohne den Kontext bekommt das erste Kind 330 x 210, mit ihm 190 x 70; die Gegenprobe ist ausgefuehrt.
+
+## Ergebnis 11.11.2026
+
+- IR Relay7: Der Portraet-Wrapper traegt auf Tablet und Mobil keine feste Groesse mehr; `kKgWSP` traegt auf allen drei Geraeten 190 x 70.
+- Bildvergleich `bildvergleich-relay7.log`: 24 Bilder je Seite; bei 1440, 768 und 390 stimmen die Groessen der beiden genannten Bilder. Die verbleibenden Abweichungen sind ausschliesslich Marquee-Positionen gleicher Groesse (Delta 0 in Breite und Hoehe).
+- Abschnittsvergleich `visual-settle3-2026-11-11`: `/` Tablet y = 6552 von 25,109 auf 1,350 %, `/` Mobil y = 5400 von 18,866 auf 0,872 %. Der Screenshot zeigt das Portraet in voller Groesse.
+- Die restlichen Ausreisser sind der Calendly-Platzhalter (`/contact` Mobil 28,639 %, Produktentscheidung) und die laufende Marquee (Tablet max 5,971 % bei y = 10647, Mobil max 12,832 % bei y = 9450).
+- Framer-Import-Suite 581 bestanden, 2 uebersprungen; Typecheck und Lint gruen.
 
 ## Abnahme
 
-Die zwei genannten Bilder liegen bei 1440, 768 und 390 px innerhalb von 5 px zur Quelle; der Tablet-Screenshot bei y = 6552 zeigt das Portraet in voller Groesse. Die uebrigen Bilder stimmen in der Groesse (Marquee-Positionen duerfen abweichen). Ein Test deckt die Groessenvarianten der rotierenden Logokarte ab. Der Live-Vergleich nennt Datum und Quelle.
+Erfuellt: Die zwei genannten Bilder liegen bei 1440, 768 und 390 px innerhalb von 5 px zur Quelle; der Tablet-Screenshot bei y = 6552 zeigt das Portraet in voller Groesse. Die uebrigen Bilder stimmen in der Groesse (Marquee-Positionen duerfen abweichen). Ein Test deckt die Groessenvarianten der klassenlosen Kopien ab. Der Live-Vergleich nennt Datum und Quelle.
 
 ## Belege
 
-- `.scratch/framer-live-2026-11-09/visual-settle2-2026-11-10/start/tablet/build-abschnitt-8.png` und `original-abschnitt-8.png`
-- `.scratch/framer-live-2026-11-09/visual-settle2-2026-11-10/result.json`
-- `.scratch/framer/bildvergleich-probe-2026-11-10.mts`
-- `.scratch/framer/ir-gerade-2026-11-10.mts`
-- `.scratch/framer/quelle-kopien-2026-11-10.mts`
-- `.scratch/framer-live-2026-11-09/structure-relay6-2026-11-10/relay/before/assets/style-rules.css`
+- `packages/framer-import/src/import.ts` (`mergeStatesBySignature`)
+- `packages/framer-import/test/merge-signature.test.ts`
+- `.scratch/framer-live-2026-11-09/structure-relay7-2026-11-11/` (IR und Build)
+- `.scratch/framer/bildvergleich-relay7.log` (Bildboxen bei 1440, 768 und 390)
+- `.scratch/framer-live-2026-11-09/visual-settle3-2026-11-11/result.json`
+- `.scratch/framer-live-2026-11-09/visual-settle3-2026-11-11/start/tablet/build-abschnitt-8.png`
+- `.scratch/framer/karte-2026-11-11.mts` (IR-Zustaende der Karten)
