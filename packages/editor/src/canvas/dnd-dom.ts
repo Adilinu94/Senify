@@ -13,7 +13,7 @@
 // pure document, the chrome is unlayered parent DOM with `pointer-events:
 // none` except the plus buttons.
 
-import type { PropValue } from "@senify/widget-engine";
+import { insertPropsOf, type PropValue } from "@senify/widget-engine";
 import type { DomDocument, DomElement, DomEvent } from "../dom.ts";
 import type { ApplyOutcome, EditorStore } from "../state/store.ts";
 import { dragCoalesceKey } from "../state/store.ts";
@@ -130,7 +130,7 @@ export function createDropController(options: DropControllerOptions): DropContro
     targetId: string,
     primitive: string,
     position: InsertPosition,
-    props: Record<string, PropValue> = {},
+    props: Record<string, PropValue> = insertPropsOf(primitive),
   ): boolean {
     const resolution = resolveDrop(
       store.document,
@@ -350,7 +350,7 @@ export function createDropController(options: DropControllerOptions): DropContro
           op: "insertNode",
           parent: resolution.parent,
           index: resolution.index,
-          node: { primitive: source.primitive, props: {} as Record<string, PropValue> },
+          node: { primitive: source.primitive, props: insertPropsOf(source.primitive) },
         },
         { label: "Baustein einfügen" },
       );

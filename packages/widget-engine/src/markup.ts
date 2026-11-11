@@ -660,6 +660,29 @@ export function defaultValuesOf(primitive: string): Record<string, PropValue> {
   return values;
 }
 
+// Text controls whose default identifies something (a field name in a form post,
+// the collection a list reads) rather than shows something. Two fresh inputs
+// must not both be named "feld", and "sammlung" points at a collection that may
+// not exist, so these stay empty on insert.
+const IDENTIFIER_TEXT_KEYS: ReadonlySet<string> = new Set(["name", "source", "lang"]);
+
+// The props a freshly inserted building block starts with: the catalog's visible
+// text (a heading says "Neue Überschrift", a button "Knopf"), so the canvas shows
+// the block at once. Only text and textarea controls count; style values and
+// selects are resolved by the cascade and the inspector, not stored.
+export function insertPropsOf(primitive: string): Record<string, PropValue> {
+  const definition = getPrimitive(primitive);
+  if (definition === undefined || definition.legacy === true) return {};
+  const values: Record<string, PropValue> = {};
+  for (const control of definition.controls) {
+    if (control.kind !== "text" && control.kind !== "textarea") continue;
+    if (IDENTIFIER_TEXT_KEYS.has(control.key)) continue;
+    if (typeof control.default !== "string" || control.default === "") continue;
+    values[control.key] = control.default;
+  }
+  return values;
+}
+
 // The properties a control default can reach, so a default that is not a style
 // value (a tag name, a level, a label) never enters the defaults bag.
 function reachesCss(primitive: string, control: Control): boolean {
