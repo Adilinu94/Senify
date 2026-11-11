@@ -509,6 +509,9 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
         if (item.hasChildren && !expanded.has(item.id)) {
           expanded.add(item.id);
           render();
+          // Rendering rebuilds the rows and drops the DOM focus; keep it on this one.
+          focusedId = item.id;
+          focusTreeItem(item.id);
           return;
         }
         const next = all[index + 1];
@@ -521,6 +524,8 @@ export function createExplorer(options: ExplorerOptions): ExplorerInstance {
         if (item.hasChildren && expanded.has(item.id)) {
           expanded.delete(item.id);
           render();
+          focusedId = item.id;
+          focusTreeItem(item.id);
           return;
         }
         if (item.parentId !== null) selectNode(item.parentId);

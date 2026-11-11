@@ -131,6 +131,17 @@ function h(doc: DomDocument, tag: string, spec: ElementSpec = {}): DomElement {
   return element;
 }
 
+// The label of a field is a plain span, so its inputs, selects and switches have
+// no accessible name. Name every control the renderer left without one after the
+// field's label (screen readers announce "Link-Ziel", not just "edit text").
+function nameControls(control: DomElement, label: string): void {
+  for (const element of control.querySelectorAll("input, textarea, select, [role=switch]")) {
+    if (element.getAttribute("aria-label") !== null) continue;
+    if (element.getAttribute("aria-labelledby") !== null) continue;
+    element.setAttribute("aria-label", label);
+  }
+}
+
 // Wenige, klare Auswahlen erscheinen als Segment-Gruppe statt als Auswahlfeld. Je
 // Eintrag der Icon-Name; fehlt er, zeigt das Segment den (deutschen) Text.
 const SEGMENTED: Record<string, Record<string, string>> = {
@@ -1573,6 +1584,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         break;
     }
     row.appendChild(control);
+    nameControls(control, field.label);
     // The token picker sits next to the free text of every style field that
     // has a theme family (ticket 02 point 6); colours own their palette.
     if (field.tokenOptions !== undefined && field.tokenOptions.length > 0 && field.kind !== "color") {
