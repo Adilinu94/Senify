@@ -1,6 +1,6 @@
 # Hover-Zustände der Framer-Quelle
 
-Status: erste Stufe umgesetzt (ADR-0033), Rest offen: Uebergangszeit, Eltern-Hover, Tablet/Mobil
+Status: Stufe 1 (ADR-0033) und Stufe 2, Gleitdauer (ADR-0034), umgesetzt. Rest offen: Eltern-Hover als Regel, Federkurve, Tablet/Mobil
 Label: needs-triage
 
 ## Befund
@@ -31,3 +31,11 @@ Die Messung belegt das Vorkommen auf einer Quelle. Sie belegt nicht, wie häufig
 ## Nachtrag 11.11.2026: Übergang der Quelle
 
 Gemessen mit .scratch/motion-import/hover-uebergang-probe.mts und hover-dauer-probe.mts an derselben Quelle: Alle 5 Hover-Knoten gleiten (Zwischenwerte nach 30 und 120 ms), obwohl das CSS 	ransition-duration: 0s hat. Der Wechsel beginnt nach etwa 100 bis 160 ms und endet nach rund 300 ms (letzter Wertwechsel bei 214 bis 457 ms). Folge 1 (umgesetzt): Der Messzeitpunkt wartet auf das Ende der Animation. Folge 2 (offen): Der Import gibt 	ransition nicht weiter, der Hover springt dort. Ob eine Übergangszeit ableitbar ist, entscheidet ein eigener Schritt mit eigener ADR.
+
+## Nachtrag 11.11.2026: Eltern-Hover-Befunde
+
+Die Befunde sanken von 22 auf 15, weil der feste Lesezeitpunkt (450 ms) bei sieben Knoten laufende Animationen als Kinder-Änderung las. Die 14 verbliebenen Elternknoten ändern ihre Kinder auch im eingeschwungenen Zustand. Siehe ADR-0033, Folgen. Beleg: .scratch/motion-import/eltern-hover-probe.mts.
+
+## Nachtrag 12.11.2026: Gleitdauer und weitere Quellen
+
+Sechs weitere Quellen mit .scratch/motion-import/hover-uebergang-probe.mts gemessen: Fünf haben Hover-Knoten, bei allen gleitet mindestens einer (Hintergrund, Transform, Deckkraft); Textlink-Farben springen. Daraus ADR-0034: Dauer wird abgeleitet und als transition am Basisstil abgelegt (Relay 350 bis 400 ms, Donutshop 500 bis 550 ms). Offen: Federkurve statt ease, Eltern-Hover als Regel, Tablet/Mobil. Nicht geklärt: Ein Capture gegen wedge.framer.website lief einmal über 10 Minuten ohne Ende und war danach nicht reproduzierbar (zweiter Lauf 48 s).

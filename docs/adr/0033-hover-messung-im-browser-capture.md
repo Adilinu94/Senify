@@ -37,8 +37,8 @@ Mit `hover: "off"` entfällt der Durchlauf (etwa 1 s je Kandidat, bei selbst ani
 ## Folgen
 
 - Gegen die Relay-Quelle liefert der Capture dieselben 5 Knoten wie die Handmessung.
-- Offen: Übergangszeit (an der Relay-Quelle gemessen: Verzögerung etwa 100 bis 160 ms, Dauer rund 300 ms,
-  Skript `.scratch/motion-import/hover-dauer-probe.mts`; im Import springt der Hover weiter), Eltern-Hover mit Kindern, Tablet/Mobil und Touch.
+- Die Übergangszeit leitet ADR-0034 ab (Messung: Verzögerung etwa 100 bis 160 ms, Dauer rund 300 ms, Skript `.scratch/motion-import/hover-dauer-probe.mts`). Offen: Eltern-Hover mit Kindern, Tablet/Mobil und Touch.
 - Der Ausgangspunkt der Maus (Ecke 1,1) kann selbst ein Hover-Ziel sein; ein Element dort zeigt keinen Unterschied.
 - Belegt durch `packages/framer-import/test/capture-hover.test.ts` (lokale Seite, Laufzeit-Stil per Skript,
   Pipeline bis ins gebackene `:hover`-CSS).
+- Eltern-Hover-Befunde an der Relay-Quelle (Klärung 11.11.2026): Mit dem festen Lesezeitpunkt von 450 ms meldete der Capture 22 Befunde, mit dem Messzeitpunkt aus dem Nachtrag 15 (14 Elternknoten plus ein Sammelbefund zu 59 Pseudo-Zustands-Regeln). Die sieben entfallenen Knoten (n59, n139, n1377, n1419, n1465, n1632, n1845) zeigten nur einen Zwischenwert laufender Animationen; im eingeschwungenen Zustand unterscheiden sich ihre Kinder nicht vom Ruhezustand. Das waren Fehlbefunde, keine verlorenen echten Eltern-Hover. Beleg: .scratch/motion-import/eltern-hover-probe.mts (Lesezeitpunkt temporär auf 450 ms gesetzt, danach zurück).

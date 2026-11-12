@@ -129,6 +129,23 @@ describe.skipIf(!browserAvailable)("captureBrowser misst Hover-Zustände", () =>
     expect(hover?.["background-color"]).toBe("rgb(17, 17, 17)");
   }, 90_000);
 
+  it("leitet die Gleitdauer eines Laufzeit-Hovers ab und legt sie als transition am Basisstil ab", async () => {
+    // ADR-0034: Die Laufzeit gleitet (Skript, 500 ms); der Import soll nicht springen.
+    const result = await captureBrowser({ url: `${origin}/`, settleMs: 200 });
+    const transition = byName(result.document, "Langsam").states[0]?.visual["transition"];
+    expect(transition).toMatch(/^background-color (\d+)ms ease$/);
+    const ms = Number(/(\d+)ms/.exec(transition ?? "")?.[1]);
+    expect(ms).toBeGreaterThanOrEqual(400);
+    expect(ms).toBeLessThanOrEqual(600);
+  }, 90_000);
+
+  it("setzt keine transition, wenn der Hover in einem Schritt springt", async () => {
+    const result = await captureBrowser({ url: `${origin}/`, settleMs: 200 });
+    // Der Capture friert Übergänge ein und liest dabei `none`; eine Dauer steht dort nicht.
+    const transition = byName(result.document, "Laufzeit").states[0]?.visual["transition"];
+    expect(transition === undefined || transition === "none").toBe(true);
+  }, 90_000);
+
   it("lässt einen Link ohne Hover-Änderung und einen selbst animierten Link unberührt", async () => {
     const result = await captureBrowser({ url: `${origin}/`, settleMs: 200 });
     expect(byName(result.document, "Ruhig").states[0]?.interactions?.hover).toBeUndefined();
@@ -170,6 +187,8 @@ describe.skipIf(!browserAvailable)("captureBrowser misst Hover-Zustände", () =>
       const files = [join(out, "index.html"), ...readdirSync(join(out, "assets")).filter((name) => name.endsWith(".css")).map((name) => join(out, "assets", name))];
       const css = files.map((file) => readFileSync(file, "utf8")).join("\n");
       expect(css).toMatch(/:hover\s*\{[^}]*background-color:\s*(rgb\(17, 17, 17\)|#111(111)?)/);
+      // ADR-0034: Die Gleitdauer der Laufzeit steht als transition im gebackenen CSS.
+      expect(css).toMatch(/transition:\s*background-color \d+ms ease/);
     } finally {
       rmSync(out, { recursive: true, force: true });
     }
@@ -207,6 +226,19 @@ describe("mergeHoverMeasurements", () => {
       "text-decoration-line",
       "filter",
     ]);
+  });
+
+  it("schreibt die Gleitdauer als transition und lässt eine vorhandene transition stehen", () => {
+    const root = node("n1");
+    root.children.push(node("n2"), node("n3"));
+    root.children[1]!.states[0]!.visual = { transition: "color 1s linear" };
+    const document = { pages: [{ root }], findings: [] } as unknown as FramerIrDocument;
+    mergeHoverMeasurements(document, [
+      { key: "n2", values: { color: "rgb(1, 2, 3)", opacity: "0.5" }, childrenChanged: false, durationMs: 300 },
+      { key: "n3", values: { color: "rgb(1, 2, 3)" }, childrenChanged: false, durationMs: 300 },
+    ]);
+    expect(root.children[0]?.states[0]?.visual["transition"]).toBe("color 300ms ease, opacity 300ms ease");
+    expect(root.children[1]?.states[0]?.visual["transition"]).toBe("color 1s linear");
   });
 
   it("ignoriert Schlüssel, die der Baum nicht kennt, und zählt die geschriebenen Knoten", () => {

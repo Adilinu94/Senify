@@ -36,6 +36,7 @@
 | [ADR-0031](0031-lokale-stile-vor-globalen-klassen.md) | Bedingung vor Herkunft, lokal vor global bei gleicher Bedingung | angenommen |
 | [ADR-0032](0032-ausgabeart-framer-import.md) | Ausgabeart beim Framer-Import | angenommen |
 | [ADR-0033](0033-hover-messung-im-browser-capture.md) | Hover-Zustände aus dem Browser-Capture | angenommen |
+| [ADR-0034](0034-hover-uebergangszeit-im-browser-capture.md) | Übergangszeit der Hover-Zustände aus dem Browser-Capture | angenommen |
 
 ## Nächste Nummer
 

@@ -11,7 +11,8 @@
 //
 // What this first step deliberately does NOT do (the four open questions of
 // Issue 08, decided small):
-//   - properties: the fixed list below, nothing derived from `transition`;
+//   - properties: the fixed list below, nothing derived from `transition`; the glide
+//     time is measured separately (ADR-0034);
 //   - nodes: the element that was hovered, matched by the IR key stamp;
 //   - parent hover that changes children is reported as a finding, not rebuilt
 //     as `.parent:hover .child`;
@@ -36,6 +37,9 @@ export type HoverMeasurement = {
   values: Record<string, string>;
   // A descendant changed while the element itself was hovered.
   childrenChanged: boolean;
+  // How long the runtime glides (first to last observed change of the element's own
+  // values, rounded). Absent when the value jumped in one step (ADR-0034).
+  durationMs?: number;
 };
 
 // Bounds the pass: one candidate costs about 1 s (rest, double read, hover with
@@ -44,6 +48,11 @@ const MAX_CANDIDATES = 40;
 const DEADLINE_MS = 45_000;
 const REST_MS = 150;
 const STABLE_MS = 80;
+const POLL_MS = 40;
+// A glide shorter than two polls looks like a jump; the duration is clamped.
+const MIN_GLIDE_MS = 80;
+const TRANSITION_MIN_MS = 100;
+const TRANSITION_MAX_MS = 1_000;
 // The hover read starts after HOVER_MIN_MS (past the onset of the runtime's
 // animation) and gives up after HOVER_MAX_MS.
 const HOVER_MIN_MS = 300;
@@ -101,21 +110,6 @@ export async function measureHover(page: import("playwright").Page): Promise<Hov
   const keys = (await page.evaluate("window.senifyHoverCandidates()")) as string[];
   const read = async (key: string): Promise<HoverRead> =>
     (await page.evaluate(`window.senifyHoverRead(${JSON.stringify(key)})`)) as HoverRead;
-  // The runtime animates the switch (measured on the Relay source: it starts
-  // after 100-160 ms and runs about 300 ms). Read on until two reads 80 ms
-  // apart agree; an element that never rests ends at the cap and is dropped by
-  // the rest check above.
-  const readSettled = async (key: string): Promise<HoverRead> => {
-    let last = await read(key);
-    const started = Date.now();
-    while (last !== null && Date.now() - started < HOVER_MAX_MS) {
-      await page.waitForTimeout(STABLE_MS);
-      const next = await read(key);
-      if (next === null || (next.kids === last.kids && sameOwn(next.own, last.own))) return next;
-      last = next;
-    }
-    return last;
-  };
   const out: HoverMeasurement[] = [];
   const started = Date.now();
   for (const key of keys) {
@@ -128,8 +122,32 @@ export async function measureHover(page: import("playwright").Page): Promise<Hov
       const settled = await read(key);
       if (before === null || settled === null) continue;
       await page.locator(`[data-senify-ir-key="${key}"]`).first().hover({ timeout: 2_000 });
-      await page.waitForTimeout(HOVER_MIN_MS);
-      const after = await readSettled(key);
+      // The runtime animates the switch (measured on the Relay source: it starts
+      // after 100-160 ms and runs about 300 ms). Poll from the hover on, so the
+      // glide is seen; stop when HOVER_MIN_MS has passed and the element has been
+      // quiet for STABLE_MS, or at HOVER_MAX_MS (an element that never rests is
+      // dropped by the rest check above).
+      const hoveredAt = Date.now();
+      let after: HoverRead = before;
+      let previous: NonNullable<HoverRead> = before;
+      let firstChange = -1;
+      let lastChange = -1;
+      let quietSince = 0;
+      for (;;) {
+        await page.waitForTimeout(POLL_MS);
+        const next = await read(key);
+        const elapsed = Date.now() - hoveredAt;
+        after = next;
+        if (next === null) break;
+        const ownMoved = !sameOwn(next.own, previous.own);
+        if (ownMoved) {
+          if (firstChange < 0) firstChange = elapsed;
+          lastChange = elapsed;
+        }
+        if (ownMoved || next.kids !== previous.kids) quietSince = elapsed;
+        previous = next;
+        if (elapsed >= HOVER_MAX_MS || (elapsed >= HOVER_MIN_MS && elapsed - quietSince >= STABLE_MS)) break;
+      }
       if (after === null) continue;
       const values: Record<string, string> = {};
       for (const property of HOVER_PROPERTIES) {
@@ -140,7 +158,14 @@ export async function measureHover(page: import("playwright").Page): Promise<Hov
         if (now !== "" && now !== was) values[property] = now;
       }
       const childrenChanged = before.kids === settled.kids && after.kids !== before.kids;
-      if (Object.keys(values).length > 0 || childrenChanged) out.push({ key, values, childrenChanged });
+      const glide = lastChange - firstChange;
+      const durationMs =
+        firstChange >= 0 && glide >= MIN_GLIDE_MS
+          ? Math.min(TRANSITION_MAX_MS, Math.max(TRANSITION_MIN_MS, Math.round(glide / 50) * 50))
+          : undefined;
+      if (Object.keys(values).length > 0 || childrenChanged) {
+        out.push({ key, values, childrenChanged, ...(durationMs !== undefined && Object.keys(values).length > 0 ? { durationMs } : {}) });
+      }
     } catch {
       // A candidate that cannot be hovered (covered, detached) stays unmeasured.
     }
@@ -187,6 +212,17 @@ export function mergeHoverMeasurements(document: FramerIrDocument, measurements:
     }
     if (Object.keys(added).length === 0) continue;
     state.interactions = { ...(state.interactions ?? {}), hover: { ...existing, ...added } };
+    // ADR-0034: The runtime glides, the import would jump. A transition the stylesheet
+    // gave the element wins; "none" is what the frozen capture reads, not a statement.
+    const known = state.visual["transition"];
+    if (measurement.durationMs !== undefined && (known === undefined || known === "none")) {
+      state.visual = {
+        ...state.visual,
+        transition: Object.keys(added)
+          .map((property) => `${property} ${measurement.durationMs}ms ease`)
+          .join(", "),
+      };
+    }
     written += 1;
   }
   return written;
