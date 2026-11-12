@@ -312,3 +312,48 @@ describe("assets of a second device build", () => {
   });
 });
 
+describe("restoreIdLessDeviceVariants bei überlappenden SSR-Kopien", () => {
+  // Framer's SSR kann zwei Kopien schreiben, die sich auf einem Gerät
+  // überschneiden: gemessen auf Chocolate `/price`, Kartenüberschrift
+  // „Astra Starter" (`hidden-10d29j2`, versteckt auf Tablet) und „Meridian
+  // Starter" (`hidden-q7h94o`, versteckt auf Desktop). Unter 810 px versteckt
+  // keine Regel eine der beiden; die Laufzeit entfernt eine. Der Build zeigte
+  // beide, die Karte wuchs um 47 px. Der hydratisierte Gerätebau enthält genau
+  // die Kopie, die dort gilt.
+  const heading = (key: string, hiddenAt: string[], label: string) => ({
+    ...navWrapper(key, hiddenAt, label),
+    baseClasses: ["ssr-variant"],
+    children: [{ ...navNode(label), tag: "h4", baseClasses: ["framer-text"] }],
+  });
+
+  it("gibt das überlappende Gerät nur der Kopie, die der Gerätebau enthält", () => {
+    const browser = variantDocument([heading("a", [], "Astra Starter")]);
+    const statik = variantDocument([
+      heading("a", ["tablet"], "Astra Starter"),
+      heading("m", ["desktop"], "Meridian Starter"),
+    ]);
+    const mobileBuild = variantDocument([heading("a", [], "Astra Starter")]);
+    const tabletBuild = variantDocument([heading("m", [], "Meridian Starter")]);
+
+    expect(restoreIdLessDeviceVariants(browser, statik, { mobile: mobileBuild, tablet: tabletBuild })).toBe(1);
+    const root = (browser as unknown as NavTestDocument).pages[0]?.root;
+    expect(root?.children.map((child) => child.visibleOn)).toEqual([
+      ["desktop", "mobile"],
+      ["tablet"],
+    ]);
+  });
+
+  it("lässt die Überlappung ohne Gerätebau unverändert", () => {
+    const browser = variantDocument([heading("a", [], "Astra Starter")]);
+    const statik = variantDocument([
+      heading("a", ["tablet"], "Astra Starter"),
+      heading("m", ["desktop"], "Meridian Starter"),
+    ]);
+    expect(restoreIdLessDeviceVariants(browser, statik)).toBe(1);
+    const root = (browser as unknown as NavTestDocument).pages[0]?.root;
+    expect(root?.children.map((child) => [...(child.visibleOn ?? [])].sort())).toEqual([
+      ["desktop", "mobile"],
+      ["mobile", "tablet"],
+    ]);
+  });
+});

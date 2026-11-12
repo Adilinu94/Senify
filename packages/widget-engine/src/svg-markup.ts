@@ -110,8 +110,13 @@ function numberOrVariable(value: string): string | undefined {
   return PLAIN.test(ohneVar) ? trimmed : undefined;
 }
 
+// Framer names a token colour in a trailing comment (`var(--token-…, rgb(…)) /* {"name":…} */`).
+// The comment paints nothing; it is cut before the grammar sees the value, so
+// it can neither drop the colour nor carry anything past the checks below.
+const TRAILING_COMMENT = /\s*\/\*(?:(?!\*\/)[\s\S])*\*\/\s*$/;
+
 function paintValue(value: string): string | undefined {
-  const trimmed = value.trim();
+  const trimmed = value.replace(TRAILING_COMMENT, "").trim();
   if (!PAINT.test(trimmed)) return undefined;
   return /url\s*\(/i.test(trimmed.replace(LOCAL_URL, "")) ? undefined : trimmed;
 }

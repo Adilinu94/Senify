@@ -1,0 +1,1 @@
+import { runReleasePreChecks } from '../packages/engine/src/release-checks.ts'; const r = runReleasePreChecks({ outDir: process.argv[2]! }); console.log(JSON.stringify({hard:r.hard.map(i=>i.code+' | '+i.message), soft:r.soft.map(i=>i.code+' | '+i.message)},null,1));

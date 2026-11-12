@@ -82,3 +82,50 @@ describe("mergeStatesBySignature bei klassenlosen Kopien", () => {
     expect(b?.["height"]).toBe("210px");
   });
 });
+
+describe("mergeStatesBySignature bei generischen Framer-Klassen", () => {
+  // `framer-text` sitzt auf jedem Absatz einer Framer-Seite: die Klasse benennt
+  // kein Element. Gemessen auf Chocolate `/`: 75 `p.framer-text` auf Desktop,
+  // 71 im Tablet-Bau; der Header traegt auf Desktop fuenf Texte mehr. Die
+  // Reihenfolge paarte den Hero-Text mit einem fremden Absatz, der Hero-Badge
+  // bekam auf Tablet und Mobil 10 px und dessen Farbe statt 19,8 px.
+  it("paart einen Absatz ueber seinen benannten Elternteil, nicht ueber die Reihenfolge", () => {
+    const browser = documentOf([
+      element("kopf", "div", ["framer-kopf"], [element("kopf-text", "p", ["framer-text"])]),
+      element("held", "div", ["framer-held"], [element("held-text", "p", ["framer-text"])]),
+      element("fuss", "div", ["framer-fuss"], [element("fuss-text", "p", ["framer-text"])]),
+    ]);
+    // Der Tablet-Bau hat den Kopftext nicht (Menue eingeklappt).
+    const tablet = documentOf([
+      element("kopf", "div", ["framer-kopf"]),
+      element("held", "div", ["framer-held"], [element("held-text", "p", ["framer-text"], [], { "font-size": "19.8px" })]),
+      element("fuss", "div", ["framer-fuss"], [element("fuss-text", "p", ["framer-text"], [], { "font-size": "10px" })]),
+    ]);
+
+    mergeStatesBySignature(browser, tablet, "tablet");
+
+    const root = (browser as unknown as { pages: { root: TestNode }[] }).pages[0]?.root;
+    if (root === undefined) throw new Error("kein Root");
+    expect(stateOf(root, "held-text", "tablet")?.["font-size"]).toBe("19.8px");
+    expect(stateOf(root, "fuss-text", "tablet")?.["font-size"]).toBe("10px");
+    // Der Kopftext hat im Tablet-Bau keine Entsprechung und bekommt keinen fremden Zustand.
+    expect(stateOf(root, "kopf-text", "tablet")).toBeUndefined();
+  });
+
+  it("paart wiederholte Absaetze unter demselben Elternteil weiter in Reihenfolge", () => {
+    const browser = documentOf([
+      element("liste", "div", ["framer-liste"], [element("eins", "p", ["framer-text"]), element("zwei", "p", ["framer-text"])]),
+    ]);
+    const tablet = documentOf([
+      element("liste", "div", ["framer-liste"], [
+        element("eins", "p", ["framer-text"], [], { "font-size": "12px" }),
+        element("zwei", "p", ["framer-text"], [], { "font-size": "14px" }),
+      ]),
+    ]);
+    mergeStatesBySignature(browser, tablet, "tablet");
+    const root = (browser as unknown as { pages: { root: TestNode }[] }).pages[0]?.root;
+    if (root === undefined) throw new Error("kein Root");
+    expect(stateOf(root, "eins", "tablet")?.["font-size"]).toBe("12px");
+    expect(stateOf(root, "zwei", "tablet")?.["font-size"]).toBe("14px");
+  });
+});

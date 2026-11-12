@@ -221,7 +221,14 @@ export async function fetchLinkedCss(html: string, pageUrl: string): Promise<str
 // the truth for the DEVICES; the browser stays the truth for the measured motion.
 // Nodes are matched by their IR key, which both captures assign in the same
 // pre-order over the same tree.
-export   // The states for the whole tree, matched by Framer's OWN class signature.
+// Framer classes that style an element without naming it (see `signature`).
+const GENERIC_FRAMER_CLASS = /^framer-(?:text|styles-preset-[\w-]+)$/;
+
+function ownClasses(node: { baseClasses?: string[] }): string[] {
+  return (node.baseClasses ?? []).filter((name) => !GENERIC_FRAMER_CLASS.test(name));
+}
+
+// The states for the whole tree, matched by Framer's OWN class signature.
 //
 // The IR key is per-document, and the HTML id exists only on sections — so
 // neither can carry a full merge. The base classes can: they are the source's
@@ -237,7 +244,7 @@ export   // The states for the whole tree, matched by Framer's OWN class signatu
 // class produced, which is the whole point: the product card link resolves
 // `padding: 30px; gap: 10px` at 390 px and `48px / 14px` at 1440 px, from
 // `framer-v-1f9jezn` and `framer-v-kmiuhn` respectively.
-function mergeStatesBySignature(
+export function mergeStatesBySignature(
   browser: FramerIrDocument,
   statik: FramerIrDocument,
   device: Exclude<IrDevice, "desktop">,
@@ -270,11 +277,23 @@ function mergeStatesBySignature(
     // ratio), and one logo card took 330 x 210. The nearest classed ancestor
     // supplies the missing context; elements with their own tokens keep the
     // signature that the repeated cards rely on.
+    //
+    // A generic Framer class names no element either: `framer-text` sits on
+    // every paragraph, a `framer-styles-preset-*` on every text of that style.
+    // Measured on Chocolate `/`: 75 `p.framer-text` on desktop, 71 in the tablet
+    // build, five more header texts in front on desktop; the order paired the
+    // hero badge with a foreign paragraph (10 px and its colour instead of
+    // 19.8 px on tablet and phone).
     const named =
-      (node.baseClasses ?? []).length > 0 ||
+      ownClasses(node).length > 0 ||
       (node.variantClasses ?? []).length > 0 ||
       (node.htmlId ?? null) !== null;
     return named ? own : `${own}|${context}`;
+  };
+  // The context a child inherits: the nearest ancestor with a class of its own.
+  const contextOf = (node: SigNode, context: string): string => {
+    const classes = ownClasses(node);
+    return classes.length > 0 ? [...classes].sort().join("|") : context;
   };
   const bySignature = new Map<string, SigNode[]>();
   const collect = (node: SigNode, context: string): void => {
@@ -282,9 +301,7 @@ function mergeStatesBySignature(
     const list = bySignature.get(key) ?? [];
     list.push(node);
     bySignature.set(key, list);
-    const nextContext =
-      (node.baseClasses ?? []).length > 0 ? [...(node.baseClasses ?? [])].sort().join("|") : context;
-    for (const child of node.children) collect(child, nextContext);
+    for (const child of node.children) collect(child, contextOf(node, context));
   };
   collect(statik.pages[0]?.root as SigNode, "");
 
@@ -329,9 +346,7 @@ function mergeStatesBySignature(
         }
       }
     }
-    const nextContext =
-      (node.baseClasses ?? []).length > 0 ? [...(node.baseClasses ?? [])].sort().join("|") : context;
-    for (const child of node.children) apply(child, nextContext);
+    for (const child of node.children) apply(child, contextOf(node, context));
   };
   apply(browser.pages[0]?.root as SigNode, "");
   return merged;
@@ -531,6 +546,8 @@ export function mergeDeviceVariants(
 export function restoreIdLessDeviceVariants(
   browser: FramerIrDocument,
   statik: FramerIrDocument,
+  // The hydrated builds per width: they settle where SSR copies overlap.
+  deviceBuilds: Partial<Record<Exclude<IrDevice, "desktop">, FramerIrDocument>> = {},
 ): number {
   const browserRoot = browser.pages[0]?.root;
   const staticRoot = statik.pages[0]?.root;
@@ -547,8 +564,14 @@ export function restoreIdLessDeviceVariants(
   collectPairs(staticRoot, browserRoot, breakpointMap, counterpart, pairs);
 
   let inserted = 0;
+  const buildTexts = new Map<IrDevice, Set<string>>();
+  for (const [device, build] of Object.entries(deviceBuilds) as [IrDevice, FramerIrDocument | undefined][]) {
+    const root = build?.pages[0]?.root;
+    if (root !== undefined) buildTexts.set(device, leafTextsOf(root));
+  }
   for (const pair of pairs) {
     for (const group of deviceVariantGroups(pair.statik, breakpointMap)) {
+      settleOverlaps(group, buildTexts);
       const desktopCopy = group.find((copy) => copy.visible.includes("desktop"));
       if (desktopCopy === undefined) continue;
       const browserDesktop = counterpart.get(desktopCopy.node);
@@ -585,6 +608,41 @@ export function restoreIdLessDeviceVariants(
 }
 
 type DeviceVariantCopy = { node: IrNode; visible: IrDevice[] };
+
+function leafTextsOf(node: IrNode, out = new Set<string>()): Set<string> {
+  for (const state of node.states) {
+    const content = state.text?.content?.trim();
+    if (content !== undefined && content !== "") out.add(content);
+  }
+  for (const child of node.children) leafTextsOf(child, out);
+  return out;
+}
+
+// Framer's SSR can write two copies that BOTH claim a width: measured on
+// Chocolate `/price`, the card heading "Astra Starter" is hidden on tablet only,
+// "Meridian Starter" on desktop only, and below 810 px no rule hides either. The
+// runtime removes one of them; the build showed both and the card grew by 47 px.
+// The hydrated build of that width holds exactly the copy that applies there, so
+// a copy keeps the overlapping width only if its own text is in that build. No
+// build, no distinctive text, or no unique answer: the copies stay as they are.
+function settleOverlaps(group: DeviceVariantCopy[], buildTexts: ReadonlyMap<IrDevice, Set<string>>): void {
+  for (const device of ["tablet", "mobile"] as const) {
+    const texts = buildTexts.get(device);
+    if (texts === undefined) continue;
+    const claimants = group.filter((copy) => copy.visible.includes(device));
+    if (claimants.length < 2) continue;
+    const own = claimants.map((copy) => leafTextsOf(copy.node));
+    const present = claimants.filter((_, index) => {
+      const others = new Set(own.flatMap((set, other) => (other === index ? [] : [...set])));
+      const distinctive = [...(own[index] ?? [])].filter((text) => !others.has(text));
+      return distinctive.some((text) => texts.has(text));
+    });
+    if (present.length === 0 || present.length === claimants.length) continue;
+    for (const copy of claimants) {
+      if (!present.includes(copy)) copy.visible = copy.visible.filter((entry) => entry !== device);
+    }
+  }
+}
 
 function deviceVariantGroups(parent: IrNode, breakpoints: IrBreakpointMap): DeviceVariantCopy[][] {
   const groups = new Map<string, DeviceVariantCopy[]>();
@@ -710,6 +768,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       // Each build is read as its OWN document and merged as that device: the
       // values it resolved are the ones its variant class produced, and only that
       // width ever sees them.
+      const deviceBuilds: Partial<Record<"tablet" | "mobile", FramerIrDocument>> = {};
       for (const device of ["tablet", "mobile"] as const) {
         const markup = fromBrowser.deviceMarkup?.[device];
         if (markup === undefined || markup === "") continue;
@@ -718,6 +777,8 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
           url: input.source.url,
           pagePath: input.pagePath ?? "/",
         });
+        // The texts are read before the merge moves phone-only sections over.
+        deviceBuilds[device] = structuredClone(deviceDocument);
         document = mergeDeviceVariants(document, deviceDocument, device);
       }
       // The device captures are hydrated and carry only the copy of their own
@@ -730,7 +791,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
         pagePath: input.pagePath ?? "/",
         css: staticCss,
       });
-      const restoredVariants = restoreIdLessDeviceVariants(document, staticDocument);
+      const restoredVariants = restoreIdLessDeviceVariants(document, staticDocument, deviceBuilds);
       // The restored copies bring their own values (and pictures) from the
       // server HTML; their asset addresses have to reach the merged document.
       mergeAssets(document, staticDocument);
