@@ -122,6 +122,10 @@ export const IR_FINDING_KINDS = [
   // (`srcdoc`, a non-https scheme, a missing address). The box stays as a
   // placeholder and the report names source and reason.
   "embed-blocked",
+  // heading-levels — the normalizer smoothed the heading hierarchy (first
+  // heading h1, no level jumps) so the release gate passes; an info, not a
+  // block: the optical layout is unchanged (12.11.2026).
+  "heading-levels",
 ] as const;
 
 export type IrFindingKind = (typeof IR_FINDING_KINDS)[number];

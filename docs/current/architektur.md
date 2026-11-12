@@ -2,7 +2,7 @@
 
 > Dieses Dokument beschreibt den Ist-Zustand des Arbeitsbaums, nicht den Zielzustand.
 > Zielarchitektur und Reihenfolge: `docs/fahrplan.md`. Umsetzungsstand: `docs/current/stand.md`.
-> Die Risiko-Nummern `R1`-`R21` sind mit `docs/current/stand.md` und `docs/fahrplan.md` identisch. Der geprüfte Folge-Diff ist gesichert; der P3-2-Mapper-Schritt ist gegatet und als `0193fde` committet. Details und aktuelle Ergebnisse stehen in `docs/current/qualitaet.md`.
+> Die Risiko-Nummern `R1`-`R22` sind mit `docs/current/stand.md` und `docs/fahrplan.md` identisch. Der geprüfte Folge-Diff ist gesichert; der P3-2-Mapper-Schritt ist gegatet und als `0193fde` committet. Details und aktuelle Ergebnisse stehen in `docs/current/qualitaet.md`.
 
 ## Seams
 
@@ -161,3 +161,4 @@ R1 ist durch Build und angeschlossenes Artefakt-Gate implementierungsseitig gesc
 | R19 | Route-Matrix -> Drift-Tor | geschlossen: `pnpm route-matrix:check`, Generator sortiert die Module | `docs/fahrplan.md` (—) |
 | R20 | Bake-Lease -> Build-Timeout | geschlossen: Lease = Build-Frist plus fuenf Minuten, `job-leases.test.ts` | `docs/fahrplan.md` (—) |
 | R21 | Keine Lizenz | **geschlossen (24.10.2026)**: alle Rechte vorbehalten, Rechteinhaber Adrian Nick; `LICENSE` im Wurzelverzeichnis, `license: UNLICENSED` in `package.json`. Nutzung durch Dritte nur per gesonderter Vereinbarung. | `docs/fahrplan.md` (R21), `LICENSE` |
+| R22 | Import-Fidelity (Icons, Karten-Stapel, Selects, Klick-Menü) | offen: drei Ursachen belegt 12.11.2026, eine vermutet; vier Folgetickets, Korrektur steht aus | `docs/fahrplan.md` (R22), `.scratch/chocolate-importtest/issues/01…04` |

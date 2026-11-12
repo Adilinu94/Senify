@@ -205,17 +205,26 @@ function splitAppearTransform(transform: string): { layout: string; motion: stri
   return { layout: layout.join(" "), motion: motion.join(" ") };
 }
 
-// A reveal start state: almost transparent and either moving in or coming out
-// of a blur. A deblur alone is a reveal too (the word arrives in place), and
-// the live capture meets exactly that form: `opacity:0.001;filter:blur(4px);
-// transform:none`. Without this, the words stay at 0.1 % for good.
-function isRevealStart(opacity: string | undefined, transform: string | undefined, filter: string | undefined): boolean {
+// A reveal start state: almost transparent and either moving in, coming out
+// of a blur, or marked by `will-change:transform` alone. A deblur is a reveal
+// too (the word arrives in place), and so is the pure fade: Framer writes
+// `will-change:transform;opacity:0;transform:none` for scroll reveals that
+// only fade (measured on Chocolate: 44 elements of that shape, no appear id,
+// the runtime fades them in over ~990 ms). Without the marker as evidence
+// they froze at `opacity:0` for good.
+function isRevealStart(
+  opacity: string | undefined,
+  transform: string | undefined,
+  filter: string | undefined,
+  willChange?: string | undefined,
+): boolean {
   const value = Number.parseFloat(opacity ?? "");
   if (!Number.isFinite(value) || value > 0.01) return false;
   const movement = (transform ?? "").trim();
   if (movement !== "" && movement !== "none") return true;
   const blur = Number.parseFloat(/blur\(([\d.]+)px\)/.exec(filter ?? "")?.[1] ?? "0");
-  return Number.isFinite(blur) && blur > 0.5;
+  if (Number.isFinite(blur) && blur > 0.5) return true;
+  return (willChange ?? "").includes("transform");
 }
 
 // The start state of an effect is no look, and the inner markup keeps the raw
@@ -233,7 +242,7 @@ function ohneStartzustaende(markup: string): string {
     }
     const transform = (werte.get("transform") ?? "").trim();
     const startzustand =
-      isRevealStart(werte.get("opacity"), werte.get("transform"), werte.get("filter")) ||
+      isRevealStart(werte.get("opacity"), werte.get("transform"), werte.get("filter"), werte.get("will-change")) ||
       ((werte.get("will-change") ?? "").includes("transform") && transform !== "" && transform !== "none");
     const uebergangen = werte.has("transition") ? transitionPropertiesOf(werte.get("transition") ?? "") : [];
     const behalten = deklarationen.filter((deklaration) => {
@@ -1059,7 +1068,8 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
   // stay hidden as designed.
   const movesIn = visual["transform"] !== undefined && visual["transform"].trim() !== "none";
   const hasStartState =
-    attrs["data-framer-appear-id"] !== undefined || isRevealStart(visual["opacity"], visual["transform"], visual["filter"]);
+    attrs["data-framer-appear-id"] !== undefined ||
+    isRevealStart(visual["opacity"], visual["transform"], visual["filter"], visual["will-change"]);
   if (hasStartState) {
     for (const property of START_STATE_PROPERTIES) {
       const value = visual[property];
@@ -1922,7 +1932,8 @@ const DERIVED_STAGGER = 0.05;
 
 // Which elements are a reveal at all. A plain `opacity:0` without a movement is
 // a DESIGNED hidden state (closed menu, collapsed answer, hover overlay) and is
-// never derived.
+// never derived. The `will-change:transform` marker is the exception: it names
+// the pure fade, a reveal without movement (see `isRevealStart`).
 function isDerivedReveal(initial: Record<string, string>): boolean {
   const opacity = Number.parseFloat(initial["opacity"] ?? "1");
   if (!Number.isFinite(opacity) || opacity > 0.01) return false;
@@ -1930,7 +1941,7 @@ function isDerivedReveal(initial: Record<string, string>): boolean {
   const blur = Number.parseFloat(/blur\(([\d.]+)px\)/.exec(initial["filter"] ?? "")?.[1] ?? "0");
   const moves = transform !== "" && transform !== "none";
   // A deblur alone is a reveal too: the word arrives out of focus, in place.
-  return moves || (Number.isFinite(blur) && blur > 0.5);
+  return moves || (Number.isFinite(blur) && blur > 0.5) || (initial["will-change"] ?? "").includes("transform");
 }
 
 // A "Page Loader" is the opposite of a reveal: Framer shows it while the page

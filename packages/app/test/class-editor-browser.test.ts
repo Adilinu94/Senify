@@ -12,7 +12,7 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
     const database = memoryDb();
     const dataDir = mkdtempSync(join(tmpdir(), "senify-classes-"));
     const running = await startProgram({ db: database.db, dataDir, programTokenFile: join(dataDir, "token.json"), enginePort: 0, appPort: 0, openBrowser: false, reviewVisuals: false, rateLimits: { perMinute: 1200, burst: 400, destructivePerMinute: 200 } });
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: true, slowMo: Number(process.env.SENIFY_BROWSER_SLOWMO ?? 0) });
     try {
       const post = (path: string, body: unknown): Promise<Response> => fetch(`${running.dashboardUrl}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const site = await (await post("/api/sites", { name: "Klassen" })).json() as { id: string };
@@ -84,6 +84,14 @@ describe.skipIf(!browserAvailable)("class editing in the editor", () => {
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.locator('.senify-inspector__tab[data-tab="style"]').click();
       await tab.getByRole("searchbox", { name: "Klassen suchen" }).fill("unbekannt");
+      expect(await tab.getByRole("combobox", { name: "Vorhandene Klasse hinzufügen" }).locator("option").allTextContents()).toEqual(["Keine Klasse gefunden"]);
+      // Regression (Volllauf 12.11.2026): der Inspektor wird bei jedem
+      // Store-/Pipeline-Ereignis neu gebaut, auch bei Autosave-Statuswechseln.
+      // Die Klassensuche muss einen Neu-Render ueberleben; hier erzwungen
+      // durch Klick auf die schon aktive Lokal-Karte (render ohne Zustands-
+      // aenderung). Vor dem Fix leerte der Neu-Render das Suchfeld.
+      await tab.getByRole("button", { name: "Lokal", exact: true }).click();
+      expect(await tab.getByRole("searchbox", { name: "Klassen suchen" }).inputValue()).toBe("unbekannt");
       expect(await tab.getByRole("combobox", { name: "Vorhandene Klasse hinzufügen" }).locator("option").allTextContents()).toEqual(["Keine Klasse gefunden"]);
       await tab.getByRole("searchbox", { name: "Klassen suchen" }).fill("CTA");
       await tab.getByRole("combobox", { name: "Vorhandene Klasse hinzufügen" }).selectOption({ label: "cta" });

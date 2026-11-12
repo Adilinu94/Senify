@@ -169,7 +169,9 @@ describe("the spaces between inline elements", () => {
     const html = Object.values(mapped.document.nodes)
       .map((node) => String(node.props["html"] ?? ""))
       .join("|");
-    expect(html).toContain("<h2><span>Personal</span> <span>toolkits,</span></h2>");
+    // The heading is the page's first, so the hierarchy normalization names
+    // it h1 (the source wrote h2); the space between the words is the subject.
+    expect(html).toContain("<h1><span>Personal</span> <span>toolkits,</span></h1>");
   });
 
   it("still keeps a space that sits in a span of its own", () => {

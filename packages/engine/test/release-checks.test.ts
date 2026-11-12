@@ -79,6 +79,31 @@ describe("release pre-checks", () => {
     expect(result.hard.map((entry) => entry.code)).toContain("release-no-stylesheet");
   });
 
+  it("accepts an inlined stylesheet (self-contained preview)", () => {
+    // The preview bake inlines every local stylesheet as `<style>` (the
+    // document is opened without a file server). Measured on the Chocolate
+    // preview: all 7 pages plus 404.html were flagged `release-no-stylesheet`
+    // although the CSS sat inline (index.html: 6 style tags, 2.7 MB) and the
+    // pages rendered styled.
+    const dir = build({
+      "index.html": `<!doctype html><html><head>
+        <style>body{color:red}</style>
+      </head><body><h1>Start</h1></body></html>`,
+    });
+    const result = runReleasePreChecks({ outDir: dir });
+    expect(result.hard).toEqual([]);
+  });
+
+  it("still names a build whose only style tag is empty", () => {
+    const dir = build({
+      "index.html": `<!doctype html><html><head>
+        <style>   </style>
+      </head><body><h1>Start</h1></body></html>`,
+    });
+    const result = runReleasePreChecks({ outDir: dir });
+    expect(result.hard.map((entry) => entry.code)).toContain("release-no-stylesheet");
+  });
+
   it("reports a heading order violation", () => {
     const dir = build({
       "index.html": `<!doctype html><html><head>

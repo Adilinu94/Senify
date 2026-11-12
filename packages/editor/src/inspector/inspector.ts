@@ -224,6 +224,11 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   const isSet = (field: InspectorField): boolean =>
     field.source === "style" && field.value !== undefined && field.value !== null && field.value !== "";
   let selectedClassId: string | null = null;
+  // Die Klassensuche ueberlebt jeden Neu-Render: der Inspektor wird bei jedem
+  // Store-/Pipeline-Ereignis neu gebaut (auch bei Autosave-Statuswechseln).
+  // Ohne diesen Zustand leerte jeder solche Wechsel das Suchfeld mitten in
+  // der Eingabe (Flake im Volllauf 12.11.2026, class-editor-browser).
+  let classSearchQuery = "";
   let classOrderOpen = false;
   let classDeleteConfirmId: string | null = null;
   // One panel at a time, addressed by the field that owns it (a shared boolean
@@ -2011,6 +2016,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     const available = rules.filter((rule) => !assigned.includes(rule.name));
     if (available.length > 0) {
       const search = h(doc, "input", { className: "senify-inspector__class-search", attributes: { type: "search", placeholder: "Klasse suchen", "aria-label": "Klassen suchen" } });
+      search.value = classSearchQuery;
       const picker = h(doc, "select", { className: "senify-inspector__class-picker", attributes: { "aria-label": "Vorhandene Klasse hinzufügen" } });
       const filter = (): void => {
         const query = (search.value ?? "").trim().toLocaleLowerCase("de");
@@ -2019,7 +2025,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         picker.appendChild(h(doc, "option", { text: matches.length === 0 ? "Keine Klasse gefunden" : "Klasse hinzufügen …", attributes: { value: "" } }));
         for (const rule of matches) picker.appendChild(h(doc, "option", { text: rule.name, attributes: { value: rule.id } }));
       };
-      search.addEventListener("input", filter);
+      search.addEventListener("input", () => { classSearchQuery = search.value ?? ""; filter(); });
       filter();
       picker.addEventListener("change", () => {
         const rule = available.find((entry) => entry.id === picker.value);
@@ -2128,6 +2134,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     if (nodeId !== lastNodeId) {
       lastNodeId = nodeId;
       selectedClassId = null;
+      classSearchQuery = "";
       classDeleteConfirmId = null;
       paletteKey = null;
       tokenPanelKey = null;

@@ -55,6 +55,20 @@ export default defineConfig({
     // ein haengender Hook faellt weiter auf, nur nicht mehr an der Laenge der
     // Warteschlange.
     hookTimeout: 30_000,
+    // Dritte Frist derselben Familie: `expect.poll` wartet standardmaessig nur
+    // 1 s. Unter Volllast (vier Worker, Windows-Laeufer) braucht ein Canvas-
+    // Iframe-Update laenger - am 12.11.2026 fiel `canvas-view-browser` an einer
+    // Farb-Poll (Zeile 253, erwartet rgb(18,52,86), erhalten transparent), unter
+    // CPU-Last reproduzierbar an einer anderen Farb-Poll (Zeile 356). Der Wert
+    // war laengst committed, nur das Iframe hinkte hinterher. Fuenf Sekunden
+    // sind die ehrliche Frist fuer die Last; die Assertion bleibt gleich, nur
+    // das Wartefenster wird realistisch. Schwere Browser-Tests behalten ihre
+    // eigenen, laengeren Fristen.
+    expect: {
+      poll: {
+        timeout: 5_000,
+      },
+    },
     // Coverage-Gate (Fahrplan P1-2, R11). Die gemessenen Zahlen stehen in
     // docs/current/qualitaet.md, nicht hier - dieser Block ist das Tor, nicht
     // die Messung. Bewusst NUR die Pfade, in denen Fehler am teuersten sind:

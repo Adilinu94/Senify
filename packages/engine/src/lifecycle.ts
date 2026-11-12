@@ -81,7 +81,7 @@ function hardFailure(issues: CheckIssue[], stage: string): SenifyError {
   return new SenifyError(
     "guardrail",
     `Hard checks failed during ${stage}: ${first?.message ?? "unknown issue"}${extra}`,
-    { field: first?.field, suggestion: first?.suggestion },
+    { field: first?.field, suggestion: first?.suggestion, issues },
   );
 }
 

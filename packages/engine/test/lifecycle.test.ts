@@ -255,6 +255,36 @@ describe("guardrails and checks", () => {
     expect(blockedAlt.body.error.message).toContain("alt text");
   });
 
+  it("lists every hard check issue in the publish error body", async () => {
+    // The message names only the first issue ("(+N more)"); the agent and the
+    // dashboard need the whole list to fix the page in one pass (measured on
+    // Chocolate: 20 hard findings, the engine message showed one).
+    const site = (await createTestSite(env.api, "Fehlerliste")).id;
+    const page = await createTestPage(env.api, site, { title: "Kaputt" });
+    const linkInsert = await insertNode(page.id, "cta-0001", "cta", {
+      headline: "Link",
+      buttons: [{ label: "Los", link: { pageId: "missing-page" } }],
+    });
+    expect(linkInsert.status).toBe(200);
+    const gallery = await insertNode(page.id, "gallery-1", "gallery", {
+      title: "Galerie",
+      items: [{ asset: { assetId: "bild-1" } }],
+    });
+    expect(gallery.status).toBe(200);
+    const blocked = await publishRelease(site);
+    expect(blocked.status).toBe(422);
+    expect(blocked.body.error.category).toBe("guardrail");
+    const issues = blocked.body.error.issues ?? [];
+    expect(issues.length).toBeGreaterThanOrEqual(2);
+    const messages = issues.map((entry) => entry.message).join(" | ");
+    expect(messages).toContain("does not exist");
+    expect(messages).toContain("alt text");
+    for (const entry of issues) {
+      expect(entry.code).toBeTruthy();
+      expect(entry.severity).toBe("hard");
+    }
+  });
+
   // Ticket 04, publish versions: the pin is a contract — the release blocks
   // site-wide while an instance pins an older definition version (no silent
   // fallback to the newer definition), and passes once the instances follow.

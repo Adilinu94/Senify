@@ -97,10 +97,15 @@ export function runReleasePreChecks(input: { outDir: string }): ReleaseCheckResu
       }
     }
 
-    // At least one stylesheet must be linked: without it the page ships
-    // unstyled (the parity gate would catch it, the check names it).
-    if (!/<link[^>]+rel="stylesheet"/i.test(html)) {
-      hard.push(issue("release-no-stylesheet", "hard", `${page}: kein Stylesheet verlinkt.`));
+    // At least one stylesheet must be present: without it the page ships
+    // unstyled (the parity gate would catch it, the check names it). The
+    // preview bake inlines local stylesheets as `<style>` (self-contained
+    // document, no file server) — a non-empty inline block is the same
+    // evidence as a link.
+    const linked = /<link[^>]+rel="stylesheet"/i.test(html);
+    const inline = /<style\b[^>]*>\s*\S[\s\S]*?<\/style>/i.test(html);
+    if (!linked && !inline) {
+      hard.push(issue("release-no-stylesheet", "hard", `${page}: kein Stylesheet vorhanden (weder verlinkt noch inline).`));
     }
 
     // Heading order: no level skips a step. A page that starts below h1 is

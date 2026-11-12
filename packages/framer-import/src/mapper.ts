@@ -1876,6 +1876,61 @@ function tokenRootRule(
   };
 }
 
+/* ------------------------------------------------- heading hierarchy */
+
+// The release gate forbids level jumps (h1 → h4 is a hard failure) and
+// recommends h1 as the page's first heading. Framer pages carry the source's
+// own levels: the hero is an h3, sections jump h2 → h4 (measured on Chocolate:
+// 17 hard jump findings over 7 pages). The import normalizes the sequence in
+// document order — first heading h1, no rise of more than one step — across
+// BOTH paths a heading takes: the `level` prop of a heading node and the raw
+// tags inside a body's inline markup. The look stays: the typography sits on
+// the node's attribute selectors, not on the tag (the only h1–h6 tag rule in
+// the build is the preflight reset).
+function normalizeHeadingLevels(
+  nodes: Record<string, EditorNode>,
+  rootId: string,
+): { changed: number; examples: string[] } {
+  let previous = 0;
+  let changed = 0;
+  const examples: string[] = [];
+  const nextLevel = (tag: string): string => {
+    const level = Number(tag.slice(1));
+    const normalized = previous === 0 ? 1 : Math.min(level, previous + 1);
+    previous = normalized;
+    if (normalized !== level) {
+      changed += 1;
+      if (examples.length < 6) examples.push(`${tag}→h${normalized}`);
+    }
+    return `h${normalized}`;
+  };
+  // Headings do not nest: each closing tag belongs to the last opening.
+  const htmlHeadings = (html: string): string => {
+    const stack: string[] = [];
+    return html.replace(/<h([1-6])\b([^>]*)>|<\/h([1-6])\s*>/gi, (_match, open, attrs, close) => {
+      if (close !== undefined) return `</${stack.pop() ?? `h${close}`}>`;
+      const tag = nextLevel(`h${open}`);
+      stack.push(tag);
+      return `<${tag}${attrs}>`;
+    });
+  };
+  const walk = (id: string): void => {
+    const node = nodes[id];
+    if (node === undefined) return;
+    const level = node.props["level"];
+    if (node.primitive === "heading" && typeof level === "string" && HEADING_TAGS.has(level)) {
+      node.props["level"] = nextLevel(level);
+    }
+    const html = node.props["html"];
+    if (typeof html === "string" && /<h[1-6]\b/i.test(html)) {
+      node.props["html"] = htmlHeadings(html);
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(rootId);
+  return { changed, examples };
+}
+
 /* ------------------------------------------------------------------- main */
 
 export function mapDocument(
@@ -1962,6 +2017,19 @@ export function mapDocument(
       children.push(mapped.id);
     }
     root.children = children;
+  }
+
+  const headings = normalizeHeadingLevels(context.nodes, "root");
+  if (headings.changed > 0) {
+    context.findings.push({
+      kind: "heading-levels",
+      nodeKey: null,
+      message: `Überschriften-Ebenen normalisiert: ${headings.changed} Korrektur(en), erste Überschrift h1, keine Sprünge.`,
+      evidence: headings.examples.join(", "),
+      severity: "info",
+      suggestion:
+        "Die Ebenen sind semantisch korrigiert (Release-Tor); die Typografie der Knoten bleibt unverändert.",
+    });
   }
 
   // Smooth-scroll and loop findings ride through (S1.6): they are profile

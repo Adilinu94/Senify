@@ -357,3 +357,70 @@ describe("mapDocument", () => {
     expect(vars(mappedB).every((value) => value.includes(scopeB))).toBe(true);
   });
 });
+
+describe("Überschriften-Hierarchie (Release-Tor)", () => {
+  // Das Release-Tor verbietet Ebenen-Sprünge (h1 → h4, hart) und empfiehlt h1
+  // als erste Überschrift (weich). Framer-Seiten tragen die Ebenen der Quelle:
+  // der Held ist eine h3, Abschnitte springen h2 → h4 (gemessen an Chocolate,
+  // 12.11.2026: 20 harte Sprung-Funde über 7 Seiten). Der Import normalisiert
+  // die Folge — erste Überschrift h1, kein Aufstieg um mehr als eine Stufe.
+  // Die Optik bleibt: die Typografie sitzt auf den Attribut-Selektoren der
+  // Knoten, nicht auf dem Tag (der einzige h1–h6-Tag-Selektor im Build ist der
+  // Preflight-Reset).
+  const page = (body: string): string =>
+    `<html lang="en"><head><title>t</title></head><body><div id="main" data-framer-hydrate-v2>${body}</div></body></html>`;
+
+  const mapped = (body: string) => {
+    const document = captureHtml({ html: page(body) });
+    return mapDocument(document, normalize(document).rules);
+  };
+
+  type Node = { primitive: string; props: Record<string, unknown>; children?: string[] };
+  const inOrder = (result: ReturnType<typeof mapped>): Node[] => {
+    const nodes = result.document.nodes as Record<string, Node>;
+    const out: Node[] = [];
+    const walk = (id: string): void => {
+      const node = nodes[id];
+      if (node === undefined) return;
+      out.push(node);
+      for (const child of node.children ?? []) walk(child);
+    };
+    walk(result.document.rootNodeId);
+    return out;
+  };
+
+  it("korrigiert Sprünge und startet mit h1", () => {
+    const result = mapped(`<h3>Hero</h3><h4>Sprung</h4><h2>Abschnitt</h2>`);
+    const levels = inOrder(result)
+      .filter((node) => node.primitive === "heading")
+      .map((node) => node.props["level"]);
+    expect(levels).toEqual(["h1", "h2", "h2"]);
+  });
+
+  it("korrigiert Überschriften im Inline-Markup eines Body", () => {
+    const result = mapped(
+      `<h1>Titel</h1><div data-framer-component-type="RichTextContainer"><h4>Rich</h4><p>Text</p></div>`,
+    );
+    const nodes = inOrder(result);
+    const heading = nodes.find((node) => node.primitive === "heading");
+    expect(heading?.props["level"]).toBe("h1");
+    const body = nodes.find((node) => node.primitive === "body");
+    expect(String(body?.props["html"] ?? "")).toContain("<h2>Rich</h2>");
+    expect(String(body?.props["html"] ?? "")).not.toContain("<h4");
+  });
+
+  it("lässt eine saubere Hierarchie unverändert", () => {
+    const result = mapped(`<h1>Titel</h1><h2>Abschnitt</h2><h3>Fein</h3>`);
+    const levels = inOrder(result)
+      .filter((node) => node.primitive === "heading")
+      .map((node) => node.props["level"]);
+    expect(levels).toEqual(["h1", "h2", "h3"]);
+    expect(result.findings.some((finding) => finding.kind === "heading-levels")).toBe(false);
+  });
+
+  it("nennt die Korrektur als Fund", () => {
+    const result = mapped(`<h3>Hero</h3><h4>Sprung</h4>`);
+    const finding = result.findings.find((entry) => entry.kind === "heading-levels");
+    expect(finding?.severity).toBe("info");
+  });
+});

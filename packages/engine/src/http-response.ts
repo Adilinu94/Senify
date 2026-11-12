@@ -217,6 +217,7 @@ export function sendError(res: ServerResponse, error: unknown): void {
         ...(error.suggestion !== undefined
           ? { suggestion: error.suggestion }
           : {}),
+        ...(error.issues !== undefined ? { issues: error.issues } : {}),
       },
     });
     return;
