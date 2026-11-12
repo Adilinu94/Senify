@@ -1,7 +1,7 @@
 # Hover-Zustände der Framer-Quelle
 
 Status: Stufe 1 (ADR-0033) und Stufe 2, Gleitdauer (ADR-0034), umgesetzt. Rest offen: Eltern-Hover als Regel, Federkurve, Tablet/Mobil
-Label: needs-triage
+Label: ready-for-human (Triage 12.11.2026, Scheiben unten)
 
 ## Befund
 
@@ -39,3 +39,11 @@ Die Befunde sanken von 22 auf 15, weil der feste Lesezeitpunkt (450 ms) bei sieb
 ## Nachtrag 12.11.2026: Gleitdauer und weitere Quellen
 
 Sechs weitere Quellen mit .scratch/motion-import/hover-uebergang-probe.mts gemessen: Fünf haben Hover-Knoten, bei allen gleitet mindestens einer (Hintergrund, Transform, Deckkraft); Textlink-Farben springen. Daraus ADR-0034: Dauer wird abgeleitet und als transition am Basisstil abgelegt (Relay 350 bis 400 ms, Donutshop 500 bis 550 ms). Offen: Federkurve statt ease, Eltern-Hover als Regel, Tablet/Mobil. Nicht geklärt: Ein Capture gegen wedge.framer.website lief einmal über 10 Minuten ohne Ende und war danach nicht reproduzierbar (zweiter Lauf 48 s).
+
+## Triage 12.11.2026: Scheiben
+
+Stufe 1 und 2 sind umgesetzt (ADR-0033, ADR-0034). Der Rest ist klein geschnitten:
+
+- 08a Eltern-Hover als Regel (.eltern:hover .kind): ready-for-agent, braucht eine eigene ADR und einen roten Test mit Kartenbeispiel. An der Relay-Quelle betrifft es 14 Elternknoten, bei Donutshop 21 Befunde (hover-capture-probe.mts).
+- 08b Federkurve statt ease: needs-info. Erst belegen, dass die Abweichung sichtbar ist (Kurvenmessung an mehreren Quellen); ohne Beleg nicht bauen.
+- 08c Tablet, Mobil und Touch ((hover: hover)-Schutz): ready-for-human. Produktfrage, ob Hover auf Touch erhalten bleiben soll.
