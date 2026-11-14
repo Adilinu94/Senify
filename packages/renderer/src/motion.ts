@@ -326,11 +326,16 @@ export function pageEffectsForTree(tree: NodeTree): PageEffects {
   let loader: PageLoader | null =
     rootProps["loader"] === true
       ? {
-          label: typeof rootProps["loaderLabel"] === "string" ? rootProps["loaderLabel"] : "Loading",
+          label: typeof rootProps["loaderLabel"] === "string" ? rootProps["loaderLabel"] : "Origin®",
+          place:
+            typeof rootProps["loaderPlace"] === "string"
+              ? rootProps["loaderPlace"]
+              : "Brand Studio, Dubai",
           durationMs:
             typeof rootProps["loaderDuration"] === "number"
               ? Math.max(500, Math.min(15_000, rootProps["loaderDuration"] * 1_000))
               : 2_900,
+          showOnceMs: 15_000,
           showOnce: rootProps["loaderShowOnce"] !== false,
           counter: rootProps["loaderCounter"] !== false,
           background:
@@ -338,7 +343,9 @@ export function pageEffectsForTree(tree: NodeTree): PageEffects {
               ? rootProps["loaderBackground"]
               : "#141414",
           color:
-            typeof rootProps["loaderColor"] === "string" ? rootProps["loaderColor"] : "#f5f5f5",
+            typeof rootProps["loaderColor"] === "string" ? rootProps["loaderColor"] : "#f2f2f2",
+          muted: "#8e8e8e",
+          count: "#b8b8b8",
         }
       : null;
   if (loader !== null) preloader = true;
@@ -355,12 +362,16 @@ export function pageEffectsForTree(tree: NodeTree): PageEffects {
       // (2,85 s gemessen, Zähler, Show-once) als festen nativen Loader.
       if (loader === null) {
         loader = {
-          label: "Loading",
+          label: "Origin®",
+          place: "Brand Studio, Dubai",
           durationMs: 2_900,
+          showOnceMs: 15_000,
           showOnce: true,
           counter: true,
           background: "#141414",
-          color: "#f5f5f5",
+          color: "#f2f2f2",
+          muted: "#8e8e8e",
+          count: "#b8b8b8",
         };
       }
       continue;

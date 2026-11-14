@@ -158,4 +158,52 @@ describe("release pre-checks", () => {
       expect.stringContaining("blog/index.html"),
     );
   });
+
+  it("accepts a link to a page of the build", () => {
+    // A site path is baked as `<path>/index.html`, so `/contact` is a folder
+    // and not a missing file. Measured on the imported origin home: the release
+    // was refused for `/contact`, `/studio` and `/work` although the bake had
+    // laid out every one of them.
+    const dir = build({
+      "index.html": `<!doctype html><html><head>
+        <link rel="stylesheet" href="/a.css">
+      </head><body>
+        <h1>Start</h1>
+        <a href="/contact">Kontakt</a>
+        <a href="/work/toki">Projekt</a>
+        <a href="/contact#formular">Formular</a>
+      </body></html>`,
+      "contact/index.html": `<!doctype html><html><head><link rel="stylesheet" href="/a.css"></head><body><h1>Kontakt</h1></body></html>`,
+      "work/toki/index.html": `<!doctype html><html><head><link rel="stylesheet" href="/a.css"></head><body><h1>Toki</h1></body></html>`,
+      "a.css": "",
+    });
+    const result = runReleasePreChecks({ outDir: dir });
+    expect(result.hard).toEqual([]);
+  });
+
+  it("still names a link to a path the build does not carry", () => {
+    const dir = build({
+      "index.html": `<!doctype html><html><head>
+        <link rel="stylesheet" href="/a.css">
+      </head><body><h1>Start</h1><a href="/gibt-es-nicht">Weg</a></body></html>`,
+      "a.css": "",
+    });
+    const result = runReleasePreChecks({ outDir: dir });
+    expect(result.hard.map((entry) => entry.code)).toContain("release-missing-file");
+    expect(result.hard[0]?.message).toContain("/gibt-es-nicht");
+  });
+
+  it("decodes a percent-encoded path before looking it up", () => {
+    // Framer writes `/work/dendezeiro%C2%AE`; the bake lays out the decoded
+    // folder name.
+    const dir = build({
+      "index.html": `<!doctype html><html><head>
+        <link rel="stylesheet" href="/a.css">
+      </head><body><h1>Start</h1><a href="/work/dendezeiro%C2%AE">Projekt</a></body></html>`,
+      "work/dendezeiro\u00ae/index.html": `<!doctype html><html><head><link rel="stylesheet" href="/a.css"></head><body><h1>Dendezeiro</h1></body></html>`,
+      "a.css": "",
+    });
+    const result = runReleasePreChecks({ outDir: dir });
+    expect(result.hard).toEqual([]);
+  });
 });

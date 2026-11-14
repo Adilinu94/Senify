@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileS
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { SenifyError } from "@senify/core";
 import { fetchPublic } from "@senify/core/net";
-import type { FramerIrDocument, IrAsset, IrFontFace, IrNode, IrVisual } from "./ir.ts";
+import type { FramerIrDocument, IrAsset, IrFinding, IrFontFace, IrNode, IrVisual } from "./ir.ts";
 import { dataUrlMime, decodeDataUrl, sanitizeSvg } from "./svg.ts";
 
 /* ------------------------------------------------------------------ types */
@@ -223,7 +223,7 @@ export async function importAssets(input: ImportAssetsInput): Promise<AssetResul
       });
       continue;
     }
-    urlToAsset.set(asset.url, await downloadAsset(asset, input, timeoutMs, byHash, report));
+    urlToAsset.set(asset.url, await downloadAsset(asset, input, timeoutMs, byHash, report, document.findings));
     const download = urlToAsset.get(asset.url);
     if (download?.localUrl) urlRewrites[asset.url] = download.localUrl;
   }
@@ -454,6 +454,7 @@ async function downloadAsset(
   timeoutMs: number,
   byHash: Map<string, AssetDownload>,
   report: AssetReport,
+  findings: IrFinding[],
 ): Promise<AssetDownload> {
   // A data URL carries its bytes in the address: it is decoded, never
   // fetched. There is no host to reach, so the address check does not apply.
@@ -500,8 +501,23 @@ async function downloadAsset(
     byHash.set(hash, download);
     report.downloads.push(download);
     return download;
-  } catch {
+  } catch (error) {
     report.failed += 1;
+    // A failed page asset is a visible finding, not a silent gap: the node keeps
+    // the source address, the release has no local file for it. Measured on the
+    // imported origin home (14.11.2026): a 40 MB GIF exceeds the 25 MB upload
+    // limit, so the run failed it — and the address ended up as an asset id.
+    findings.push({
+      kind: "asset-blocked",
+      nodeKey: null,
+      message: `Bild konnte nicht übernommen werden: ${asset.url.slice(0, 120)}`,
+      evidence: asset.url.slice(0, 200),
+      severity: "warn",
+      suggestion:
+        error instanceof SenifyError
+          ? (error.suggestion ?? "Quelle prüfen oder das Bild kleiner ablegen.")
+          : "Quelle prüfen oder das Bild kleiner ablegen.",
+    });
     return { url: asset.url, hash: "", bytes: 0, localUrl: null, mime: mimeForUrl(asset.url), assetId: null };
   }
 }
@@ -524,6 +540,8 @@ export function createCmsMediaImporter(input: {
   const report: AssetReport = { downloads: [], fonts: [], deduped: 0, failed: 0 };
   const timeoutMs = input.timeoutMs ?? 30_000;
   return async ({ url, alt, kind = "image" }) => {
+    // A CMS medium has no document to report into: the caller sees `null` and
+    // keeps its own finding.
     const download = await downloadAsset(
       { url, kind, hash: null, alt, width: null, height: null },
       {
@@ -533,6 +551,7 @@ export function createCmsMediaImporter(input: {
       timeoutMs,
       byHash,
       report,
+      [],
     );
     return download.assetId === null ? null : { assetId: download.assetId };
   };

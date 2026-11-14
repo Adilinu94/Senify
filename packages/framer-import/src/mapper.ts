@@ -710,6 +710,13 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
       if (node.href !== null) props["link"] = { url: node.href, newTab: node.target === "_blank" };
     }
   } else if (primitive === "image") {
+    // A page asset is named by its uploaded id (`download.assetId`); without an
+    // upload the source address stands in its place, which is what the preview
+    // and the source-delivery map expect (`sourceAssetDeliveries` looks the
+    // address up as the key). An address is NOT an id: the release check treats
+    // a URL as a source to fetch, not as a reference to a stored asset — the
+    // distinction keeps one oversized picture (origin home: 40 MB against a
+    // 25 MB upload limit) from stopping the whole publish.
     const assetId = node.assetId ?? node.assetUrl;
     if (assetId !== undefined && assetId !== null) props["asset"] = { assetId };
     props["alt"] = node.alt ?? "";

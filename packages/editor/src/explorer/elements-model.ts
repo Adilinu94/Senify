@@ -35,6 +35,7 @@ export const ELEMENT_ICONS: Readonly<Record<string, EditorIconName>> = {
   embed: "code",
   collection: "collection",
   "ribbon-gallery": "image",
+  "wave-background": "spark",
 };
 
 export type ElementTile = {
