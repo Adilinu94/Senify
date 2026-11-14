@@ -129,6 +129,7 @@ export const ControlSchema: TSchema = Type.Recursive((Self) =>
     maxItems: Type.Optional(Type.Number()),
     condition: Type.Optional(ConditionSchema),
     responsive: Type.Optional(Type.Boolean()),
+    group: Type.Optional(Type.String({ minLength: 1 })),
   }),
 );
 

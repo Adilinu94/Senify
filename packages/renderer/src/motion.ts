@@ -297,10 +297,23 @@ export type PageTransition = {
 // (`page-fade`), the pure-CSS blocks keyed by `data-motion` (hover-lift,
 // ambient-float, grain) and the preloader flag. Everything here is emitted
 // once per page; one intensity per preset, the first enabled spec wins.
+// Der native Seiten-Loader lebt im Astro-Template-Ordner, weil der Bake diesen
+// Ordner in eine Staging-Umgebung kopiert; ein relativer Import in `../src`
+// würde dort ins Leere zeigen. Die Renderer-Fassade re-exportiert die Bausteine
+// für den Editor-Live-Pfad.
+import type { PageLoader } from "../astro-template/src/lib/preloader.ts";
+export {
+  PRELOADER_CSS,
+  preloaderMarkup,
+  preloaderScript,
+  type PageLoader,
+} from "../astro-template/src/lib/preloader.ts";
+
 export type PageEffects = {
   transition: PageTransition | null;
   css: string;
   preloader: boolean;
+  loader: PageLoader | null;
   warnings: MotionWarning[];
 };
 
@@ -308,6 +321,27 @@ export function pageEffectsForTree(tree: NodeTree): PageEffects {
   const warnings: MotionWarning[] = [];
   let transition: PageTransition | null = null;
   let preloader = false;
+  const root = tree.nodes[tree.rootNodeId];
+  const rootProps = root?.props ?? {};
+  let loader: PageLoader | null =
+    rootProps["loader"] === true
+      ? {
+          label: typeof rootProps["loaderLabel"] === "string" ? rootProps["loaderLabel"] : "Loading",
+          durationMs:
+            typeof rootProps["loaderDuration"] === "number"
+              ? Math.max(500, Math.min(15_000, rootProps["loaderDuration"] * 1_000))
+              : 2_900,
+          showOnce: rootProps["loaderShowOnce"] !== false,
+          counter: rootProps["loaderCounter"] !== false,
+          background:
+            typeof rootProps["loaderBackground"] === "string"
+              ? rootProps["loaderBackground"]
+              : "#141414",
+          color:
+            typeof rootProps["loaderColor"] === "string" ? rootProps["loaderColor"] : "#f5f5f5",
+        }
+      : null;
+  if (loader !== null) preloader = true;
   const cssEffects = new Map<string, number>();
   for (const node of Object.values(tree.nodes)) {
     const motion = node.motion;
@@ -316,6 +350,19 @@ export function pageEffectsForTree(tree: NodeTree): PageEffects {
     const intensity = Math.min(10, Math.max(1, Math.round(motion.intensity ?? 5)));
     if (motion.preset === "preloader-light") {
       preloader = true;
+      // Der Preset ist der kanonische Auslöser. Die Root-Props sind in der
+      // Engine nicht schreibbar; deshalb trägt der Preset die Origin-Konfiguration
+      // (2,85 s gemessen, Zähler, Show-once) als festen nativen Loader.
+      if (loader === null) {
+        loader = {
+          label: "Loading",
+          durationMs: 2_900,
+          showOnce: true,
+          counter: true,
+          background: "#141414",
+          color: "#f5f5f5",
+        };
+      }
       continue;
     }
     if (motion.preset === "page-fade") {
@@ -343,7 +390,7 @@ export function pageEffectsForTree(tree: NodeTree): PageEffects {
   const css = [...cssEffects.entries()]
     .map(([preset, intensity]) => motionEffectCss(preset, intensity))
     .join("\n");
-  return { transition, css, preloader, warnings };
+  return { transition, css, preloader, loader, warnings };
 }
 
 function px(value: number): string {
@@ -760,6 +807,8 @@ export type IslandsScriptOptions = {
   // The bake writes the file and passes the map; a preview without a file
   // server leaves the map empty and the poster stands (ADR-0010 §8).
   payloads?: Readonly<Record<string, string>>;
+  // Widget-Typ -> URL inside this build (`/assets/widgets/<typ>.<hash>.js`).
+  widgets?: Readonly<Record<string, string>>;
 };
 
 export function renderIslandsScript(
@@ -1152,6 +1201,46 @@ export function renderIslandsScript(
       }
     }, { rootMargin: "300px" });
     for (var index = 0; index < hosts.length; index += 1) observer.observe(hosts[index]);
+  })();`);
+  }
+  if (kinds.has("widget")) {
+    const urls = options.widgets ?? {};
+    blocks.push(`
+  // Native widgets (spec 2026-11-12): self-hosted vanilla cores, lazy on scroll.
+  // Every failure keeps the poster; reduced motion is the core's decision.
+  (function () {
+    var urls = ${jsonForScript(urls)};
+    var hosts = document.querySelectorAll('[data-island="widget"]');
+    if (hosts.length === 0) return;
+    var mount = function (host) {
+      if (host.getAttribute("data-widget-state") === "mounted") return;
+      var type = host.getAttribute("data-widget-type") || "";
+      var url = Object.prototype.hasOwnProperty.call(urls, type) ? urls[type] : "";
+      if (url === "") { host.setAttribute("data-widget-state", "failed"); return; }
+      var props = {};
+      try { props = JSON.parse(host.getAttribute("data-props") || "{}"); } catch (e) { props = {}; }
+      if (props === null || typeof props !== "object" || Array.isArray(props)) props = {};
+      import(url).then(function (module) {
+        var fn = module && (typeof module.mount === "function" ? module.mount : (module.default && typeof module.default.mount === "function" ? module.default.mount : null));
+        if (typeof fn !== "function") { host.setAttribute("data-widget-state", "failed"); return; }
+        try {
+          fn(host, props);
+          if (host.getAttribute("data-widget-state") !== "failed") host.setAttribute("data-widget-state", "mounted");
+        } catch (e) { host.setAttribute("data-widget-state", "failed"); }
+      }).catch(function () { host.setAttribute("data-widget-state", "failed"); });
+    };
+    if (typeof IntersectionObserver !== "function") {
+      for (var i = 0; i < hosts.length; i += 1) mount(hosts[i]);
+      return;
+    }
+    var observer = new IntersectionObserver(function (entries) {
+      for (var i = 0; i < entries.length; i += 1) {
+        if (!entries[i].isIntersecting) continue;
+        observer.unobserve(entries[i].target);
+        mount(entries[i].target);
+      }
+    }, { rootMargin: "300px" });
+    for (var i = 0; i < hosts.length; i += 1) observer.observe(hosts[i]);
   })();`);
   }
   if (blocks.length === 0) return "";

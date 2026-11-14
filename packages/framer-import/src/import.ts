@@ -16,6 +16,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { captureFixture, captureHtml, pageFileOf, type CaptureHtmlInput } from "./capture-html.ts";
 import { mapUnframerProject } from "./unframer-ir.ts";
+import { enrichProjectDocument } from "./project-style-enrichment.ts";
 import {
   captureBrowser,
   type BrowserCaptureResult,
@@ -57,7 +58,16 @@ export type ImportSource =
   // `motion-absent`. `pagePath` is the page's path INSIDE the project (it must
   // match `<Page path>`, else the mapping refuses); the page's target path in
   // Senify is the run's own `pagePath`.
-  | { kind: "project"; projectXml: string; pageXml: string; pagePath: string };
+  | {
+      kind: "project";
+      projectXml: string;
+      pageXml: string;
+      pagePath: string;
+      // Optional published page for typography: the project XML names the
+      // family and weight but carries no colour and no font file. The page is
+      // read for those two only; its structure is ignored (ADR-0028).
+      styleUrl?: string;
+    };
 
 export type RunImportInput = {
   source: ImportSource;
@@ -828,6 +838,59 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       projectXml: input.source.projectXml,
       pages: [{ path: input.source.pagePath, xml: input.source.pageXml }],
     });
+    // The project XML is the structure, but it has no text colours and no
+    // font files (measured on fluffy-rectangle, 14.11.2026). When the caller
+    // names the published page, read those two from it. A failure only leaves
+    // the typography as the XML delivered it; the structure import still runs.
+    if (input.source.styleUrl !== undefined && input.source.styleUrl !== "") {
+      try {
+        const response = await fetchPublic(input.source.styleUrl, {
+          signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
+          maxBytes: MAX_PAGE_BYTES,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const html = await response.text();
+        const css = await fetchLinkedCss(html, input.source.styleUrl);
+        const stats = enrichProjectDocument(document, {
+          html,
+          css,
+          url: input.source.styleUrl,
+        });
+        if (baseUrl === undefined) baseUrl = new URL(input.source.styleUrl).origin;
+        if (stats.colors > 0 || stats.fonts > 0 || stats.body) {
+          document.findings.push({
+            kind: "font-mapping",
+            nodeKey: null,
+            message: `Typografie aus der veröffentlichten Seite ergänzt: ${stats.colors} Textfarbe(n), ${stats.fonts} Schriftschnitt(e)${stats.body ? ", Body-Stil" : ""}. Die Projekt-XML trägt keine Textfarbe und keine Schriftdatei.`,
+            evidence: input.source.styleUrl,
+            severity: "info",
+            suggestion:
+              "Nur die Typografie stammt aus der Seite. Struktur, Widgets und Code-Komponenten bleiben aus der Projekt-XML.",
+          });
+        }
+        if (stats.ambiguous > 0) {
+          document.findings.push({
+            kind: "unsupported-declaration",
+            nodeKey: null,
+            message: `${stats.ambiguous} Textknoten haben dieselben Worte mit mehreren Farben in der Quelle; ihre Farbe bleibt ungesetzt statt geraten.`,
+            evidence: input.source.styleUrl,
+            severity: "info",
+            suggestion:
+              "Die betroffenen Textstellen im Editor prüfen oder den Text eindeutig machen, dann erneut importieren.",
+          });
+        }
+      } catch (error) {
+        document.findings.push({
+          kind: "unsupported-declaration",
+          nodeKey: null,
+          message: `Die Stilquelle ${input.source.styleUrl} konnte nicht gelesen werden; Textfarben und Schriftdateien bleiben aus der Projekt-XML.`,
+          evidence: error instanceof Error ? error.message : String(error),
+          severity: "warn",
+          suggestion:
+            "Die veröffentlichte Seite prüfen oder den Import ohne styleUrl wiederholen; die Struktur ist davon nicht betroffen.",
+        });
+      }
+    }
   } else {
     const capture: CaptureHtmlInput = { html: input.source.html, pagePath: input.pagePath ?? "/" };
     if (input.source.url !== undefined) capture.url = input.source.url;

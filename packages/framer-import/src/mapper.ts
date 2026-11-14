@@ -141,6 +141,24 @@ function cssName(name: string): string | undefined {
 
 const HEADING_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
 
+// Portierte Framer-Code-Components, die als native, bearbeitbare Widgets statt
+// als Platte importiert werden (spec 2026-11-12). Der Schluessel ist der
+// normalisierte Komponentenname: klein, ohne Dateiendung, ohne Nicht-Alphanumerics.
+const CODE_COMPONENT_WIDGETS: Record<string, string> = {
+  wavebackground: "wave-background",
+  ribbongallery: "ribbon-gallery",
+};
+
+export function widgetTypeForCodeComponent(componentType: string | null): string | undefined {
+  if (componentType === null) return undefined;
+  const key = componentType
+    .trim()
+    .toLowerCase()
+    .replace(/\.[a-z0-9]+$/, "")
+    .replace(/[^a-z0-9]/g, "");
+  return CODE_COMPONENT_WIDGETS[key];
+}
+
 function primitiveFor(node: IrNode, siblings: IrNode[]): string {
   switch (node.kind) {
     case "text":
@@ -465,6 +483,35 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
   // The primitive decision runs AFTER the sibling merge: the merged children
   // decide whether a `list` stays a list or degrades to a frame.
   let primitive = primitiveFor(node, siblings);
+  // Eine portierte Code-Component wird zum nativen Widget statt zur Platte: der
+  // Inspector bearbeitet sie über die Katalog-Controls, der Release rendert den
+  // gebündelten Kern (spec 2026-11-12). Die Defaults füllt der Markup-Serializer.
+  const widgetType =
+    node.kind === "placeholder" ? widgetTypeForCodeComponent(node.componentType) : undefined;
+  if (widgetType !== undefined) {
+    primitive = widgetType;
+    context.findings.push({
+      kind: "code-component",
+      nodeKey: node.key,
+      message: `Framer-Code-Komponente als natives Widget „${widgetType}“ importiert; im Editor bearbeitbar.`,
+      evidence: node.componentType ?? node.tag,
+      severity: "info",
+      suggestion: "Einstellungen im Inspector anpassen; der Kern läuft im Release als Widget-Island.",
+    });
+  }
+  // WaveBackground ist in der Quelle ein fixed Vollbild-Hintergrund (inset:0).
+  // Der Framer-Wrapper trägt davon abweichende Werte (gemessen left:-860px);
+  // gerendert wird die Komponente trotzdem vollflächig. Wir normalisieren die
+  // Box, damit der importierte Hintergrund die Quelle nicht versetzt zeigt.
+  if (widgetType === "wave-background") {
+    merged.base.box = {
+      ...(merged.base.box ?? {}),
+      position: "fixed",
+      width: "100%",
+      height: "100%",
+      inset: { top: "0px", right: "0px", bottom: "0px", left: "0px" },
+    };
+  }
   // A third-party frame the import cannot embed safely stays an `embed` node,
   // but without a usable address: the registry renders its visible blocked
   // placeholder instead of an empty box, and the report names source and
@@ -489,7 +536,7 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
         "Im Editor durch einen sicheren https-Embed oder einen Link auf die Quelle ersetzen.",
     });
   }
-  if (node.kind === "placeholder" && (node.codeModule === undefined || node.codeModule === null)) {
+  if (node.kind === "placeholder" && widgetType === undefined && (node.codeModule === undefined || node.codeModule === null)) {
     context.stats.placeholders += 1;
     context.findings.push({
       kind: "unknown-node",
@@ -501,7 +548,7 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
     });
   }
   const props: Record<string, unknown> = {};
-  if (node.kind === "placeholder") {
+  if (node.kind === "placeholder" && widgetType === undefined) {
     props["label"] = "Platte · Framer-Fremdcode";
     props["alt"] = "Importierte Framer-Komponente ohne verfügbares Modul";
     if (node.assetId !== undefined && node.assetId !== null) props["poster"] = { assetId: node.assetId };
@@ -691,7 +738,10 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
   }
 
   if (primitive === "heading") {
-    props["fontWeight"] = "700";
+    // The `w-heading` rule resets the face (`font: inherit`), so a heading
+    // without an inline weight would lose its default bold. The text style's
+    // weight wins (`Manrope-regular` is 400); without one the old default stays.
+    props["fontWeight"] = baseText?.inline["fontWeight"] ?? "700";
   } else if (primitive === "text") {
     if (node.tag === "strong") props["fontWeight"] = "700";
     if (node.tag === "em") props["fontStyle"] = "italic";

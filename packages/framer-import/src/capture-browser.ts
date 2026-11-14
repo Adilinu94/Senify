@@ -24,6 +24,7 @@ const DEVICE_WIDTHS: readonly { device: "tablet" | "mobile"; width: number; heig
 async function readDeviceMarkup(
   context: import("playwright").BrowserContext,
   url: string,
+  loaderTimeoutMs: number,
 ): Promise<Partial<Record<"tablet" | "mobile", string>>> {
   const out: Partial<Record<"tablet" | "mobile", string>> = {};
   for (const entry of DEVICE_WIDTHS) {
@@ -33,7 +34,16 @@ async function readDeviceMarkup(
       // narrow width without touching the one that is being measured.
       await page.setViewportSize({ width: entry.width, height: entry.height });
       await page.goto(url, { waitUntil: "load", timeout: 90_000 });
-      await page.waitForTimeout(SETTLE_READ_MS + 400);
+      await page.waitForTimeout(SETTLE_READ_MS);
+      // The main page has already waited for the loader; the context may carry
+      // its show-once flag, so this page often skips it. If not, remove it
+      // before the device markup is read.
+      await removePageLoader(page, loaderTimeoutMs);
+      await page.addStyleTag({ content: FREEZE_CSS }).catch(() => undefined);
+      // Light settle: the device pages only supply the variant classes and
+      // values. One scroll pass triggers the IO; the image wait and the extra
+      // passes belong to the main page.
+      await settlePage(page, 0, true);
       out[entry.device] = await page.content();
     } catch {
       // Nothing to merge for this width.
@@ -95,10 +105,27 @@ export type CaptureBrowserInput = {
   // what the runtime changes as `interactions.hover` (capture-hover.ts).
   // "off" skips the pass, which costs about 0.7 s per candidate.
   hover?: "measure" | "off";
+  // How long to wait for a site loader to leave before forcing it away.
+  // Default 8 s: enough for the measured Origin preloader, short enough that
+  // an import never hangs on a broken overlay. Tests set this low.
+  loaderTimeoutMs?: number;
+};
+
+// The capture's completeness evidence: the page height before and after the
+// scroll passes, the number of passes, and whether lazy images/fonts settled.
+// A growing page or pending images is a warn, never a silent drop.
+export type CaptureCompleteness = {
+  heightStart: number;
+  heightSettled: number;
+  passes: number;
+  images: number;
+  imagesPending: number;
+  fontsReady: boolean;
 };
 
 export type BrowserCaptureResult = {
   document: FramerIrDocument;
+  completeness?: CaptureCompleteness;
   // The markup as it stood 350 ms after `load`: the page is built, and the
   // runtime has not yet animated the start states away or thrown the phone and
   // tablet copies out. Only the device variants are read from it.
@@ -274,6 +301,106 @@ function senifyScrollSample() {
   return { scrollY: Math.round(window.scrollY), samples: results };
 }
 ;window.senifyScrollSample = senifyScrollSample;`;
+
+// The site loader (Origin: `Preloader (Show Once content)`, 1440 x 900,
+// `position: fixed`, z-index 10). The capture must not bake it as content and
+// must not wait forever: it polls until the overlay is invisible twice in a
+// row, then removes the seen elements from the DOM. A loader that never leaves
+// is removed at the timeout and reported as `loader-dismissed`; one that leaves
+// naturally is reported as `loader-skipped`. Both are findings, never silence.
+const LOADER_SENSOR = `
+function senifyLoaderProbe() {
+  const NAME = /page[\\s_-]*loader|preloader|loader|splash|intro|curtain/i;
+  const full = (rect) => rect.width >= window.innerWidth * 0.9 && rect.height >= window.innerHeight * 0.9;
+  const positioned = (el) => {
+    const style = getComputedStyle(el);
+    return style.position === "fixed" || style.position === "absolute";
+  };
+  // The named element is often a static wrapper; the full-screen overlay is a
+  // fixed child. Collect the wrapper for removal, but judge visibility on the
+  // positioned full-screen elements inside it.
+  const overlays = (el) => {
+    const out = [];
+    if (full(el.getBoundingClientRect()) && positioned(el)) out.push(el);
+    for (const child of el.querySelectorAll("*")) {
+      if (full(child.getBoundingClientRect()) && positioned(child)) out.push(child);
+    }
+    return out;
+  };
+  const visible = (el) => {
+    const style = getComputedStyle(el);
+    return style.display !== "none" && style.visibility !== "hidden" && Number.parseFloat(style.opacity) > 0.01;
+  };
+  const found = [];
+  const seen = window.__senifyLoaderSeen || (window.__senifyLoaderSeen = []);
+  for (const el of document.querySelectorAll("body *")) {
+    const name = [el.getAttribute("data-framer-name"), typeof el.className === "string" ? el.className : "", el.id].filter(Boolean).join(" ");
+    if (!NAME.test(name)) continue;
+    if (!full(el.getBoundingClientRect())) continue;
+    if (overlays(el).length === 0) continue;
+    if (found.some((other) => other !== el && other.contains(el))) continue;
+    found.push(el);
+    if (!seen.includes(el)) seen.push(el);
+  }
+  window.__senifyLoaderEls = found;
+  let anyVisible = false;
+  for (const el of found) {
+    if (overlays(el).some(visible)) {
+      anyVisible = true;
+      break;
+    }
+  }
+  return {
+    detected: found.length > 0 || seen.length > 0,
+    visible: anyVisible,
+    count: found.length,
+    names: found.map((el) => el.getAttribute("data-framer-name") || String(el.className) || el.id).slice(0, 5),
+    evidence: found.map((el) => el.getAttribute("data-framer-name") || el.tagName).slice(0, 5).join(" · "),
+  };
+}
+function senifyRemoveLoader() {
+  const seen = window.__senifyLoaderSeen || [];
+  let removed = 0;
+  for (const el of seen) {
+    if (el && el.parentNode) {
+      el.parentNode.removeChild(el);
+      removed += 1;
+    }
+  }
+  window.__senifyLoaderSeen = [];
+  window.__senifyLoaderEls = [];
+  return removed;
+}
+;window.senifyLoaderProbe = senifyLoaderProbe;window.senifyRemoveLoader = senifyRemoveLoader;`;
+
+// The start states are collected TWICE: once at the 350 ms "built" read (the
+// loader is still on screen) and once after the loader is gone and the freeze
+// is in place. A loader can delay the reveals below it, so the first read
+// catches the content that is already built; the second catches the elements
+// that hydration replaced in the meantime. The restore writes both onto the
+// same element references; later entries win and detached elements are skipped.
+const COLLECT_START_STATES = `(() => {
+  const collect = () => {
+    const out = [];
+    for (const el of document.querySelectorAll("#main *")) {
+      const style = el.getAttribute("style");
+      if (style === null) continue;
+      if (!/(?:^|;)\\s*(opacity\\s*:\\s*0(?:\\.\\d+)?|filter\\s*:\\s*blur|transform\\s*:\\s*translate)/i.test(style)) continue;
+      out.push({ el, style });
+    }
+    return out;
+  };
+  const states = window.__senifyStartStates || (window.__senifyStartStates = []);
+  const seen = window.__senifyStartStateEls || (window.__senifyStartStateEls = new Set());
+  let added = 0;
+  for (const entry of collect()) {
+    if (seen.has(entry.el)) continue;
+    seen.add(entry.el);
+    states.push(entry);
+    added += 1;
+  }
+  return { total: states.length, added };
+})()`;
 
 // An element held back by a scroll transform shows it DIRECTLY: its computed
 // `transform` (or `top`/`left` offset) differs between two scroll positions.
@@ -527,6 +654,164 @@ function appearSpecsOfProbe(probe: Record<string, unknown>): IrAppearSpec[] {
   return [...byKey.values()];
 }
 
+/* ------------------------------------------------------ loader and settle */
+
+type BrowserPage = import("playwright").Page;
+type LoaderProbeResult = {
+  detected: boolean;
+  visible: boolean;
+  count: number;
+  names: string[];
+  evidence: string;
+};
+type LoaderOutcome = {
+  detected: boolean;
+  forced: boolean;
+  waitedMs: number;
+  evidence: string;
+  removed: number;
+};
+type SettleProbe = {
+  height: number;
+  images: number;
+  pendingImages: number;
+  fontsReady: boolean;
+};
+
+// Wait for a site loader to leave, then remove the seen elements. Two
+// consecutive invisible reads are the "gone" condition; a loader that only
+// fades halfway is not gone yet. A timeout removes it by force and reports it.
+async function removePageLoader(page: BrowserPage, timeoutMs: number): Promise<LoaderOutcome> {
+  let probe = (await page.evaluate("window.senifyLoaderProbe()")) as LoaderProbeResult;
+  if (!probe.detected) {
+    return { detected: false, forced: false, waitedMs: 0, evidence: "", removed: 0 };
+  }
+  const start = Date.now();
+  let stableGone = 0;
+  while (Date.now() - start < timeoutMs) {
+    stableGone = probe.visible ? 0 : stableGone + 1;
+    if (stableGone >= 2) break;
+    await page.waitForTimeout(100);
+    probe = (await page.evaluate("window.senifyLoaderProbe()")) as LoaderProbeResult;
+  }
+  const waitedMs = Date.now() - start;
+  const forced = probe.visible;
+  const removed = (await page.evaluate("window.senifyRemoveLoader()")) as number;
+  return { detected: true, forced, waitedMs, evidence: probe.evidence, removed };
+}
+
+async function readSettleProbe(page: BrowserPage): Promise<SettleProbe> {
+  return (await page.evaluate(() => {
+    const doc = (globalThis as unknown as {
+      document: {
+        body: { scrollHeight: number };
+        documentElement: { scrollHeight: number };
+        images: ArrayLike<{ complete: boolean }>;
+        fonts?: { status?: string };
+      };
+    }).document;
+    const images = Array.from(doc.images);
+    return {
+      height: Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight),
+      images: images.length,
+      pendingImages: images.filter((image) => !image.complete).length,
+      fontsReady: doc.fonts === undefined || doc.fonts.status === "loaded",
+    };
+  })) as SettleProbe;
+}
+
+async function scrollPass(page: BrowserPage, dwellMs: number): Promise<void> {
+  await page.evaluate(async (dwell) => {
+    const slice = globalThis as unknown as {
+      document: {
+        body: { scrollHeight: number };
+        documentElement: { scrollHeight: number };
+        querySelectorAll(selector: string): ArrayLike<{
+          scrollIntoView(options: { block: string; behavior: string }): void;
+        }>;
+      };
+      window: { innerHeight: number; scrollTo(x: number, y: number): void };
+    };
+    const doc = slice.document;
+    const win = slice.window;
+    const step = Math.max(320, Math.round(win.innerHeight * 0.8));
+    // Section-by-section first: the IO reveals are registered on the sections,
+    // and a coarse pixel sweep alone misses the short ones between steps.
+    for (const section of Array.from(doc.querySelectorAll("#main > *"))) {
+      section.scrollIntoView({ block: "center", behavior: "instant" });
+      await new Promise((resolve) => setTimeout(resolve, dwell));
+    }
+    for (let y = 0; y < Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight); y += step) {
+      win.scrollTo(0, y);
+      await new Promise((resolve) => setTimeout(resolve, dwell));
+    }
+    win.scrollTo(0, 0);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }, dwellMs);
+}
+
+async function waitForImages(page: BrowserPage): Promise<void> {
+  await page.evaluate(async () => {
+    const doc = (globalThis as unknown as {
+      document: {
+        images: ArrayLike<{
+          complete: boolean;
+          addEventListener(type: string, listener: () => void, options: { once: boolean }): void;
+        }>;
+      };
+    }).document;
+    const deadline = Date.now() + 10_000;
+    for (const image of Array.from(doc.images)) {
+      if (image.complete) continue;
+      await new Promise<void>((resolve) => {
+        const done = () => resolve();
+        image.addEventListener("load", done, { once: true });
+        image.addEventListener("error", done, { once: true });
+        setTimeout(done, 4000);
+      });
+      if (Date.now() > deadline) break;
+    }
+  });
+}
+
+// Bring the page to its settled, scroll-revealed state. The loader is already
+// gone and the freeze is already in place when this runs, so the passes only
+// trigger lazy content and IO reveals. The page may grow while images arrive;
+// a second and third pass follow until the height is stable (ADR-0026: lazy
+// posters without intrinsic height grew the page by 1080 px during the pass).
+async function settlePage(page: BrowserPage, extraMs: number, light = false): Promise<CaptureCompleteness> {
+  await page.evaluate(async () => {
+    const doc = (globalThis as unknown as { document: { fonts?: { ready: Promise<unknown> } } }).document;
+    if (doc.fonts !== undefined) {
+      await Promise.race([doc.fonts.ready, new Promise((resolve) => setTimeout(resolve, 3000))]);
+    }
+  });
+  const start = await readSettleProbe(page);
+  let settled = start;
+  let passes = 0;
+  const maxPasses = light ? 1 : 3;
+  const dwellMs = light ? 80 : 150;
+  for (let pass = 0; pass < maxPasses; pass += 1) {
+    passes = pass + 1;
+    await scrollPass(page, dwellMs);
+    // The image wait belongs to the main page: the device pages only need the
+    // IO to set the src attributes for the variant markup.
+    if (!light) await waitForImages(page);
+    await page.waitForTimeout(light ? 100 : 200);
+    settled = await readSettleProbe(page);
+    if (light || settled.height <= Math.max(start.height, 1) * 1.02) break;
+  }
+  await page.waitForTimeout(extraMs);
+  return {
+    heightStart: start.height,
+    heightSettled: settled.height,
+    passes,
+    images: settled.images,
+    imagesPending: settled.pendingImages,
+    fontsReady: settled.fontsReady,
+  };
+}
+
 /* ------------------------------------------------------------------ main */
 export async function captureBrowser(input: CaptureBrowserInput): Promise<BrowserCaptureResult> {
   const { chromium } = await loadPlaywright();
@@ -564,7 +849,7 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     });
     await context.addInitScript({
       content:
-        `${motionSource}\n${tokensSource}\n${KEY_STAMP}\n${SCROLL_SENSOR}\n;` +
+        `${motionSource}\n${tokensSource}\n${KEY_STAMP}\n${SCROLL_SENSOR}\n${LOADER_SENSOR}\n;` +
         "window.instrumentMotion = instrumentMotion;" +
         "window.motionProbe = motionProbe;" +
         "window.motionSummary = motionSummary;" +
@@ -576,20 +861,12 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
       await context.addInitScript(() => {
         (globalThis as unknown as { __SENIFY_MOTION__?: string }).__SENIFY_MOTION__ = "off";
       });
-      // The CSS freeze (freeze-spec.md): without it the frozen baseline still
-      // counts the page's CSS animations in `document.getAnimations()`.
-      await page.addStyleTag({ content: FREEZE_CSS }).catch(() => undefined);
     }
     try {
       await page.goto(input.url, { waitUntil: "load", timeout: 90_000 });
     } catch (error) {
       if (blockedAddress !== undefined) throw blockedAddressError(blockedAddress);
       throw error;
-    }
-    if (input.motion !== "live") {
-      // The style tag must exist inside the document; inject once more after
-      // load in case the first attempt ran before navigation finished.
-      await page.addStyleTag({ content: FREEZE_CSS }).catch(() => undefined);
     }
 
     // The START STATES, read once the page is built but before the runtime has
@@ -606,9 +883,28 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     // 350 ms and `n62` after the scroll pass — measured. The path is stable
     // through that, because no element moves.
     await page.waitForTimeout(SETTLE_READ_MS);
-    // The markup of the built page, before the runtime touches it. It carries
-    // the reveal start states of THIS viewport; the phone copy of a section is
-    // not in it — Framer builds only the variant that matches the width.
+    // First collection: the loader may still cover the page, so the content
+    // below it is still at its start state. A later collection after the
+    // loader is gone catches elements that hydration replaced in between.
+    await page.evaluate(COLLECT_START_STATES);
+    // The site loader is page UX, not content. Wait for it to leave (two
+    // stable invisible reads), then remove the seen elements from the DOM so
+    // the static capture cannot bake the overlay. A loader that never leaves
+    // is forced away at the timeout and reported.
+    const loader = await removePageLoader(page, input.loaderTimeoutMs ?? 8_000);
+    if (input.motion !== "live") {
+      // The freeze goes in AFTER the loader: `animation: none` would pin a
+      // CSS-animated loader open and the page would never be read. The first
+      // start-state collection above already preserved the content's start
+      // values.
+      await page.addStyleTag({ content: FREEZE_CSS }).catch(() => undefined);
+    }
+    const secondStates = (await page.evaluate(COLLECT_START_STATES)) as { total: number; added: number };
+    const startStateCount = secondStates.total;
+    // The markup of the built page, after the loader is gone and the freeze is
+    // in place. It carries the reveal start states of THIS viewport; the phone
+    // copy of a section is not in it — Framer builds only the variant that
+    // matches the width.
     const earlyMarkup = await page.content();
     // The phone and tablet copies: Framer renders ONE variant per width, so a
     // 1440 px load never contains the phone build of a section. Measured on
@@ -620,26 +916,11 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     // A load per width is the only way to see the other variant. It is a page of
     // its own in the same context (the runtime has to build that tree), and only
     // its device variants are read.
-    const deviceMarkup = await readDeviceMarkup(context, input.url);
-    // Collected on the SETTLED tree, but by walking back in time is impossible —
-    // so the collection happens NOW and is written back onto the SAME element
-    // objects later. Framer's hydration replaces nodes (measured: the "Run" span
-    // carried `n100` at 350 ms and `n62` after the scroll pass), which is why an
-    // IR key or a path cannot survive; a direct reference can.
-    const startStateCount = (await page.evaluate(`(() => {
-      const collect = () => {
-        const out = [];
-        for (const el of document.querySelectorAll("#main *")) {
-          const style = el.getAttribute("style");
-          if (style === null) continue;
-          if (!/(?:^|;)\\s*(opacity\\s*:\\s*0(?:\\.\\d+)?|filter\\s*:\\s*blur|transform\\s*:\\s*translate)/i.test(style)) continue;
-          out.push({ el, style });
-        }
-        return out;
-      };
-      window.__senifyStartStates = collect();
-      return window.__senifyStartStates.length;
-    })()`)) as number;
+    const deviceMarkup = await readDeviceMarkup(context, input.url, input.loaderTimeoutMs ?? 8_000);
+    // The scroll settle: sections first, then a coarse sweep, images and fonts,
+    // and a second/third pass when lazy content grew the page. The loader is
+    // already gone; the freeze keeps the baseline deterministic.
+    const completeness = await settlePage(page, input.settleMs ?? 1_500);
     // The IR keys are stamped onto the LIVE tree TWICE, and both stamps are the
     // same walk over the same tree in the same order — so the same element gets
     // the same key both times (measured: 327 of 327 collected keys were found
@@ -656,17 +937,6 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     //
     // A page without `#main` stamps nothing; the sensor then simply finds no
     // key and reports nothing.
-    await page.evaluate(async () => {
-      const slice = globalThis as unknown as BrowserSlice;
-      const step = Math.round(slice.window.innerHeight / 3);
-      for (let y = 0; y < slice.document.body.scrollHeight; y += step) {
-        slice.window.scrollTo(0, y);
-        await new Promise((resolve) => setTimeout(resolve, 120));
-      }
-      slice.window.scrollTo(0, 0);
-      await new Promise((resolve) => setTimeout(resolve, 400));
-    });
-    await page.waitForTimeout(input.settleMs ?? 1500);
 
     // The stamp, before the reveals are read: a stamped key is the only exact
     // name a recorded animation can carry (Framer's word spans have no id and
@@ -839,6 +1109,18 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     };
     const document = captureHtml(capture);
     document.source.kind = "browser";
+    if (loader.detected) {
+      document.findings.push({
+        kind: loader.forced ? "loader-dismissed" : "loader-skipped",
+        nodeKey: null,
+        message: loader.forced
+          ? `Seiten-Loader nach ${loader.waitedMs} ms noch sichtbar; für den Import entfernt.`
+          : `Seiten-Loader erkannt und vor dem Import entfernt (${loader.waitedMs} ms).`,
+        evidence: `${loader.evidence || "Loader"} · ${loader.removed} Element(e) entfernt`,
+        severity: loader.forced ? "warn" : "info",
+        suggestion: "Der Loader ist Seiten-UX; er wird nativ neu gebaut, nicht als Inhalt importiert.",
+      });
+    }
     mergeHoverMeasurements(document, hoverMeasurements);
     // MERGE, never replace: `captureHtml` has already turned the page's appear
     // JSON into samples with their start values, and those are the ones the
@@ -889,6 +1171,7 @@ export async function captureBrowser(input: CaptureBrowserInput): Promise<Browse
     }
     return {
       document,
+      completeness,
       earlyMarkup,
       ...(Object.keys(deviceMarkup).length === 0 ? {} : { deviceMarkup }),
       probe: {

@@ -1951,9 +1951,10 @@ function isDerivedReveal(initial: Record<string, string>): boolean {
 // × 900, `z-index: 10`, and the source leaves it at `opacity: 0`; our baked page
 // showed a white splash over the hero.
 //
-// The tell is its own name: Framer labels the element `Page Loader`. A start
-// state that carries the word is not a reveal.
-const LOADER_NAME = /page[\s_-]*loader|loader|splash/i;
+// The tell is its own name: Framer labels the element `Page Loader`, the
+// published Origin page labels its overlay `Preloader (Show Once content)`.
+// A start state that carries one of these words is not a reveal.
+const LOADER_NAME = /page[\s_-]*loader|preloader|loader|splash|intro|curtain/i;
 
 function isLoader(node: IrNode): boolean {
   const name = node.name ?? "";

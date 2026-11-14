@@ -15,6 +15,9 @@ import {
   motionDataFor,
   pageEffectsForTree,
   parseDurationMs,
+  PRELOADER_CSS,
+  preloaderMarkup,
+  preloaderScript,
   renderPageScript,
   type MotionTokens,
 } from "@senify/renderer/motion";
@@ -55,6 +58,8 @@ export type InjectMotionOptions = {
   // `lenis` flag (design play stays off, live follows the profile).
   profile: MotionProfile;
   lenis: boolean;
+  // Der Show-once-Schlüssel des nativen Loaders ist an die Seite gebunden.
+  pageKey: string;
   vendorBase?: string;
   onMessage?: (message: string | null) => void;
 };
@@ -71,12 +76,32 @@ export function injectMotionRuntime(options: InjectMotionOptions): void {
 
   // The pure-CSS effects (hover-lift, ambient-float, grain) ride the same
   // injection as the runtime (M6): play and live show what the release shows.
-  const effectCss = pageEffectsForTree(options.tree).css;
-  if (effectCss !== "") {
+  const effects = pageEffectsForTree(options.tree);
+  if (effects.css !== "") {
     const style = doc.createElement("style");
     style.setAttribute("data-senify-motion", "effects");
-    style.textContent = effectCss;
+    style.textContent = effects.css;
     body.appendChild(style);
+  }
+
+  // Der native Seiten-Loader (Origin): Bake und Editor-Live teilen Markup,
+  // CSS und Script. Der Show-once-Schlüssel hängt an der Seite; ein zweiter
+  // Live-Aufbau überspringt den Vorhang, der erste zeigt ihn.
+  if (effects.loader !== null && doc.querySelector("[data-preloader]") === null) {
+    const loaderStyle = doc.createElement("style");
+    loaderStyle.setAttribute("data-senify-motion", "preloader");
+    loaderStyle.textContent = PRELOADER_CSS;
+    body.appendChild(loaderStyle);
+    const host = doc.createElement("div");
+    (host as unknown as { innerHTML: string }).innerHTML = preloaderMarkup(effects.loader);
+    body.appendChild(host);
+    const loaderScript = doc.createElement("script");
+    loaderScript.setAttribute("data-senify-preloader", "");
+    loaderScript.textContent = preloaderScript(
+      effects.loader,
+      `senify.preloader:editor:${options.pageKey}`,
+    );
+    body.appendChild(loaderScript);
   }
 
   const payload = doc.createElement("script");

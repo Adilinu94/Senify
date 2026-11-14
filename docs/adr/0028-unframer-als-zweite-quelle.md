@@ -103,6 +103,24 @@ und die Messung vom 21.10.2026 in `docs/fahrplan-framer-1zu1.md` §4.1
 diesem Schritt — der Fahrplan verlangt die Entscheidung **vor** dem Bau
 (`docs/fahrplan-framer-import.md`, Schritt 6).
 
+**Nachtrag 14.11.2026: Typografie aus der Projekt-XML.** `ColorStyle` trägt den Wert als
+`light`/`dark` (nicht `value`/`color`); der Import liest beides. `TextStyle` trägt Familie, Größe,
+Zeilenhöhe und Gewicht, aber **keine Farbe und keine Schriftdatei** (`getProjectXml` an
+fluffy-rectangle-418998, 14.11.2026). Der Import übernimmt das Gewicht des Stils (ein festes 700
+überschrieb bisher `Manrope-regular` = 400) und ergänzt bei einer Familie ohne Komma einen
+Sans-Fallback (`system-ui, sans-serif`), damit der Browser nicht auf Serif zurückfällt.
+
+Weil die XML die beiden fehlenden Stücke nicht hergibt, nimmt die Projekt-Quelle zusätzlich eine
+optionale `styleUrl` (die veröffentlichte Seite, in der CLI `--style-url`). Der Import liest daraus
+**nur die Typografie**: Textfarben werden über den sichtbaren Text zugeordnet, Schriftdateien über
+Familie und Gewicht an die Projekt-Familie gehängt. Die Struktur bleibt ausschließlich aus der XML.
+Mehrdeutige Worte (gleicher Text, mehrere Farben) bleiben ungesetzt statt geraten; ohne `styleUrl`
+oder bei nicht ladbarer Seite bleibt der bisherige Stand und der Bericht nennt die Lücke. Belege:
+`packages/framer-import/test/unframer-mcp-format.test.ts` (DNA und Fidelity),
+`packages/framer-import/test/project-style-enrichment.test.ts`,
+`packages/engine/test/imports-project.test.ts` und der Live-Import von fluffy-rectangle
+(Seite `nRExXmhHm05dtC`: H2 92 px, Gewicht 400, Farbe `#fff`, lokale Manrope-400-Datei).
+
 **Nachtrag 02.11.2026 — die CMS-Antworten sind gemessen.** Gegen das laufende
 MCP (1.8.0) wurden `getCMSCollections` und `getCMSItems` an einem Projekt mit
 Sammlungen und Einträgen gelesen. `getCMSCollections` antwortet mit einer

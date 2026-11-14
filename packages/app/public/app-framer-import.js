@@ -194,6 +194,15 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
     placeholder: "/",
     "data-role": "framer-project-page",
   });
+  // The project XML carries structure and text styles, but no text colours and
+  // no font files. The published page carries both; it is optional, so an
+  // offline import still works.
+  const projectStyleUrlInput = el("input", {
+    class: "refs-input",
+    type: "url",
+    placeholder: "https://…",
+    "data-role": "framer-project-style-url",
+  });
   // The CMS collections are optional: getCMSCollections may answer with an
   // empty list. The file is sent verbatim; the engine reads JSON and XML.
   const cmsFileInput = el("input", {
@@ -238,6 +247,12 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
     { "data-role": "framer-project-page-row" },
     "Pfad der Seite im Framer-Projekt",
     projectPageInput,
+  );
+  const projectStyleUrlRow = el(
+    "label",
+    { "data-role": "framer-project-style-url-row" },
+    "Veröffentlichte Seite (optional, für Textfarben und Schriften)",
+    projectStyleUrlInput,
   );
   const cmsRow = el(
     "label",
@@ -457,6 +472,7 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
     projectXmlRow.hidden = !isProject;
     pageXmlRow.hidden = !isProject;
     projectPageRow.hidden = !isProject;
+    projectStyleUrlRow.hidden = !isProject;
     cmsRow.hidden = !isProject;
     cmsItemsRow.hidden = !isProject;
     licenseRow.hidden = !isProject;
@@ -490,6 +506,9 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
           xml: await project.text(),
           pageXml: await page.text(),
           page: projectPageInput.value.trim() === "" ? "/" : projectPageInput.value.trim(),
+          ...(projectStyleUrlInput.value.trim() === ""
+            ? {}
+            : { styleUrl: projectStyleUrlInput.value.trim() }),
           usage: "private",
           ...(cms
             ? {
@@ -674,6 +693,7 @@ export function openFramerImportDialog({ siteId, pageId, session, onImported }) 
     projectXmlRow,
     pageXmlRow,
     projectPageRow,
+    projectStyleUrlRow,
     cmsRow,
     cmsItemsRow,
     licenseRow,

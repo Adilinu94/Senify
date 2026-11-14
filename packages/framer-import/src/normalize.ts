@@ -308,7 +308,27 @@ export function normalize(document: FramerIrDocument, options: NormalizeOptions 
       for (const [property, value] of Object.entries(state.visual)) {
         if (value !== undefined) merged[property] = value;
       }
-      if (state.text !== null) Object.assign(merged, state.text.inline);
+      if (state.text !== null) {
+        Object.assign(merged, state.text.inline);
+        // A project-XML text style names the family without a fallback
+        // (`Manrope-regular`). Without one the browser falls back to its
+        // default, which is a SERIF face for headings: the imported page looked
+        // like Times next to the source (fluffy-rectangle, 14.11.2026). The
+        // theme patch supplies the real face; until it does, the generic stack
+        // keeps the shape. This runs in BOTH modes — the DNA pass above is
+        // skipped in fidelity mode.
+        const family = merged["fontFamily"];
+        const generic =
+          /^(?:serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace|ui-rounded|emoji|math|fangsong|inherit|initial|unset|revert)$/i;
+        if (
+          typeof family === "string" &&
+          !family.startsWith("var(") &&
+          !family.includes(",") &&
+          !generic.test(family)
+        ) {
+          merged["fontFamily"] = `${family}, system-ui, sans-serif`;
+        }
+      }
       if (state.layout !== null) {
         if (state.layout.mode !== "flow") merged["display"] = state.layout.mode;
         if (state.layout.direction !== undefined) merged["flexDirection"] = state.layout.direction;

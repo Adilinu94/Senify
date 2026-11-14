@@ -27,6 +27,12 @@ export const ImportSourceSchema = Type.Object(
           xml: Type.String(),
           pageXml: Type.String(),
           page: Type.Optional(Type.String({ maxLength: 512 })),
+          // Optional style source: the published page the project XML belongs
+          // to. The XML carries structure and text styles, but no text colours
+          // and no font files (measured 14.11.2026); the page's SSR HTML and
+          // linked CSS carry both. The import reads them only for typography,
+          // never for structure, so WaveBackground keeps its project identity.
+          styleUrl: Type.Optional(Type.String({ maxLength: 2048 })),
           usage: Type.Union([Type.Literal("private"), Type.Literal("customer")]),
           // The answers of `getCMSCollections` and `getCMSItems` (ADR-0028,
           // Block 4), verbatim: JSON or XML, both are read. Collections and

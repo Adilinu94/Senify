@@ -122,6 +122,9 @@ export type Control = {
   maxItems?: number;
   condition?: Condition;
   responsive?: boolean;
+  // Optionale Gruppe für den Content-Tab des Inspectors (z. B. "Bewegung").
+  // Ohne group landet das Control in der Standardgruppe "Inhalt".
+  group?: string;
 };
 
 export type SlotSpec = {

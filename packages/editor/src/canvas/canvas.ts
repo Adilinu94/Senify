@@ -31,6 +31,7 @@ import { editorFontFaceCss } from "../ui/fonts.ts";
 import { applyEditorSkin, EDITOR_SKIN_DEFAULT } from "../ui/skin.ts";
 import { EDITOR_ROOT_ATTRIBUTE } from "../ui/tokens.ts";
 import { injectMotionRuntime, MOTION_VENDOR_BASE, profileLenis } from "../motion-inject.ts";
+import { injectWidgetRuntime } from "../widget-inject.ts";
 import { EditorStore, typingCoalesceKey } from "../state/store.ts";
 import type { EditorSession } from "../state/session.ts";
 import type { HistoryDirection } from "../history.ts";
@@ -71,6 +72,9 @@ export type CanvasOptions = {
   // Design/Live (Ticket 03 Punkt 6): live shows the real page (M4 Stufe 1) —
   // one frame at 100 %, native scroll, the release runtime running.
   mode?: EditorMode;
+  // Effekt-Widgets (Ribbon/Wave) auch im Design-Canvas mounten; default true.
+  // Im Live-Modus bleiben sie immer an, der Schalter gilt fuer den Entwurf.
+  effects?: boolean;
   // The breakpoint the live frame renders at; in design it is the frame the
   // editor marks as active (dimming, activation).
   breakpoint?: FrameBreakpoint;
@@ -100,6 +104,7 @@ export type CanvasState = {
   previewState: StateName | null;
   selected: string | null;
   mode: EditorMode;
+  effects: boolean;
   breakpoint: FrameBreakpoint;
 };
 
@@ -122,6 +127,7 @@ export type CanvasInstance = {
   fit(): void;
   setPreviewState(state: StateName | null): void;
   setMode(mode: EditorMode): void;
+  setEffects(enabled: boolean): void;
   setBreakpoint(device: FrameBreakpoint): void;
   mode(): EditorMode;
   breakpoint(): FrameBreakpoint;
@@ -257,6 +263,8 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   let zoom = options.zoom ?? 0.5;
   let previewState: StateName | null = options.previewState ?? null;
   let mode: EditorMode = options.mode ?? "design";
+  // Der Design-Schalter; im Live-Modus bleiben Effekte immer an.
+  let effectsEnabled = options.effects !== false;
   // Copy id -> the instance that rendered it, from the last `refresh`. A click
   // inside a component instance resolves through it (ticket 04).
   let copyOrigins: ReadonlyMap<string, { instanceId: string; partId: string }> = new Map();
@@ -339,7 +347,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
   }
 
   function stateOf(): CanvasState {
-    return { zoom, previewState, selected: selectedId(), mode, breakpoint };
+    return { zoom, previewState, selected: selectedId(), mode, effects: effectsEnabled, breakpoint };
   }
 
   // ---------------------------------------------------------------- top bar
@@ -1116,6 +1124,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
       ...(theme === undefined ? {} : { theme }),
       profile,
       lenis: profileLenis(profile),
+      pageKey: options.session?.pageId ?? "page",
       vendorBase,
       onMessage: (value) => message(value),
     });
@@ -1145,7 +1154,19 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     }
     updateRules(entry, rules);
     setForcedState(entry);
-    if (mode === "live") injectLiveMotion(entry);
+    if (mode === "live") {
+      // Seiten-Runtime (Loader, Lenis, Reveals) bleibt dem Live-Modus
+      // vorbehalten; im Design laufen nur die Widget-Kerne.
+      injectLiveMotion(entry);
+    }
+    // Widget-Kerne (spec 2026-11-12, Task 9): die Injection ersetzt ihr
+    // Script bei jedem Render. Der Live-Modus baut das iframe bei einer
+    // Store-Aenderung neu auf, dort mountet der Kern frisch. Bei einem
+    // In-Place-Render (Design/kuenftige Patch-Pfade) macht der Handle-Cache
+    // daraus setProps. Idempotenz liegt im Modul, nicht hier.
+    if (mode === "live" || effectsEnabled) {
+      injectWidgetRuntime({ doc: entry.doc, body: entry.body });
+    }
   }
 
   function refresh(): void {
@@ -1182,6 +1203,15 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     if (mode === next) return;
     mode = next;
     rebuildFrames();
+    options.onState?.(stateOf());
+  }
+
+  function setEffects(next: boolean): void {
+    if (effectsEnabled === next) return;
+    effectsEnabled = next;
+    // Im Design entscheidet der Rahmen neu: aus zeigt den Poster, an mountet
+    // frisch. Live bleibt unabhängig davon immer an.
+    if (mode === "design") rebuildFrames();
     options.onState?.(stateOf());
   }
 
@@ -1370,6 +1400,7 @@ export function mountCanvas(host: DomElement, options: CanvasOptions): CanvasIns
     fit,
     setPreviewState,
     setMode,
+    setEffects,
     setBreakpoint,
     mode: () => mode,
     breakpoint: () => breakpoint,

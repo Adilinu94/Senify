@@ -480,6 +480,10 @@ export function createProgram(): Command {
     )
     .option("--project-page <pfad>", "Pfad der Seite im Framer-Projekt", "/")
     .option(
+      "--style-url <url>",
+      "Veroeffentlichte Seite fuer Textfarben und Schriftdateien (optional; die Projekt-XML traegt beides nicht)",
+    )
+    .option(
       "--cms <datei>",
       "Sammlungen als Datei aus getCMSCollections (JSON oder XML, optional)",
     )
@@ -542,6 +546,7 @@ export function createProgram(): Command {
             xml: readFileSync(String(options.project), "utf8"),
             pageXml: readFileSync(String(options.page), "utf8"),
             page: String(options.projectPage),
+            ...(options.styleUrl === undefined ? {} : { styleUrl: String(options.styleUrl) }),
             usage: "private",
             ...(options.cms === undefined
               ? {}

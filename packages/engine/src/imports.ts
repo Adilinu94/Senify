@@ -331,6 +331,9 @@ export function sourceOf(body: CreateImportBody): FramerImportSource {
       projectXml: source.project.xml,
       pageXml: source.project.pageXml,
       pagePath: source.project.page ?? "/",
+      ...(source.project.styleUrl === undefined || source.project.styleUrl.trim() === ""
+        ? {}
+        : { styleUrl: source.project.styleUrl.trim() }),
     };
   }
   return {
@@ -929,6 +932,13 @@ export async function runFramerImportJob(
         options.cmsItems = createHash("sha256")
           .update(JSON.stringify(cmsItemsTexts), "utf8")
           .digest("hex");
+      }
+      // The optional typography source changes the IR (fonts/text colours), so
+      // it belongs in the fingerprint: a re-run with a different styleUrl must
+      // not replay the earlier receipt.
+      const styleUrl = input.body.source.project?.styleUrl?.trim();
+      if (styleUrl !== undefined && styleUrl !== "") {
+        options.styleUrl = createHash("sha256").update(styleUrl, "utf8").digest("hex");
       }
       return Object.keys(options).length === 0 ? {} : { options };
     })(),

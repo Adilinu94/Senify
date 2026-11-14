@@ -113,6 +113,14 @@ export const IR_FINDING_KINDS = [
   // instead. A warn, not a block: the import still delivers, but runtime
   // content (script-built parts, the other device builds) is missing.
   "capture-fallback",
+  // loader-skipped — the live page showed a site loader; the capture waited
+  // for it and removed it before reading the markup. The loader is page UX,
+  // not content; a native rebuild has its own loader.
+  "loader-skipped",
+  // loader-dismissed — the site loader was still covering the page at the
+  // timeout. The capture removed it by force and reports the wait time, so the
+  // run never bakes the overlay as content and never claims a clean wait.
+  "loader-dismissed",
   // motion-absent — the source carries structure only and no timing (the
   // Framer project XML, ADR-0028: `appear`/`transition` were 0x in the
   // measured dump). The runtime effect stays with the browser capture

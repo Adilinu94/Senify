@@ -144,6 +144,7 @@ describe("editor session", () => {
       tab: "style",
       zoom: 0.8,
       mode: "design",
+      effects: true,
       selectedId: "head000001",
     });
   });
@@ -196,6 +197,7 @@ describe("ui state persistence", () => {
       tab: "advanced" as const,
       zoom: 1.25,
       mode: "live" as const,
+      effects: false,
       selectedId: "n1",
     };
     saveUiState(storage, "page1", state);

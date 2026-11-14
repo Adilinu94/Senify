@@ -25,6 +25,7 @@ import {
 import {
   describePrimitive,
   isCatalogPrimitive,
+  isWidgetPrimitive,
   type Breakpoints,
   type StyleRule,
 } from "@senify/widget-engine";
@@ -60,6 +61,7 @@ import {
 } from "./motion.ts";
 import { overridesCss, styleRulesReport } from "./style-css.ts";
 import { webglVendorCode } from "./webgl-vendor.ts";
+import { widgetFileName, widgetVendorCode } from "./widget-vendor.ts";
 
 // The page root carries the page language (the inspector's "Sprache" field, and
 // what the Framer import takes from the source `<html lang>`). It sets `<html
@@ -540,6 +542,9 @@ export async function bakeSite(
   let anyLenisOnly = false;
   let anyForm = false;
   const islandKinds = new Set<string>();
+  // The widget types this build carries: the island loads the core from the URL
+  // map, so only the types a page uses become a file (spec 2026-11-12).
+  const usedWidgetTypes = new Set<string>();
   // Every payload id a page points at, whether or not this build delivers it.
   const usedPayloadIds = new Set<string>();
   const expandedPages: BakePageInput[] = input.pages.map((page) => {
@@ -586,6 +591,7 @@ export async function bakeSite(
       transition,
       css: effectsCss,
       preloader,
+      loader: pageLoader,
       warnings: effectWarnings,
     } = pageEffectsForTree(tree);
     const effectCss = [effectsCss, motionEntryCss(motionEntries)]
@@ -606,6 +612,10 @@ export async function bakeSite(
     // hangs on the surface (media `3d-scene`, hero `showcase-3d`), the spec
     // only tunes intensity and the switch. Say so instead of dropping it.
     for (const node of Object.values(tree.nodes)) {
+      // Native widgets (spec 2026-11-12): the bake ships exactly the cores this
+      // page uses; the island picks the file from the URL map by node type. The
+      // set rides along in this walk instead of a second pass over the tree.
+      if (isWidgetPrimitive(node.type)) usedWidgetTypes.add(node.type);
       if (node.motion?.preset !== "webgl-scene" || node.motion.enabled === false) continue;
       if (!webglSceneSurface(node)) {
         warnings.push({
@@ -668,8 +678,11 @@ export async function bakeSite(
       // The pure-CSS effect blocks (hover-lift, ambient-float, grain) of this
       // page, or null; the template inlines them after the transition.
       motionCss: effectCss === "" ? null : effectCss,
-      // preloader-light: the template renders the loading curtain.
+      // preloader-light or the native root loader: the template renders the
+      // loading curtain; the loader config supplies label, counter and
+      // show-once.
       hasPreloader: preloader,
+      loader: pageLoader,
       jsonLd:
         entities.length > 0
           ? jsonForHtml(entities.length === 1 ? entities[0] : { "@context": "https://schema.org", "@graph": entities })
@@ -832,10 +845,24 @@ export async function bakeSite(
         );
       }
     }
+    // The widget cores (spec 2026-11-12): bundled at bake time, one ESM file per
+    // type in use, the name carries a content hash — a changed core is a changed
+    // URL, so no cache serves the previous code.
+    const widgetUrls: Record<string, string> = {};
+    if (islandKinds.has("widget")) {
+      const widgetDir = join(outDir, "assets", "widgets");
+      mkdirSync(widgetDir, { recursive: true });
+      for (const type of usedWidgetTypes) {
+        const code = widgetVendorCode(type);
+        const name = widgetFileName(type, code);
+        writeFileSync(join(widgetDir, name), code);
+        widgetUrls[type] = `/assets/widgets/${name}`;
+      }
+    }
     if (islandKinds.size > 0) {
       writeFileSync(
         join(outDir, "assets", "islands.js"),
-        renderIslandsScript(islandKinds, { payloads: payloadUrls }),
+        renderIslandsScript(islandKinds, { payloads: payloadUrls, widgets: widgetUrls }),
       );
     }
     // Progressive form submit (no logic drift): only pages with a form load it.

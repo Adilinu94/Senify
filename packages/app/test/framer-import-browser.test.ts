@@ -280,6 +280,7 @@ describe.skipIf(!browserAvailable)("Framer import dialog", () => {
       // The project path has its own fields, its license confirmation and no
       // preview: the XML carries no original page to compare.
       expect(await tab.locator('[data-role="framer-project-xml"]').isVisible()).toBe(true);
+      expect(await tab.locator('[data-role="framer-project-style-url"]').isVisible()).toBe(true);
       expect(await tab.locator('[data-role="framer-project-license"]').isVisible()).toBe(true);
       expect(await tab.locator('[data-action="framer-import-preview"]').isHidden()).toBe(true);
       await tab.setInputFiles('[data-role="framer-project-xml"]', projectFile);

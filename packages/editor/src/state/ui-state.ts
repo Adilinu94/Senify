@@ -18,6 +18,9 @@ export type EditorUiState = {
   zoom: number;
   // Design/Live (Ticket 03 Punkt 6): the live mode survives a reload too.
   mode: "design" | "live";
+  // Effekt-Widgets (Ribbon/Wave) laufen auch im Design-Canvas. Der Schalter
+  // persistiert, damit ein schwacher Rechner auf Poster zurueckfallen kann.
+  effects: boolean;
   selectedId: string | null;
 };
 
@@ -26,6 +29,7 @@ export const DEFAULT_UI_STATE: EditorUiState = {
   tab: "content",
   zoom: 1,
   mode: "design",
+  effects: true,
   selectedId: null,
 };
 
@@ -65,6 +69,8 @@ export function parseUiState(input: unknown): EditorUiState {
         ? record["zoom"]
         : DEFAULT_UI_STATE.zoom,
     mode: isMode(record["mode"]) ? record["mode"] : DEFAULT_UI_STATE.mode,
+    effects:
+      typeof record["effects"] === "boolean" ? record["effects"] : DEFAULT_UI_STATE.effects,
     selectedId: typeof record["selectedId"] === "string" ? record["selectedId"] : null,
   };
 }

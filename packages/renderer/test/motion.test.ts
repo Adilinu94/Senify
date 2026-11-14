@@ -223,7 +223,7 @@ describe("motion configs", () => {
       writeFileSync(
         islandsJs,
         renderIslandsScript(
-          new Set(["menu", "slider", "consent", "billing", "dismiss", "accordion", "webgl-scene"]),
+          new Set(["menu", "slider", "consent", "billing", "dismiss", "accordion", "webgl-scene", "widget"]),
         ),
       );
       execFileSync(process.execPath, ["--check", pageJs]);

@@ -37,10 +37,13 @@
 | [ADR-0032](0032-ausgabeart-framer-import.md) | Ausgabeart beim Framer-Import | angenommen |
 | [ADR-0033](0033-hover-messung-im-browser-capture.md) | Hover-Zustände aus dem Browser-Capture | angenommen |
 | [ADR-0034](0034-hover-uebergangszeit-im-browser-capture.md) | Übergangszeit der Hover-Zustände aus dem Browser-Capture | angenommen |
+| [ADR-0035](0035-native-widget-klassen-fuer-framer-code-komponenten.md) | Native Widget-Klassen für Framer-Code-Komponenten | angenommen |
+| [ADR-0036](0036-import-portierte-code-komponenten-als-widgets.md) | Der Import bildet portierte Code-Komponenten als native Widgets ab | angenommen |
+| [ADR-0037](0037-effekt-widgets-im-design-canvas.md) | Effekt-Widgets im Design-Canvas | angenommen |
 
 ## Nächste Nummer
 
-Die nächste freie Nummer ist `ADR-0034`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
+Die nächste freie Nummer ist `ADR-0038`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
 
 ## Regeln
 

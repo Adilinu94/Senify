@@ -45,9 +45,10 @@
       "@senify/tokens": ["packages/tokens/src/index.ts"],
       "@senify/widget-engine": ["packages/widget-engine/src/index.ts"],
       "@senify/widget-engine/breakpoints": ["packages/widget-engine/src/breakpoints.ts"],
-      "@senify/widget-engine/section-breakpoints": ["packages/widget-engine/src/section-breakpoints.ts"]
+      "@senify/widget-engine/section-breakpoints": ["packages/widget-engine/src/section-breakpoints.ts"],
+      "@senify/widgets": ["packages/widgets/src/index.ts"]
     }
   },
   "include": ["packages/*/src", "packages/*/test", "packages/*/*.ts", "vitest.config.ts", "vitest.fast.config.ts"],
-  "exclude": ["node_modules", "dist", "Repos"]
+  "exclude": ["node_modules", "dist", "Repos", "packages/widgets"]
 }

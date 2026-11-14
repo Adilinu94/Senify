@@ -302,6 +302,7 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
     zoom: savedUi.zoom,
     // Design/Live (Ticket 03 Punkt 6): live zeigt die echte Seite (M4 Stufe 1).
     mode: savedUi.mode,
+    effects: savedUi.effects,
     breakpoint: savedUi.device,
     breakpoints: siteBreakpoints,
     profile: siteProfile ?? "standard",
@@ -310,6 +311,7 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
         zoom: state.zoom,
         selectedId: state.selected,
         mode: state.mode,
+        effects: state.effects,
         device: state.breakpoint,
       });
     },
@@ -333,6 +335,45 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
   });
   toolbar.insertBefore(sideToggle.element, canvas.toolbar);
   toolbar.insertBefore(explorerToggle.element, toolbar.querySelector("#page-version"));
+  // Design/Live als sichtbarer Schalter in der Topbar. Der Weg ueber die
+  // Session haelt UI-Zustand, Spotlight und Canvas synchron; ein reiner
+  // canvas.setMode wuerde den gespeicherten Modus nicht aktualisieren.
+  const modeButton = el("button", {
+    type: "button",
+    class: "ghost",
+    "data-action": "canvas-mode",
+    text: "Live",
+  });
+  const syncModeButton = (mode) => {
+    const live = mode === "live";
+    modeButton.textContent = live ? "Design" : "Live";
+    modeButton.setAttribute("aria-pressed", String(live));
+    modeButton.title = live ? "Zur Design-Ansicht wechseln" : "Live-Ansicht öffnen";
+  };
+  syncModeButton(savedUi.mode);
+  modeButton.addEventListener("click", () => {
+    session.setMode(session.ui().mode === "live" ? "design" : "live");
+  });
+  // Effekte im Design an/aus (Default an). Der Live-Modus bleibt immer an;
+  // der Schalter ist der Ausweg bei vielen WebGL-Kernen oder schwacher GPU.
+  const effectsButton = el("button", {
+    type: "button",
+    class: "ghost",
+    "data-action": "canvas-effects",
+    text: "Effekte",
+  });
+  const syncEffectsButton = (enabled) => {
+    const on = enabled !== false;
+    effectsButton.setAttribute("aria-pressed", String(on));
+    effectsButton.title = on
+      ? "Effekte im Design ausblenden"
+      : "Effekte im Design einblenden";
+    effectsButton.dataset.effects = on ? "on" : "off";
+  };
+  syncEffectsButton(savedUi.effects);
+  effectsButton.addEventListener("click", () => {
+    session.patchUi({ effects: session.ui().effects !== true });
+  });
   // Start im Einpassen-Zoom: der Frame ist sofort ganz sichtbar (Framer/Webflow).
   // Ein bewusst gesetzter Zoom bleibt nach dem Neuladen erhalten; nur der
   // Standardzoom (100 %) wird eingepasst. Der Fit läuft erst, wenn jeder Frame
@@ -403,8 +444,11 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
   session.subscribe(() => {
     const ui = session.ui();
     canvas.setMode(ui.mode);
+    canvas.setEffects(ui.effects);
     canvas.setBreakpoint(ui.device);
     inspector.setBreakpoint(ui.device);
+    syncModeButton(ui.mode);
+    syncEffectsButton(ui.effects);
   });
 
   // Der Ebenen-Explorer (Ticket 03 Scheibe 1): Tree mit Tastatur,
@@ -555,7 +599,7 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
       } else if (command.type === "publish") {
         location.hash = `#/projects/${siteId}/review`;
       } else if (command.type === "set-mode") {
-        canvas.setMode(command.mode);
+        session.setMode(command.mode);
       }
     },
   });
@@ -893,6 +937,14 @@ export async function mountCanvasView({ pageId, siteId, page, host, toolbar, edi
     void retrySave();
   });
 
-  toolbar.append(statusGroup, redesignInbox.element, saveButton, publishButton, overflowHost);
+  toolbar.append(
+    statusGroup,
+    redesignInbox.element,
+    modeButton,
+    effectsButton,
+    saveButton,
+    publishButton,
+    overflowHost,
+  );
   return { session, canvas, inspector, explorer, spotlight };
 }

@@ -287,7 +287,9 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // Volltext und das Inline-Markup eines Textlinks; `deepTextOf` ist entfallen.
     // 65 seit dem 12.11.2026: `normalizeHeadingLevels` glättet die
     // Überschriften-Hierarchie (erste Überschrift h1, keine Ebenen-Sprünge).
-    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(65);
+    // 66 seit dem 14.11.2026: `widgetTypeForCodeComponent` ordnet portierte
+    // Framer-Code-Komponenten den nativen Widgets zu.
+    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(66);
 
     // Der CSS-Block wird ueber ANKER geprueft, nicht ueber Zeilennummern.
     //

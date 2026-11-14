@@ -13,7 +13,12 @@
 
 import { useContext, type ElementType, type ReactNode } from "react";
 import type { Node, PropValue } from "@senify/section-sdk";
-import { describePrimitive, type ElementSpec, type MarkupAttrs } from "@senify/widget-engine";
+import {
+  describePrimitive,
+  widgetPrimitive,
+  type ElementSpec,
+  type MarkupAttrs,
+} from "@senify/widget-engine";
 import { GatedIframe, needsConsent } from "./ConsentGate.tsx";
 import {
   MotionEntryContext,
@@ -38,6 +43,60 @@ type RenderScope = {
   // The nodes that enter through CSS on this render (`MotionEntryContext`).
   entering?: ReadonlySet<string>;
 };
+
+function looksLikeUrl(value: string): boolean {
+  return (
+    /^(?:[a-z][a-z0-9+.-]*:|\/|\.{1,2}\/)/i.test(value) ||
+    /\.(?:avif|gif|jpe?g|png|svg|webp)(?:[?#]|$)/i.test(value)
+  );
+}
+
+function resolvedAssetSrc(value: PropValue | undefined, ctx: SectionContext): string {
+  if (typeof value === "string") {
+    if (value === "") return "";
+    return looksLikeUrl(value) ? value : (resolveAsset({ assetId: value }, ctx)?.src ?? value);
+  }
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const record = value as Record<string, PropValue>;
+    if (typeof record["assetId"] === "string" && record["assetId"] !== "") {
+      return resolveAsset({ assetId: record["assetId"] }, ctx)?.src ?? "";
+    }
+    if (typeof record["src"] === "string" && record["src"] !== "") return record["src"];
+    if (typeof record["url"] === "string" && record["url"] !== "") return record["url"];
+  }
+  return "";
+}
+
+function resolveWidgetProps(serialized: string, type: string, ctx: SectionContext): string {
+  const definition = widgetPrimitive(type);
+  if (definition === undefined) return serialized;
+  let props: Record<string, PropValue>;
+  try {
+    props = JSON.parse(serialized) as Record<string, PropValue>;
+  } catch {
+    return serialized;
+  }
+  for (const control of definition.controls) {
+    if (control.kind === "media") {
+      props[control.key] = resolvedAssetSrc(props[control.key], ctx);
+      continue;
+    }
+    if (control.kind !== "repeater" || !Array.isArray(props[control.key])) continue;
+    const mediaKeys = (control.fields ?? [])
+      .filter((field) => field.kind === "media")
+      .map((field) => field.key);
+    if (mediaKeys.length === 0) continue;
+    props[control.key] = (props[control.key] as PropValue[]).map((entry) => {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return entry;
+      const record = { ...(entry as Record<string, PropValue>) };
+      for (const key of mediaKeys) {
+        if (record[key] !== undefined) record[key] = resolvedAssetSrc(record[key], ctx);
+      }
+      return record;
+    });
+  }
+  return JSON.stringify(props);
+}
 
 function reactAttrs(
   spec: ElementSpec,
@@ -68,6 +127,20 @@ function reactAttrs(
     }
     if (Object.keys(declarations).length === 0) delete attrs["style"];
     else attrs["style"] = declarations;
+  }
+  // Widget props carry media references as asset ids. The widget core runs
+  // outside React and cannot resolve them, so the delivery context does it here
+  // — immediately before the values become the `data-props` attribute.
+  if (
+    attrs["data-island"] === "widget" &&
+    typeof attrs["data-widget-type"] === "string" &&
+    typeof attrs["data-props"] === "string"
+  ) {
+    attrs["data-props"] = resolveWidgetProps(
+      attrs["data-props"],
+      attrs["data-widget-type"],
+      scope.ctx,
+    );
   }
   // An image resolves its asset through the delivery context: the same lookup
   // the section components use (`resolveAsset`), so a replaced file keeps its

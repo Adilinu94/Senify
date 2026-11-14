@@ -175,7 +175,7 @@ describe.skipIf(!browserAvailable)("captureBrowser", () => {
     // The static channels survive the round trip (the fixture is a real export).
     expect(result.document.breakpoints.length).toBeGreaterThan(0);
     expect(result.document.findings.some((finding) => finding.kind === "smooth-scroll")).toBe(true);
-  }, 60_000);
+  }, 120_000);
 
   it("measures IO registrations and the endless WAAPI loop with the probes", async () => {
     // The motion inventory needs the page's own runtime: motion "live" is the
@@ -215,7 +215,7 @@ describe.skipIf(!browserAvailable)("captureBrowser", () => {
     });
     expect(result.document.pages[0]?.root.children.length).toBeGreaterThan(0);
     expect(result.probe.instrumented).toBe(true);
-  }, 60_000);
+  }, 120_000);
 
   it("throws a clear error when the URL is unreachable", async () => {
     await expect(

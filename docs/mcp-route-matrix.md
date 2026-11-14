@@ -4,7 +4,7 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 
 **Regel (E4):** Jede Route hat einen bewussten Status. **Tool** — ein MCP-Tool ruft sie direkt auf. **Workflow-gebündelt** — nur als Teil eines Mehr-Routen-Workflows erreichbar (Via-Spalte nennt das bündelnde Tool). **Operator** — UI/CLI/öffentlich, bewusst ohne Tool.
 
-**Zahlen:** 185 Routen — 94 Tool, 1 Workflow-gebündelt, 90 Operator.
+**Zahlen:** 186 Routen — 94 Tool, 1 Workflow-gebündelt, 91 Operator.
 
 | Methode | Route | Scope | Status | MCP-Tool(s) / Anmerkung |
 |---|---|---|---|---|
@@ -56,6 +56,7 @@ Generiert mit `pnpm route-matrix` aus `packages/engine/src/http.ts` (ROUTES) und
 | POST | `/api/sites/:siteId/library-installs/reattach` | write | Tool | `reattach_library_component` |
 | DELETE | `/api/sites/:siteId/library-installs/:installId` | write | Tool | `uninstall_library_component` |
 | GET | `/api/motion-vendor/:name` | read | Operator | Auslieferung der Motion-Runtime (Editor/Preview) |
+| GET | `/api/widget-module` | read | Operator | Auslieferung der Widget-Kerne (Editor/Preview) |
 | PUT | `/api/assets/upload/:uploadId` | read | Workflow-gebündelt | Byte-Sink des Upload-Flows (via upload_asset, signierte URL) |
 | GET | `/api/library-components` | read | Tool | `list_library_components` |
 | POST | `/api/library-components` | write | Tool | `promote_to_library` |

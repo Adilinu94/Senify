@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NodeTree } from "@senify/section-sdk";
+import { widgetVendorCode } from "@senify/renderer";
 import { auditFramerRuntime } from "../src/runtime-audit.ts";
 
 function treeWithPayload(coversPage: boolean, active?: boolean): NodeTree {
@@ -171,4 +172,14 @@ describe("auditFramerRuntime", () => {
     });
     expect(result.verdict).toBe("unknown");
   });
+
+  it("widerlegt eine Framer-Runtime im gebuendelten Widget-Kern", () => {
+    const code = widgetVendorCode("ribbon-gallery");
+    const result = auditFramerRuntime({
+      html: '<script src="/assets/widgets/ribbon-gallery.js"></script>',
+      scripts: [{ url: "/assets/widgets/ribbon-gallery.js", content: code }],
+    });
+    expect(result.verdict).toBe("refuted");
+    expect(code).not.toMatch(/__framer|framer-motion|framerusercontent/i);
+  }, 60000);
 });

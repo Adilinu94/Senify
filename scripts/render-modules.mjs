@@ -187,6 +187,12 @@ const BLEIBT = {
     "ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 114 Werkzeugen mit je vier Angaben",
   "packages/mcp/src/tools-referenzen.ts":
     "die 32 Werkzeuge der Referenz- und Design-Arbeit: 24 Referenz, 4 Redesign, 4 Design. Am 26.10.2026 bei 993 Zeilen angelegt, am 01.11.2026 mit `set_design_contract` zu seinem Lese-Paar gewachsen (1 026). Der Block definiert keine lokalen Helfer (gemessen: 0 auf oberster Ebene) - die Groesse ist die Zahl der Werkzeug-Literale; ein Schnitt muesste die drei verwandten Fachgebiete trennen, die dieselben Schemas und Dokument-Arten lesen",
+  "packages/framer-import/src/capture-browser.ts":
+    "der Browser-Capture: ein zusammenhaengender Playwright-Lauf ueber Navigation, Ladephase, Seiten-Loader, Scroll-/Settle-Pass, Geraetevarianten, Hover und IR-Erzeugung. Die Schritte teilen den Browser-Kontext, die Laufzeit-Hooks und die Befunde; ein Schnitt wuerde die Reihenfolge (Loader vor Freeze, Scroll vor Startzustand-Restore) ueber Dateien verteilen. Geprueft in `capture-browser.test.ts`, `capture-browser-loader.test.ts`, `capture-browser-scroll.test.ts`",
+  "packages/widget-engine/src/markup.ts":
+    "der Markup-Serializer: er entscheidet pro Primitive ueber Tag, Klassen, Attribute, Poster/Platzhalter und den `data-props`-Kanal der Widgets. Die Faelle teilen die Default-Aufloesung, Asset-Referenzen und den HTML-Schreiber; ein Schnitt wuerde den gemeinsamen Vertrag (ein Element pro Primitive) auseinanderziehen. Geprueft in `markup.test.ts`, `widget-markup.test.ts`",
+  "packages/widgets/src/ribbon-gallery.ts":
+    "der 1:1 portierte Ribbon-Kern (Spec 2026-11-12, ADR-0035): Shader, Geometrie und Animationslogik bleiben verbatim aus der Framer-Quelle, damit die Parität prüfbar bleibt. Die Vanilla-Hülle (`mount`, `setProps`, `destroy`) ist klein und liegt am Ende; ein Schnitt würde den portierten Kern von seiner Quelle trennen",
 };
 
 /**

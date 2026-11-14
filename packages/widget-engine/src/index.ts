@@ -6,6 +6,7 @@ export * from "./markup.ts";
 export * from "./inline-html.ts";
 export * from "./svg-markup.ts";
 export * from "./legacy.ts";
+export { WIDGET_PRIMITIVES, isWidgetPrimitive, widgetPrimitive } from "./widgets.ts";
 export * from "./device.ts";
 export * from "./theme.ts";
 export * from "./mapping.ts";

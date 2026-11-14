@@ -349,6 +349,9 @@ importers:
       '@senify/widget-engine':
         specifier: workspace:*
         version: link:../widget-engine
+      '@senify/widgets':
+        specifier: workspace:*
+        version: link:../widgets
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.3.3(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -412,6 +415,12 @@ importers:
       '@sinclair/typebox':
         specifier: ^0.34.0
         version: 0.34.52
+
+  packages/widgets:
+    dependencies:
+      '@senify/core':
+        specifier: workspace:*
+        version: link:../core
 
 packages:
 

@@ -34,6 +34,7 @@ export const ELEMENT_ICONS: Readonly<Record<string, EditorIconName>> = {
   divider: "divider",
   embed: "code",
   collection: "collection",
+  "ribbon-gallery": "image",
 };
 
 export type ElementTile = {

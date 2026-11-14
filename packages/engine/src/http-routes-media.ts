@@ -14,7 +14,8 @@ import { newEntityId } from "./ids.ts";
 import {
   parseBody,
 } from "./mutations/contract.ts";
-import { motionVendorFiles } from "@senify/renderer";
+import { motionVendorFiles, widgetVendorCode } from "@senify/renderer";
+import { isWidgetPrimitive } from "@senify/widget-engine";
 import { createComfyImageProvider } from "./image-comfy.ts";
 import { createImageCustomProvider } from "./image-custom.ts";
 import { createImageUseProvider } from "./image-use-provider.ts";
@@ -57,6 +58,31 @@ export const mediaRoutes: Route[] = [
       return {
         status: 200,
         file: { path: file.from, contentType: "text/javascript; charset=utf-8" },
+      };
+    },
+  },
+
+  // The widget cores for the editor's live preview (spec 2026-11-12, Task 9):
+  // the same ESM the bake writes into `/assets/widgets/`, bundled on demand.
+  // Only catalog types are served — the type picks the entry file.
+  {
+    method: "GET",
+    segments: ["api", "widget-module"],
+    scope: "read",
+    handler: async (_context, _params, _req, url) => {
+      const type = url.searchParams.get("type");
+      if (type === null || !isWidgetPrimitive(type)) {
+        throw new SenifyError("not_found", `Unknown widget type "${type ?? ""}"`, {
+          field: "type",
+          suggestion: "Use a widget type from the catalog, e.g. ribbon-gallery.",
+        });
+      }
+      return {
+        status: 200,
+        text: {
+          contentType: "text/javascript; charset=utf-8",
+          body: widgetVendorCode(type),
+        },
       };
     },
   },
