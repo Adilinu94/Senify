@@ -336,8 +336,12 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
       const asset = assetOf(props, "asset");
       const alt = text(props, "alt");
       const source = text(props, "src");
+      // An image without a source gets NO `src` attribute. `src=""` makes the
+      // browser request the page itself and log a warning for every such node
+      // (measured on the fluffy import, 14.11.2026: three placeholder images,
+      // two warnings). The box stays, the empty image stays quiet.
       return root("img", [primitiveClass("image")], {
-        src: source !== "" ? source : asset === "" ? "" : `/assets/${asset}`,
+        src: source !== "" ? source : asset === "" ? undefined : `/assets/${asset}`,
         alt,
         "data-asset": asset === "" ? undefined : asset,
       });

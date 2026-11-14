@@ -63,4 +63,10 @@ describe("prop boundary: the style grammar stays loud", () => {
   it("rejects a CSS breakout on an open style property", () => {
     expect(checkPropValue(primitive("payload"), "background", "red;}")).toBeDefined();
   });
+
+  it("accepts the row/column gap bag written by the importer", () => {
+    expect(
+      checkPropValue(primitive("frame"), "gap", { row: "8px", column: "16px" }),
+    ).toBeUndefined();
+  });
 });

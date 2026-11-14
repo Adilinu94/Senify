@@ -11,6 +11,7 @@ import { baseKeyOf } from "./device.ts";
 import { matchesValueType } from "./controls.ts";
 import {
   camelToKebab,
+  formatGaps,
   formatSpacing,
   isRecord,
   tokenRef,
@@ -87,12 +88,13 @@ export function checkSafeValue(value: PropValue): PropProblem | undefined {
         ? undefined
         : { message: `Invalid token reference "${ref}"` };
     }
-    const formatted = formatSpacing(value);
+    const formatted = formatSpacing(value) ?? formatGaps(value);
     const parsed = formatted === undefined ? undefined : parseCssValue(formatted);
     if (parsed !== undefined && parsed.ok) return undefined;
     return {
       message: "Unsupported style value shape",
-      suggestion: "Use a number, a string, a token reference or a four-side bag.",
+      suggestion:
+        "Use a number, a string, a token reference, a four-side bag or a row/column gap bag.",
     };
   }
   return { message: "Unsupported style value" };

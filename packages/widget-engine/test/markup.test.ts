@@ -162,7 +162,9 @@ describe("widget markup", () => {
       alt: "Haus",
       "data-asset": "img1",
     });
-    expect(spec("image", {}).attrs?.src).toBe("");
+    // No source means no `src` attribute: `src=""` makes the browser request
+    // the page itself and log a warning for every placeholder image.
+    expect(spec("image", {}).attrs?.src).toBeUndefined();
     expect(spec("image", { asset: { assetId: "img2" }, alt: "Motiv" }).attrs).toMatchObject({
       src: "/assets/img2",
       "data-asset": "img2",

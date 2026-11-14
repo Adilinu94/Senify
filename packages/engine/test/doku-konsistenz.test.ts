@@ -176,11 +176,18 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     //
     // Verglichen wird gegen `git ls-files`, also gegen die Wahrheit des
     // Repositorys, nicht gegen eine zweite selbstgebaute Liste. Jede
-    // versionierte Quelldatei unter `packages/` muss im Suchraum liegen.
+    // versionierte Top-Level-Quelldatei unter `packages/` muss im Suchraum
+    // liegen; die Bake-Vorlage im Astro-Ordner ist bewusst ausgenommen.
     const versioniert = execFileSync("git", ["ls-files", "packages"], { cwd: root, encoding: "utf8" })
       .split(/\r?\n/)
       .filter((p) => /\.(ts|js)$/.test(p) && !/\.d\.ts$/.test(p))
-      .filter((p) => /\/(src|public)\//.test(p));
+      // Nur die Top-Level-Module eines Pakets (`packages/<paket>/src` und
+      // `packages/<paket>/public`). Der Astro-Template-Ordner
+      // (`packages/renderer/astro-template/src`) ist eine Bake-Vorlage, kein
+      // Fachmodul: der Bake kopiert ihn als Ganzes, die Uebersicht fuehrt
+      // Engine, App und MCP. Ein Filter auf jedes beliebige `/src/` zaehlte
+      // die Vorlage mit und meldete sie als fehlend (14.11.2026).
+      .filter((p) => /^packages\/[^/]+\/(?:src|public)\//.test(p));
     const gesucht = new Set(quellDateien().map((p) => p.slice(root.length + 1).replace(/\\/g, "/")));
     const fehlend = versioniert.filter((p) => !gesucht.has(p)).sort();
     expect(fehlend).toEqual([]);

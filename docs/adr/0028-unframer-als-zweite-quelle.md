@@ -119,7 +119,7 @@ oder bei nicht ladbarer Seite bleibt der bisherige Stand und der Bericht nennt d
 `packages/framer-import/test/unframer-mcp-format.test.ts` (DNA und Fidelity),
 `packages/framer-import/test/project-style-enrichment.test.ts`,
 `packages/engine/test/imports-project.test.ts` und der Live-Import von fluffy-rectangle
-(Seite `nRExXmhHm05dtC`: H2 92 px, Gewicht 400, Farbe `#fff`, lokale Manrope-400-Datei).
+(Seite `H56BsHlFuZpCfp`: H2 92 px, Gewicht 400, Farbe `#fff`, lokale Manrope-400-Datei, keine Konsolenfehler).
 
 **Nachtrag 02.11.2026 — die CMS-Antworten sind gemessen.** Gegen das laufende
 MCP (1.8.0) wurden `getCMSCollections` und `getCMSItems` an einem Projekt mit
