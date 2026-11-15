@@ -109,12 +109,12 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
         await expect.poll(() => elements.isVisible()).toBe(true);
       };
 
-      // Ohne Auswahl steht links das Elemente-Panel: 24 Kacheln in fuenf
+      // Ohne Auswahl steht links das Elemente-Panel: 28 Kacheln in fuenf
       // Kategorien, alle Symbole gezeichnet; der Inspektor ist weg (E5).
       await expect.poll(() => elements.isVisible()).toBe(true);
       expect(await inspector.isVisible()).toBe(false);
       expect(await tab.locator(".senify-elements__group").count()).toBe(5);
-      expect(await tab.locator(".senify-elements__tile").count()).toBe(24);
+      expect(await tab.locator(".senify-elements__tile").count()).toBe(28);
       const iconBox = await tab.locator(".senify-elements__tile .ic").first().boundingBox();
       expect(iconBox?.width).toBe(20);
 
@@ -127,7 +127,7 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await search.fill("divider");
       await expect.poll(() => tab.locator(".senify-elements__tile").count()).toBe(1);
       await search.press("Escape");
-      await expect.poll(() => tab.locator(".senify-elements__tile").count()).toBe(24);
+      await expect.poll(() => tab.locator(".senify-elements__tile").count()).toBe(28);
 
       // Ein Klick haengt das Element ans Ende der Seite und waehlt es aus (wie in
       // Elementor): die Einstellungen ersetzen das Panel. Suchtext und Panel

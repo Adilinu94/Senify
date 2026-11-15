@@ -156,10 +156,10 @@ function rewriteToBuildPrefix(html: string, prefix: string, token: string): stri
     const merged = query === "" ? suffix : `${query}&${suffix}`;
     return `${prefix}${path.slice(1)}?${merged}${hash}`;
   };
-  return html.replace(
+  const rewritten = html.replace(
     /\b(href|src|srcset)="([^"]*)"/g,
     (match, attribute: string, value: string) => {
-      const rewritten =
+      const target =
         attribute === "srcset"
           ? value
               .split(",")
@@ -169,7 +169,18 @@ function rewriteToBuildPrefix(html: string, prefix: string, token: string): stri
               })
               .join(", ")
           : local(value);
-      return rewritten === value ? match : `${attribute}="${rewritten}"`;
+      return target === value ? match : `${attribute}="${target}"`;
+    },
+  );
+  // Inline-Skripte tragen lokale Buildpfade als String-Literale (der
+  // Widget-Island-Loader: `"/assets/widgets/<typ>.<hash>.js"`). Der erste
+  // Durchlauf sieht nur HTML-Attribute; ohne diesen zweiten bliebe der Loader
+  // im Preview auf dem Wurzelpfad und liefe ins Leere.
+  return rewritten.replace(
+    /(["'])(\/assets\/[^"']*)\1/g,
+    (match, quote: string, value: string) => {
+      const target = local(value);
+      return target === value ? match : `${quote}${target}${quote}`;
     },
   );
 }

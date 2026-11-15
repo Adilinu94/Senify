@@ -36,6 +36,10 @@ export const ELEMENT_ICONS: Readonly<Record<string, EditorIconName>> = {
   collection: "collection",
   "ribbon-gallery": "image",
   "wave-background": "spark",
+  "framer-navbar": "rows",
+  "framer-footer": "rows",
+  "framer-step": "rows",
+  "framer-reviews": "list",
 };
 
 export type ElementTile = {

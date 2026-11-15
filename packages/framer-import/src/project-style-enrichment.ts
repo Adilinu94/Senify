@@ -11,6 +11,8 @@
 
 import { captureHtml } from "./capture-html.ts";
 import type { FramerIrDocument, IrFontFace, IrNode } from "./ir.ts";
+import { widgetPrimitive } from "@senify/widget-engine";
+import { widgetTypeForComponent } from "./widget-mapping.ts";
 
 export type ProjectStyleSource = {
   html: string;
@@ -26,6 +28,10 @@ export type ProjectStyleStats = {
   fonts: number;
   body: boolean;
   images: number;
+  // Bilder der DOM-Widget-Defaults (Navbar-Logo, Footer-Porträt, Bewertungs-
+  // avatare), die aus der veröffentlichten Seite als lokale Assets eingeplant
+  // wurden.
+  widgetImages: number;
 };
 
 type HtmlTextLayout = {
@@ -101,6 +107,42 @@ function textOfNode(node: IrNode): string | null {
 function walk(node: IrNode, visit: (node: IrNode) => void): void {
   visit(node);
   for (const child of node.children) walk(child, visit);
+}
+
+// Die Bild-Defaults einer DOM-Widget-Definition. Nur `dom`-Widgets haben
+// Inhaltsbilder; die Canvas-Kerne (Ribbon, Wave) bleiben außen vor.
+function widgetMediaUrls(type: string): string[] {
+  const definition = widgetPrimitive(type);
+  if (definition?.dom !== true) return [];
+  const urls: string[] = [];
+  for (const control of definition.controls) {
+    if (control.kind === "media" && typeof control.default === "string" && control.default !== "") {
+      urls.push(control.default);
+      continue;
+    }
+    if (control.kind !== "repeater" || !Array.isArray(control.default)) continue;
+    const mediaFields = (control.fields ?? []).filter((field) => field.kind === "media");
+    for (const entry of control.default) {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
+      for (const field of mediaFields) {
+        const value = (entry as Record<string, unknown>)[field.key];
+        if (typeof value === "string" && value !== "") urls.push(value);
+      }
+    }
+  }
+  return urls;
+}
+
+function widgetTypesOf(document: FramerIrDocument): Set<string> {
+  const types = new Set<string>();
+  for (const page of document.pages) {
+    walk(page.root, (node) => {
+      if (node.kind !== "placeholder" && node.kind !== "component-instance") return;
+      const type = widgetTypeForComponent(node.componentType);
+      if (type !== undefined) types.add(type);
+    });
+  }
+  return types;
 }
 
 function matchingFaces(project: IrFontFace, available: readonly IrFontFace[]): IrFontFace[] {
@@ -293,7 +335,31 @@ export function enrichProjectDocument(
     });
   }
 
-  return { colors, ambiguous, fonts: addedFonts, body, images: addedImages };
+  // DOM-Widgets tragen ihre Inhaltsbilder als Katalog-Defaults (Logo, Porträt,
+  // Bewertungsavatare). Die veröffentlichte Seite bestätigt, dass es diese
+  // Bilder gibt; der Lauf lädt sie als lokale Assets, damit Vorschau und
+  // Release nicht gegen die CSP auf framerusercontent zeigen.
+  let widgetImages = 0;
+  const liveBases = new Set(page.assets.map((asset) => asset.url.split(/[?#]/)[0] ?? asset.url));
+  for (const type of widgetTypesOf(document)) {
+    for (const url of widgetMediaUrls(type)) {
+      if (knownAssets.has(url)) continue;
+      const base = url.split(/[?#]/)[0] ?? url;
+      if (!liveBases.has(base)) continue;
+      knownAssets.add(url);
+      document.assets.push({
+        url,
+        kind: "image",
+        hash: null,
+        alt: null,
+        width: null,
+        height: null,
+      });
+      widgetImages += 1;
+    }
+  }
+
+  return { colors, ambiguous, fonts: addedFonts, body, images: addedImages, widgetImages };
 }
 
 function parentMap(root: IrNode): Map<IrNode, IrNode> {

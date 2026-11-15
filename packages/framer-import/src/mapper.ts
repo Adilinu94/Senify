@@ -16,7 +16,10 @@ import type {
   EditorDocument,
   EditorNode,
 } from "@senify/editor/state";
-import { sanitizeInlineHtml, sanitizeSvgMarkup, type DeviceValueMap, type StyleRule } from "@senify/widget-engine";
+import { sanitizeInlineHtml, sanitizeSvgMarkup, widgetPrimitive, type DeviceValueMap, type PropValue, type StyleRule } from "@senify/widget-engine";
+import { stepWidgetProps } from "@senify/widget-engine/dom-widgets";
+import { widgetTypeForComponent } from "./widget-mapping.ts";
+export { widgetTypeForCodeComponent, widgetTypeForComponent } from "./widget-mapping.ts";
 import { decodeEntities } from "./capture-html.ts";
 import { brandColorOf } from "./brand-color.ts";
 import { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
@@ -140,24 +143,6 @@ function cssName(name: string): string | undefined {
 /* --------------------------------------------------------------- mapping */
 
 const HEADING_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
-
-// Portierte Framer-Code-Components, die als native, bearbeitbare Widgets statt
-// als Platte importiert werden (spec 2026-11-12). Der Schluessel ist der
-// normalisierte Komponentenname: klein, ohne Dateiendung, ohne Nicht-Alphanumerics.
-const CODE_COMPONENT_WIDGETS: Record<string, string> = {
-  wavebackground: "wave-background",
-  ribbongallery: "ribbon-gallery",
-};
-
-export function widgetTypeForCodeComponent(componentType: string | null): string | undefined {
-  if (componentType === null) return undefined;
-  const key = componentType
-    .trim()
-    .toLowerCase()
-    .replace(/\.[a-z0-9]+$/, "")
-    .replace(/[^a-z0-9]/g, "");
-  return CODE_COMPONENT_WIDGETS[key];
-}
 
 function primitiveFor(node: IrNode, siblings: IrNode[]): string {
   switch (node.kind) {
@@ -465,11 +450,59 @@ type MapContext = {
   mode: NormalizeMode;
   stats: { nodes: number; mergedVariants: number; placeholders: number };
   findings: IrFinding[];
+  // Die Assets des Laufs: Quelladresse -> lokaler Beleg. DOM-Widgets setzen ihre
+  // Bild-Defaults daraus auf `{ assetId, src: localUrl }`; ohne lokalen Beleg
+  // bleibt das Feld leer (kein CSP-blockiertes CDN-Bild).
+  assets: ReadonlyMap<string, { assetId?: string | null; localUrl?: string | null }>;
   // The appear ids of folded elements that became a class INSIDE a container's
   // inline markup (`senify-inline-<id>`). Their reveal has no node of its own,
   // so the compiled rule is attached through that class rather than a node id.
   inlineRevealIds?: Set<string>;
 };
+
+type MapperAssets = ReadonlyMap<string, { assetId?: string | null; localUrl?: string | null }>;
+
+// Eine Bild-Quelladresse wird zum lokalen Beleg. `src` bleibt zusätzlich am
+// Objekt: Der statische Widget-Inhalt (Bake, Vorschau) rendert ihn direkt, der
+// Registry-Renderer löst für den Kern die `assetId` auf.
+function mediaValue(value: unknown, assets: MapperAssets): PropValue {
+  if (typeof value !== "string" || value === "") return "";
+  const asset = assets.get(value);
+  if (asset === undefined) return "";
+  if (asset.assetId !== undefined && asset.assetId !== null) {
+    return asset.localUrl === undefined || asset.localUrl === null
+      ? { assetId: asset.assetId }
+      : { assetId: asset.assetId, src: asset.localUrl };
+  }
+  return asset.localUrl ?? "";
+}
+
+// Die Bild-Defaults eines DOM-Widgets, aufgelöst gegen die Assets des Laufs.
+// Repeater (Bewertungen, soziale Links) behalten ihre Textfelder und bekommen
+// nur die Medienfelder ersetzt.
+function widgetMediaProps(type: string, assets: MapperAssets): Record<string, PropValue> {
+  const definition = widgetPrimitive(type);
+  if (definition?.dom !== true) return {};
+  const out: Record<string, PropValue> = {};
+  for (const control of definition.controls) {
+    if (control.kind === "media") {
+      out[control.key] = mediaValue(control.default, assets);
+      continue;
+    }
+    if (control.kind !== "repeater" || !Array.isArray(control.default)) continue;
+    const mediaFields = (control.fields ?? []).filter((field) => field.kind === "media");
+    if (mediaFields.length === 0) continue;
+    out[control.key] = control.default.map((entry) => {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return entry;
+      const record = { ...(entry as Record<string, PropValue>) };
+      for (const field of mediaFields) {
+        record[field.key] = mediaValue(record[field.key], assets);
+      }
+      return record;
+    });
+  }
+  return out;
+}
 
 function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null): EditorNode | null {
   // The sibling device merge (S1.5): the capture keeps Framer's per-breakpoint
@@ -483,17 +516,21 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
   // The primitive decision runs AFTER the sibling merge: the merged children
   // decide whether a `list` stays a list or degrades to a frame.
   let primitive = primitiveFor(node, siblings);
-  // Eine portierte Code-Component wird zum nativen Widget statt zur Platte: der
-  // Inspector bearbeitet sie über die Katalog-Controls, der Release rendert den
-  // gebündelten Kern (spec 2026-11-12). Die Defaults füllt der Markup-Serializer.
+  // Eine portierte Framer-Komponente wird zum nativen Widget statt zur Platte
+  // oder zum leeren Rahmen: der Inspector bearbeitet sie über die
+  // Katalog-Controls, der Release rendert den gebündelten Kern (ADR-0035,
+  // ADR-0036, ADR-0038). Die Defaults füllt der Markup-Serializer; Step 2
+  // übernimmt die Instanzwerte aus der Projekt-XML.
   const widgetType =
-    node.kind === "placeholder" ? widgetTypeForCodeComponent(node.componentType) : undefined;
+    node.kind === "placeholder" || node.kind === "component-instance"
+      ? widgetTypeForComponent(node.componentType)
+      : undefined;
   if (widgetType !== undefined) {
     primitive = widgetType;
     context.findings.push({
       kind: "code-component",
       nodeKey: node.key,
-      message: `Framer-Code-Komponente als natives Widget „${widgetType}“ importiert; im Editor bearbeitbar.`,
+      message: `Framer-Komponente als natives Widget „${widgetType}“ importiert; im Editor bearbeitbar.`,
       evidence: node.componentType ?? node.tag,
       severity: "info",
       suggestion: "Einstellungen im Inspector anpassen; der Kern läuft im Release als Widget-Island.",
@@ -547,7 +584,10 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
       suggestion: "Als Island-Payload importieren oder die Stelle manuell nachbauen.",
     });
   }
-  const props: Record<string, unknown> = {};
+  const widgetProps =
+    widgetType === "framer-step" ? stepWidgetProps(node.attrs ?? {}) : {};
+  const props: Record<string, unknown> = { ...widgetProps };
+  if (widgetType !== undefined) Object.assign(props, widgetMediaProps(widgetType, context.assets));
   if (node.kind === "placeholder" && widgetType === undefined) {
     props["label"] = "Platte · Framer-Fremdcode";
     props["alt"] = "Importierte Framer-Komponente ohne verfügbares Modul";
@@ -2050,6 +2090,7 @@ export function mapDocument(
     stats: { nodes: 0, mergedVariants: 0, placeholders: 0 },
     nodeIdByIrKey: {},
     findings: [...document.findings],
+    assets: new Map(document.assets.map((asset) => [asset.url, asset])),
   };
 
   // In the DNA mode the page names the theme's slots, not the source's

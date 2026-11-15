@@ -909,6 +909,10 @@ function mapElement(element: UnframerElement, context: MapContext): IrNode {
     name: attrOf(element, "name") ?? element.name,
     componentType:
       componentId === null ? null : componentTypeOf(componentId, element, key, context),
+    // Die Instanzattribute tragen bei Framer-Komponenten die Inhalte (Step 2:
+    // Nummer, Titel, Beschreibung und drei Label/Text-Paare). Der Mapper liest
+    // sie für DOM-Widgets; die übrigen Pfade ignorieren das Feld.
+    ...(componentId === null ? {} : { attrs: { ...element.attrs } }),
     baseClasses: [],
     tag: tagOf(element, kind, state.text?.tag ?? "div"),
     href: href ?? null,

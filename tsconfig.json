@@ -46,6 +46,7 @@
       "@senify/widget-engine": ["packages/widget-engine/src/index.ts"],
       "@senify/widget-engine/breakpoints": ["packages/widget-engine/src/breakpoints.ts"],
       "@senify/widget-engine/section-breakpoints": ["packages/widget-engine/src/section-breakpoints.ts"],
+      "@senify/widget-engine/dom-widgets": ["packages/widget-engine/src/dom-widgets.ts"],
       "@senify/widgets": ["packages/widgets/src/index.ts"]
     }
   },

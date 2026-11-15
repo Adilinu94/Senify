@@ -63,6 +63,8 @@ Damit ist ein Port mechanisch möglich, ohne die Shader-, Geometrie- oder Animat
   frisch. Das ist eine bekannte Grenze, kein stiller Remount im selben Dokument.
 - **Rollout:** Nur `ribbon-gallery` ist portiert. Orbit, Tunnel, ThreeDGlass und die übrigen
   Komponenten folgen nach demselben Muster; DOM- und Verhaltenskomponenten werden einzeln bewertet.
+  Für Framer-Komponenten ohne XML-Innenleben (Navbar, Footer, Step 2, Bewertungs-Ticker) gilt die
+  DOM-Variante aus ADR-0038: derselbe Katalog, aber serverseitig gerenderter Inhalt statt Canvas.
 
 ## Belege
 

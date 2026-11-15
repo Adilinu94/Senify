@@ -145,6 +145,10 @@ export type PrimitiveDefinition = {
   slots: Record<string, SlotSpec>;
   controls: Control[];
   styleGroups: StyleGroup[];
+  // Ein DOM-Widget (ADR-0038): Der Markup-Serializer schreibt den gerenderten
+  // Inhalt als HTML in den Host, der Kern baut dieselben Knoten beim Mount.
+  // Ohne die Angabe ist ein Widget ein Canvas-/Effekt-Kern (ADR-0035).
+  dom?: boolean;
   // Stand-in for an existing section type whose real shape is not (yet) part of
   // the catalog (see `legacy.ts`). It marks the node as structurally tolerated:
   // the consistency check skips its slot rules, because their truth lives in the

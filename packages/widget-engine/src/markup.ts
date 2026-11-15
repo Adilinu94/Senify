@@ -25,6 +25,7 @@ import type { Control, PrimitiveDefinition, PropValue } from "./types.ts";
 import { isSafeHref, sanitizeInlineHtml } from "./inline-html.ts";
 import { sanitizeSvgMarkup } from "./svg-markup.ts";
 import { isWidgetPrimitive, widgetPrimitive } from "./widgets.ts";
+import { DOM_WIDGET_CSS, renderDomWidget } from "./dom-widgets.ts";
 
 // A source address (`https://…`) instead of a stored asset id. The Framer import
 // writes one when the download of a picture failed; the markup renders it as the
@@ -142,14 +143,18 @@ function list(props: Record<string, PropValue>, key: string): Record<string, Pro
 // Serialisiert die Control-Werte eines Widgets als JSON für das data-props-Attribut.
 // Media-Refs (assetId) bleiben IDs — der gemeinsame Registry-Renderer löst sie
 // unmittelbar vor dem Attribut auf (`primitives.tsx`, resolveWidgetProps).
-function widgetPropsJson(primitive: string, props: Record<string, PropValue>): string {
+function widgetProps(primitive: string, props: Record<string, PropValue>): Record<string, PropValue> {
   const def = widgetPrimitive(primitive);
   const out: Record<string, PropValue> = {};
   for (const control of def?.controls ?? []) {
     const found = props[control.key];
     out[control.key] = found === undefined || found === null ? control.default : found;
   }
-  return JSON.stringify(out);
+  return out;
+}
+
+function widgetPropsJson(primitive: string, props: Record<string, PropValue>): string {
+  return JSON.stringify(widgetProps(primitive, props));
 }
 
 // Das erste Bild des ersten Media-Repeaters — der Poster, der ohne JS und bei
@@ -690,6 +695,25 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
 
     default: {
       if (isWidgetPrimitive(primitive)) {
+        const definition = widgetPrimitive(primitive);
+        // DOM-Widget (ADR-0038): Der Inhalt steht als gerendertes HTML im Host,
+        // damit Bake und Design-Canvas ihn ohne JavaScript zeigen. Der Kern
+        // schreibt beim Mount dasselbe HTML erneut; `renderDomWidget` escaped
+        // alle Props und prüft Links, deshalb ist `html` hier sicher.
+        if (definition?.dom === true) {
+          return {
+            tag: "div",
+            classes: [primitiveClass(primitive)],
+            attrs: {
+              "data-island": "widget",
+              "data-widget-type": primitive,
+              "data-props": widgetPropsJson(primitive, props),
+              "data-widget-state": "pending",
+            },
+            html: renderDomWidget(primitive, widgetProps(primitive, props)),
+            root: true,
+          };
+        }
         const poster = widgetPoster(primitive, props);
         const posterAttrs =
           poster === ""
@@ -700,7 +724,7 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
         // Nur Bild-Widgets zeigen den Bilder-Hinweis; ein Shader-Hintergrund
         // (wave-background) hat keine Bilder und bleibt bis zum Mount leer.
         const hasMedia =
-          widgetPrimitive(primitive)?.controls.some(
+          definition?.controls.some(
             (c) => c.kind === "media" || c.kind === "repeater" || c.valueType === "asset",
           ) ?? false;
         return {
@@ -712,7 +736,7 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
             "data-props": widgetPropsJson(primitive, props),
             "data-widget-state": "pending",
             role: "img",
-            "aria-label": widgetPrimitive(primitive)?.name ?? primitive,
+            "aria-label": definition?.name ?? primitive,
           },
           children: [
             ...(posterAttrs === undefined
@@ -953,6 +977,8 @@ const PART_RESET: Readonly<Record<string, readonly string[]>> = {
     "min-height: 320px;",
     "background: #000;",
     "overflow: hidden;",
+    "z-index: -1;",
+    "pointer-events: none;",
   ],
   ".w-wave-background--plate": [
     "display: flex;",
@@ -981,6 +1007,9 @@ export function primitiveResetCss(): string {
   for (const [selector, declarations] of Object.entries(PART_RESET)) {
     blocks.push(`${selector} {\n${declarations.map((line) => `  ${line}`).join("\n")}\n}`);
   }
+  // DOM-Widgets (ADR-0038): volle Regeln inklusive Media Queries; sie stehen
+  // wie die übrigen Reset-Regeln in der authored layer.
+  blocks.push(DOM_WIDGET_CSS.trim());
   return blocks.join("\n\n");
 }
 

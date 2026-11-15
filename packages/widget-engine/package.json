@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./breakpoints": "./src/breakpoints.ts",
-    "./section-breakpoints": "./src/section-breakpoints.ts"
+    "./section-breakpoints": "./src/section-breakpoints.ts",
+    "./dom-widgets": "./src/dom-widgets.ts"
   },
   "dependencies": {
     "@senify/core": "workspace:*",

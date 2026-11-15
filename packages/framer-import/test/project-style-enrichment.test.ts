@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { widgetPrimitive } from "@senify/widget-engine";
 import { mapUnframerProject } from "../src/unframer-ir.ts";
 import { enrichProjectDocument } from "../src/project-style-enrichment.ts";
 import type { FramerIrDocument, IrNode } from "../src/ir.ts";
@@ -139,5 +140,41 @@ describe("Projekt-XML plus veröffentlichte Seite", () => {
 
     const ambiguous = findByText(document, "Doppelt");
     expect(ambiguous?.states[0]?.text?.inline["color"]).toBeUndefined();
+  });
+
+  it("plant die Bilder der DOM-Widget-Defaults als lokale Assets ein", () => {
+    const projectXml = `<Project name="Fluffy">
+      <Pages><Page nodeId="page-home" path="/" /></Pages>
+      <Components>
+        <Component nodeId="c-nav" name="Navbar" />
+        <Component nodeId="c-rev" name="Ticker reviews item" />
+      </Components>
+      <TextStyles /><ColorStyles />
+    </Project>`;
+    const pageXml = `<Desktop nodeId="d" width="1200px">
+      <Navbar nodeId="n-nav" width="1fr" componentId="c-nav" />
+      <TickerReviewsItem nodeId="n-rev" width="1fr" componentId="c-rev" />
+    </Desktop>`;
+    const document = mapUnframerProject({
+      projectXml,
+      pages: [{ path: "/", xml: pageXml }],
+      capturedAt: "2026-11-15T12:00:00.000Z",
+    });
+    const navLogo = widgetPrimitive("framer-navbar")?.controls.find((control) => control.key === "logo")?.default;
+    const reviewItems = widgetPrimitive("framer-reviews")?.controls.find((control) => control.key === "items")?.default;
+    if (typeof navLogo !== "string" || !Array.isArray(reviewItems)) throw new Error("Widget-Defaults fehlen");
+    const avatars = reviewItems
+      .map((entry) => (typeof entry === "object" && entry !== null ? (entry as { avatar?: unknown }).avatar : undefined))
+      .filter((value): value is string => typeof value === "string" && value !== "");
+    const html = `<!doctype html><html><body><div id="main"><div>
+      <img src="${navLogo}" alt="Logo">
+      ${avatars.map((url) => `<img src="${url}" alt="">`).join("")}
+    </div></div></body></html>`;
+    const stats = enrichProjectDocument(document, { html });
+    expect(stats.widgetImages).toBe(1 + avatars.length);
+    expect(document.assets).toContainEqual(expect.objectContaining({ url: navLogo, kind: "image" }));
+    for (const avatar of avatars) {
+      expect(document.assets).toContainEqual(expect.objectContaining({ url: avatar, kind: "image" }));
+    }
   });
 });

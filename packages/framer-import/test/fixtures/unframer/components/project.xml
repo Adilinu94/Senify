@@ -1,0 +1,10 @@
+<Project name="FluffyComponents">
+  <Pages><Page nodeId="pg1" path="/" /></Pages>
+  <Components>
+    <Component nodeId="cc-nav" name="Navbar" />
+    <Component nodeId="cc-foot" name="Footer 2" />
+    <Component nodeId="cc-step" name="Step 2" />
+    <Component nodeId="cc-rev" name="Ticker reviews item" />
+  </Components>
+  <TextStyles /><ColorStyles />
+</Project>

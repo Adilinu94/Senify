@@ -1,0 +1,20 @@
+<Desktop nodeId="d" width="1200px">
+  <Navbar nodeId="n-nav" width="1fr" componentId="cc-nav" variant="v1" />
+  <Process nodeId="n-proc" width="1fr" layout="stack" stackDirection="vertical">
+    <Step2
+        nodeId="n-step"
+        width="1fr"
+        componentId="cc-step"
+        variant="v2"
+        bX2k7i8KF="01"
+        yZHv_GG83="Webdesign"
+        w6CmAD70q="Ich gestalte Webseiten."
+        OeIjJnRBW="Klare Layouts:"
+        sKx8k4n0v="Ruhige Farben."
+        E1qrAJV48="Responsiv:"
+        z2Z90THvs="Auf jedem Gerät."
+    />
+  </Process>
+  <TickerReviewsItem nodeId="n-rev" width="1fr" componentId="cc-rev" variant="v3" />
+  <Footer2 nodeId="n-foot" width="1fr" componentId="cc-foot" variant="v4" />
+</Desktop>

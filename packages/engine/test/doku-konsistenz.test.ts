@@ -296,7 +296,10 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // Überschriften-Hierarchie (erste Überschrift h1, keine Ebenen-Sprünge).
     // 66 seit dem 14.11.2026: `widgetTypeForCodeComponent` ordnet portierte
     // Framer-Code-Komponenten den nativen Widgets zu.
-    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(66);
+    // 68 seit dem 15.11.2026: `mediaValue` und `widgetMediaProps` lösen die
+    // Bild-Defaults der DOM-Widgets gegen die Import-Assets auf; die
+    // Namensabbildung selbst liegt in `widget-mapping.ts`.
+    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(68);
 
     // Der CSS-Block wird ueber ANKER geprueft, nicht ueber Zeilennummern.
     //

@@ -18,6 +18,9 @@ _Avoid_: Element, Block, Widget
 **Section**: Ein registrierter Bautyp (z. B. `hero`, `pricing`) im Katalog.
 _Avoid_: Block, Baustein, Komponente, Modul
 
+**Widget (portierter Fremdteil)**: Ein Katalog-Primitive, das eine Framer-Komponente nativ rendert: als Canvas-Kern bei Effekt-Widgets (ADR-0035), als serverseitig gerenderter DOM-Inhalt bei DOM-Widgets (ADR-0038). Ein Widget ist ein Node, aber nicht jeder Node ist ein Widget.
+_Avoid_: Section, Baustein (für den portierten Fremdteil)
+
 **Registry**: Der Katalog aller Sections einer Senify-Instanz.
 _Avoid_: Bibliothek, Katalog
 

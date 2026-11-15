@@ -857,11 +857,11 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
           url: input.source.styleUrl,
         });
         if (baseUrl === undefined) baseUrl = new URL(input.source.styleUrl).origin;
-        if (stats.colors > 0 || stats.fonts > 0 || stats.body || stats.images > 0) {
+        if (stats.colors > 0 || stats.fonts > 0 || stats.body || stats.images + stats.widgetImages > 0) {
           document.findings.push({
             kind: "font-mapping",
             nodeKey: null,
-            message: `Typografie und Bilder aus der veröffentlichten Seite ergänzt: ${stats.colors} Textfarbe(n), ${stats.fonts} Schriftschnitt(e), ${stats.images} Bild(er)${stats.body ? ", Body-Stil" : ""}. Die Projekt-XML trägt keine Textfarbe, keine Schriftdatei und bei manchen Bildrahmen keine Quelle.`,
+            message: `Typografie und Bilder aus der veröffentlichten Seite ergänzt: ${stats.colors} Textfarbe(n), ${stats.fonts} Schriftschnitt(e), ${stats.images + stats.widgetImages} Bild(er)${stats.body ? ", Body-Stil" : ""}. Die Projekt-XML trägt keine Textfarbe, keine Schriftdatei und bei manchen Bildrahmen keine Quelle.`,
             evidence: input.source.styleUrl,
             severity: "info",
             suggestion:

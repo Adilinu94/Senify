@@ -26,11 +26,16 @@ das wäre das `>` des Kommentar-Endes, und das Tag verlöre `componentId`.
 
 ## Entscheidung
 
-1. **Geschlossene Abbildung im Mapper.** `widgetTypeForCodeComponent(componentType)` normalisiert
+1. **Geschlossene Abbildung im Mapper.** `widgetTypeForComponent(componentType)` normalisiert
    den Namen (klein, ohne Dateiendung, ohne Nicht-Alphanumerics) und bildet ihn über eine feste
-   Tabelle auf den Widget-Typ ab: `wavebackground → wave-background`, `ribbongallery → ribbon-gallery`.
-   Ein `placeholder`-Knoten mit Treffer wird zum Widget-Primitive statt zum `payload`; die
-   Katalog-Defaults füllt der Markup-Serializer. Unbekannte Komponenten bleiben eine ehrliche Platte.
+   Tabelle auf den Widget-Typ ab: `wavebackground → wave-background`,
+   `ribbongallery → ribbon-gallery`, `navbar → framer-navbar`,
+   `footer`/`footer2 → framer-footer`, `step`/`step2 → framer-step`,
+   `tickerreviewsitem`/`reviewsticker → framer-reviews`. Ein `placeholder`-Knoten mit Treffer wird
+   zum Widget-Primitive statt zum `payload`; eine benannte Framer-Komponente mit Treffer wird zum
+   Widget statt zum leeren Rahmen. Die Katalog-Defaults füllt der Markup-Serializer. Unbekannte
+   Komponenten bleiben eine ehrliche Platte beziehungsweise ein benannter Rahmen. Die vier
+   `framer-*`-Typen sind DOM-Widgets (ADR-0038).
 2. **Nur die benannte Quelle.** Die Abbildung greift auf der Projekt-XML, weil nur sie die Identität
    trägt. Der SSR-Pfad kann die Komponente nicht benennen und bleibt beim Laufzeit-Platzhalter; das
    ist eine Grenze der Quelle, kein stiller Verlust.
@@ -51,8 +56,9 @@ das wäre das `>` des Kommentar-Endes, und das Tag verlöre `componentId`.
 
 ## Folgen
 
-- Eine importierte fluffy-rectangle-Seite trägt `wave-background` als bearbeitbaren Knoten; FormPopup,
-  FilloutForm und ReviewsTicker bleiben Platten, bis sie portiert sind.
+- Eine importierte fluffy-rectangle-Seite trägt `wave-background`, die Navbar, den Footer, vier
+  Step-2-Schritte und den Bewertungs-Ticker als bearbeitbare Knoten (ADR-0038); FormPopup und
+  FilloutForm bleiben Platten, bis sie portiert sind.
 - Die Tabelle ist die geschlossene Liste der portierten Komponenten; jede weitere folgt nach dem
   Muster aus ADR-0035 und bekommt hier einen Eintrag.
 - Der Projekt-Import bleibt Desktop-Struktur (ADR-0028); Responsives und Laufzeitwirkung kommen
@@ -61,7 +67,7 @@ das wäre das `>` des Kommentar-Endes, und das Tag verlöre `componentId`.
 
 ## Belege
 
-- Abbildung: `packages/framer-import/src/mapper.ts` (`widgetTypeForCodeComponent`),
+- Abbildung: `packages/framer-import/src/widget-mapping.ts`, `mapper.ts` (`widgetTypeForComponent`),
   `packages/framer-import/test/widget-mapping.test.ts`
 - Kommentar-Normalisierung: `packages/framer-import/src/unframer-ir.ts` (`parseUnframerXml`),
   `packages/framer-import/test/unframer-xml-comments.test.ts`

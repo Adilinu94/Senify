@@ -6,6 +6,10 @@ describe("widget contract", () => {
     expect(WIDGET_MODULES).toEqual({
       "ribbon-gallery": expect.any(Function),
       "wave-background": expect.any(Function),
+      "framer-navbar": expect.any(Function),
+      "framer-footer": expect.any(Function),
+      "framer-reviews": expect.any(Function),
+      "framer-step": expect.any(Function),
     });
     for (const mount of Object.values(WIDGET_MODULES)) {
       expect(typeof mount).toBe("function");
