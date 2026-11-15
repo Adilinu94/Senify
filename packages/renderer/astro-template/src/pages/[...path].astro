@@ -4,7 +4,28 @@ import manifest from "../generated/manifest.json";
 
 export async function getStaticPaths() {
   return manifest.pages.map((page) => ({
-    params: { path: page.path === "/" ? undefined : page.path.slice(1) },
+    // A URL path may carry percent escapes (`/work/dendezeiro%C2%AE`), a site
+    // path does not. Astro decodes the param when it renders the route, so an
+    // encoded param never matches its own static path: the build stopped with
+    // `NoMatchingStaticPathFound` for `/work/dendezeiro®/` (measured on the
+    // imported origin site, 14.11.2026). Decoding each segment keeps an encoded
+    // slash part of the name.
+    params: {
+      path:
+        page.path === "/"
+          ? undefined
+          : page.path
+              .slice(1)
+              .split("/")
+              .map((segment) => {
+                try {
+                  return decodeURIComponent(segment);
+                } catch {
+                  return segment;
+                }
+              })
+              .join("/"),
+    },
     props: { page },
   }));
 }

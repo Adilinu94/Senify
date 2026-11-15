@@ -26,6 +26,11 @@ import { isSafeHref, sanitizeInlineHtml } from "./inline-html.ts";
 import { sanitizeSvgMarkup } from "./svg-markup.ts";
 import { isWidgetPrimitive, widgetPrimitive } from "./widgets.ts";
 
+// A source address (`https://…`) instead of a stored asset id. The Framer import
+// writes one when the download of a picture failed; the markup renders it as the
+// image source itself.
+const ABSOLUTE_ADDRESS = /^(?:https?:)?\/\//i;
+
 // ---------------------------------------------------------------------------
 // Element description
 // ---------------------------------------------------------------------------
@@ -336,14 +341,26 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
       const asset = assetOf(props, "asset");
       const alt = text(props, "alt");
       const source = text(props, "src");
+      // An absolute address is a picture of its own (the import writes it when
+      // the download of a source picture failed), not a library id: prefixing it
+      // with `/assets/` built `/assets/https://…`, which 404s — measured on the
+      // origin import, 14.11.2026.
+      const address = ABSOLUTE_ADDRESS.test(asset);
       // An image without a source gets NO `src` attribute. `src=""` makes the
       // browser request the page itself and log a warning for every such node
       // (measured on the fluffy import, 14.11.2026: three placeholder images,
       // two warnings). The box stays, the empty image stays quiet.
       return root("img", [primitiveClass("image")], {
-        src: source !== "" ? source : asset === "" ? undefined : `/assets/${asset}`,
+        src:
+          source !== ""
+            ? source
+            : asset === ""
+              ? undefined
+              : address
+                ? asset
+                : `/assets/${asset}`,
         alt,
-        "data-asset": asset === "" ? undefined : asset,
+        "data-asset": asset === "" || address ? undefined : asset,
       });
     }
 

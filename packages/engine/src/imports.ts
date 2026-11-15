@@ -353,7 +353,7 @@ export function framerImportKeys(input: {
   options?: Record<string, unknown>;
 }): { contentKey: string; requestFingerprint: string } {
   const target = input.pageId === undefined
-    ? { kind: "path", path: normalizeImportPath(input.pagePath) }
+    ? { kind: "path", path: importPagePath(input.pagePath) }
     : { kind: "page", pageId: input.pageId };
   const options = input.options === undefined ? {} : input.options;
   const contentMaterial = stableJson({
@@ -372,13 +372,34 @@ export function framerImportKeys(input: {
   return { contentKey, requestFingerprint };
 }
 
-function normalizeImportPath(path: string): string {
-  const trimmed = path.trim();
+// A page path as the site stores it: leading slash, no doubled or trailing
+// slash, and no percent escapes. A URL path carries them (`/work/dendezeiro%C2%AE`),
+// a site path does not — the bake lays the page out as a folder with the decoded
+// name, so an encoded path never matches its own static route.
+export function importPagePath(path: string | undefined): string {
+  const trimmed = (path ?? "").trim();
   if (trimmed === "") return "/";
   const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
   const collapsed = withSlash.replace(/\/{2,}/g, "/");
-  if (collapsed.length > 1 && collapsed.endsWith("/")) return collapsed.slice(0, -1);
-  return collapsed;
+  // A URL path is percent-encoded; a site path is not. Framer links to
+  // `/work/dendezeiro%C2%AE`, and the bake lays the page out as a folder with
+  // the decoded name (`work/dendezeiro®/index.html`). Keeping the encoding in
+  // the page path made Astro refuse the build with
+  // `NoMatchingStaticPathFound` for `/work/dendezeiro®/` — measured on the
+  // imported origin site, 14.11.2026. Each segment is decoded on its own, so an
+  // encoded slash stays part of the name instead of becoming a separator.
+  const decoded = collapsed
+    .split("/")
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join("/");
+  if (decoded.length > 1 && decoded.endsWith("/")) return decoded.slice(0, -1);
+  return decoded;
 }
 
 function stableJson(value: unknown): string {
@@ -511,7 +532,7 @@ export async function runFramerImportJob(
   },
 ): Promise<ImportRunResult> {
   const dryRun = input.body.write !== true;
-  const pagePath = input.body.pagePath ?? "/";
+  const pagePath = importPagePath(input.body.pagePath);
   const source = sourceOf(input.body);
   // The pages of the site are read once: the output stored on the target, the
   // breakpoint plan and the target itself all read them.

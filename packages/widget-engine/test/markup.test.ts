@@ -169,6 +169,14 @@ describe("widget markup", () => {
       src: "/assets/img2",
       "data-asset": "img2",
     });
+    // An absolute address is the picture itself, not a library id: prefixing it
+    // with `/assets/` built `/assets/https://…`, which 404s (measured on the
+    // origin import, 14.11.2026).
+    const address = spec("image", {
+      asset: { assetId: "https://framerusercontent.com/images/zu-gross.gif" },
+    });
+    expect(address.attrs?.src).toBe("https://framerusercontent.com/images/zu-gross.gif");
+    expect(address.attrs?.["data-asset"]).toBeUndefined();
     expect(spec("image", { src: "data:image/svg+xml,%3Csvg/%3E", alt: "Icon" }).attrs).toMatchObject({
       src: "data:image/svg+xml,%3Csvg/%3E",
       alt: "Icon",
