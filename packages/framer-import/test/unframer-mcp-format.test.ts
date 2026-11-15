@@ -67,6 +67,13 @@ describe("Unframer-MCP-Format", () => {
     }
   });
 
+  it("markiert Projektregeln, damit der Bake Typografie und Farbe behaelt", () => {
+    const { mapped: m } = mapped("fidelity");
+    const rule = m.document.styleRules.find((entry) => entry.styles["fontSize"] === "92px");
+    expect(rule).toBeDefined();
+    expect(rule?.origin).toMatchObject({ source: "framer-import", keepBase: true });
+  });
+
   it("normalisiert die WaveBackground-Box auf vollflächig inset:0", () => {
     const { mapped: m } = mapped();
     const nodes = Object.values(m.document.nodes) as { primitive: string; props: Record<string, unknown> }[];

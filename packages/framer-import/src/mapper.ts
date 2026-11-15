@@ -844,12 +844,29 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
   // --- absolute positioning
   const box = merged.base.box;
   if (box !== null) {
-    if (box.width !== undefined) props["width"] = box.width;
-    if (box.height !== undefined) props["height"] = box.height;
-    if (box.minWidth !== undefined) props["minWidth"] = box.minWidth;
-    if (box.maxWidth !== undefined) props["maxWidth"] = box.maxWidth;
-    if (box.minHeight !== undefined) props["minHeight"] = box.minHeight;
-    if (box.maxHeight !== undefined) props["maxHeight"] = box.maxHeight;
+    // The grid span owns the used width. Framer writes the design-time content
+    // width next to it (Heading: 100px, span 2); keeping that width would leave
+    // the heading in a 100px column although the grid gives it 872px.
+    const columnSpan = Number(/span\s+(\d+)/.exec(String(merged.base.visual["grid-column"] ?? ""))?.[1] ?? "1");
+    // In a horizontal stack `1fr` is an equal share, not a full-width box:
+    // the WarumIch text and image columns would otherwise become 760/380
+    // instead of 570/570. In a vertical stack it fills the column width.
+    const rowShare = parent?.states[0]?.layout?.direction === "horizontal" && box.width === "1fr";
+    if (rowShare) {
+      props["flexGrow"] = "1";
+      props["flexShrink"] = "1";
+      props["flexBasis"] = "0px";
+      props["width"] = "auto";
+      // Without `min-width: 0` the image's min-content width wins and the
+      // equal 1fr columns become 760/380 instead of 590/590.
+      if (props["minWidth"] === undefined) props["minWidth"] = "0px";
+    } else if (columnSpan > 1) props["width"] = "100%";
+    else if (box.width !== undefined) props["width"] = framerLength(box.width);
+    if (box.height !== undefined) props["height"] = framerLength(box.height);
+    if (box.minWidth !== undefined) props["minWidth"] = framerLength(box.minWidth);
+    if (box.maxWidth !== undefined) props["maxWidth"] = framerLength(box.maxWidth);
+    if (box.minHeight !== undefined) props["minHeight"] = framerLength(box.minHeight);
+    if (box.maxHeight !== undefined) props["maxHeight"] = framerLength(box.maxHeight);
     if (box.aspectRatio !== undefined) props["aspectRatio"] = box.aspectRatio;
     // `fixed` and `sticky` are page-level positioning (a pinned overlay, a
     // sticky header) and map like `absolute`; `relative`/`static` are the
@@ -1767,13 +1784,23 @@ export function themePatchOf(
 
 /* ------------------------------------------------------------------ rules */
 
+// A Framer `1fr` is a fill token, not a CSS length. In a stack it means the
+// available width; in a grid the track already sizes the item. Written
+// literally, CSS ignores `width: 1fr` and the item shrinks to its content
+// (measured on fluffy-rectangle: the Hero container became 428px instead of
+// 1440px and the grid columns 100px instead of 424px).
+function framerLength(value: string): string {
+  return value.trim() === "1fr" ? "100%" : value;
+}
+
 const camelStyles = (declarations: Record<string, string>): Record<string, string> =>
   Object.fromEntries(
     Object.entries(declarations)
       .filter(([name, value]) => !isBackgroundReset(name, value))
       .map(([name, value]) => {
         const mapped = cssName(name);
-        return [mapped ?? name, value];
+        const key = mapped ?? name;
+        return [key, key === "width" || key === "height" ? framerLength(value) : value];
       }),
   );
 
@@ -1794,6 +1821,7 @@ function slotStyles(
 function styleRulesOf(
   normalized: NormalizedStyleRule[],
   slots: ReadonlyMap<string, string>,
+  keepBase: boolean,
 ): StyleRule[] {
   return normalized.map((rule, index) => ({
     id: rule.id,
@@ -1812,7 +1840,11 @@ function styleRulesOf(
           ),
         }),
     contextStyles: {},
-    origin: { source: "framer-import", ordinal: index },
+    origin: {
+      source: "framer-import",
+      ordinal: index,
+      ...(keepBase ? { keepBase: true } : {}),
+    },
     authoredBy: "preset" as const,
   }));
 }
@@ -2103,7 +2135,7 @@ export function mapDocument(
     });
   }
 
-  const rules = styleRulesOf(normalized, context.fontSlots);
+  const rules = styleRulesOf(normalized, context.fontSlots, document.source.kind === "plugin");
   // The source's colour definitions come first: every `var(--token-…)` in the
   // page (and inside an imported SVG) resolves against them.
   const tokenRule = tokenRootRule(document, 0, tokenScope, tokenIds);
@@ -2172,6 +2204,32 @@ export function mapDocument(
         finding.suggestion ??
         "Ohne Endzustand im Kanal bleibt nur der Startzustand — der Effekt wird nicht nachgebaut.",
     });
+  }
+  // The project XML describes the design canvas (Desktop: 1200px wide,
+  // `position: absolute`, `left: 99px`), not the published page. At 1440px the
+  // source fills the viewport and the document scrolls. Normalize the page
+  // frame once; the class rule's absolute box stays overridden by these inline
+  // props.
+  if (document.source.kind === "plugin") {
+    const pageRoot = context.nodes["root"];
+    const firstId = pageRoot?.children?.[0];
+    const first = firstId === undefined ? undefined : context.nodes[firstId];
+    // Only the project's design-canvas frame (`<Desktop>`, absolutely placed
+    // at 1200px) is normalized. A page XML whose root is a `<Page>` with a
+    // normal section as its first child keeps that section's own box.
+    if (first !== undefined && first.props["position"] === "absolute") {
+      first.props = {
+        ...first.props,
+        position: "relative",
+        left: "0px",
+        top: "0px",
+        width: "100%",
+        maxWidth: "none",
+        height: "auto",
+        minHeight: "100vh",
+        overflow: "hidden",
+      };
+    }
   }
   return {
     document: {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mapUnframerProject } from "../src/unframer-ir.ts";
 import { enrichProjectDocument } from "../src/project-style-enrichment.ts";
-import type { FramerIrDocument } from "../src/ir.ts";
+import type { FramerIrDocument, IrNode } from "../src/ir.ts";
 
 const PROJECT_XML = `<Project name="Fluffy">
   <Pages><Page nodeId="page-home" path="/" /></Pages>
@@ -15,6 +15,10 @@ const PAGE_XML = `<Desktop nodeId="d" width="1200px">
   <Body nodeId="n-hello" inlineTextStyle="/Text Styles/Body">Hallo Welt</Body>
   <Body nodeId="n-ambiguous" inlineTextStyle="/Text Styles/Body">Doppelt</Body>
   <Body nodeId="n-semi" inlineTextStyle="/Text Styles/Semi">Fett</Body>
+  <Card nodeId="n-card">
+    <Body nodeId="n-card-title" inlineTextStyle="/Text Styles/Body">Projekt-Eins.de Webdesign 2026</Body>
+    <Image nodeId="n-card-image" width="1fr" height="407px" />
+  </Card>
 </Desktop>`;
 
 function projectDocument(): FramerIrDocument {
@@ -23,6 +27,19 @@ function projectDocument(): FramerIrDocument {
     pages: [{ path: "/", xml: PAGE_XML }],
     capturedAt: "2026-11-14T12:00:00.000Z",
   });
+}
+
+function findImage(document: FramerIrDocument): IrNode | undefined {
+  const visit = (node: IrNode): IrNode | undefined => {
+    if (node.kind === "image") return node;
+    for (const child of node.children) {
+      const found = visit(child);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  };
+  const root = document.pages[0]?.root;
+  return root === undefined ? undefined : visit(root);
 }
 
 function findByText(document: FramerIrDocument, content: string): FramerIrDocument["pages"][number]["root"] | undefined {
@@ -85,6 +102,27 @@ describe("Projekt-XML plus veröffentlichte Seite", () => {
     });
     expect(document.styles.fonts.some((face) => face.weight === 700)).toBe(false);
     expect(stats).toMatchObject({ colors: 1, ambiguous: 1, fonts: 2, body: true });
+  });
+
+  it("vererbt die Textfarbe eines Vorfahren", () => {
+    const document = projectDocument();
+    const html = `<!doctype html><html><body><div id="main"><div style="color: rgb(200, 200, 200)"><p>Hallo Welt</p></div></div></body></html>`;
+    const stats = enrichProjectDocument(document, { html });
+    const hello = findByText(document, "Hallo Welt");
+    expect(hello?.states[0]?.text?.inline["color"]).toBe("rgb(200, 200, 200)");
+    expect(stats.colors).toBe(1);
+  });
+
+  it("ergänzt eine fehlende Bildquelle über den Kartentext", () => {
+    const document = projectDocument();
+    const html = `<!doctype html><html><body><div id="main"><a href="/p"><div>Projekt-Eins.de Webdesign 2026</div><img src="https://example.test/projekt.png" alt="Projekt"></a></div></body></html>`;
+    const stats = enrichProjectDocument(document, { html });
+    const image = findImage(document);
+    expect(image?.assetUrl).toBe("https://example.test/projekt.png");
+    expect(document.assets).toContainEqual(
+      expect.objectContaining({ url: "https://example.test/projekt.png", kind: "image" }),
+    );
+    expect(stats.images).toBe(1);
   });
 
   it("lässt eine vorhandene Farbe stehen und rät bei mehrdeutigen Worten nicht", () => {

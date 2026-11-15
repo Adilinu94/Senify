@@ -25,6 +25,12 @@ export type ProjectStyleStats = {
   ambiguous: number;
   fonts: number;
   body: boolean;
+  images: number;
+};
+
+type HtmlTextLayout = {
+  content: string;
+  inline: Record<string, string>;
 };
 
 const FONT_STYLE_SUFFIX =
@@ -121,17 +127,59 @@ export function enrichProjectDocument(
   });
   const tokens = new Map(page.styles.colors.map((token) => [token.id, token.value]));
   const colorsByText = new Map<string, Set<string>>();
+  const layoutsByText = new Map<string, { color: string; layout: HtmlTextLayout }[]>();
   const root = page.pages[0]?.root;
-  if (root !== undefined) {
-    walk(root, (node) => {
+  // Framer ships one SSR copy per breakpoint. A copy hidden at the desktop
+  // breakpoint often carries another colour (the mobile copy of "Meine
+  // Leistungen" is white, the desktop copy #ebe4e4). Counting both would make
+  // the word ambiguous and leave it black. Only copies visible at the target
+  // width contribute.
+  const desktopIds = new Set(
+    page.breakpoints
+      .filter((breakpoint) => breakpoint.minWidth <= 1440 && (breakpoint.maxWidth === null || 1440 <= breakpoint.maxWidth))
+      .map((breakpoint) => breakpoint.id),
+  );
+  // The colour often sits on a container and is inherited by its words. Walk
+  // with the last seen colour so a paragraph without its own declaration still
+  // keeps the source's colour.
+  const collectColors = (node: IrNode, inherited: string | null, hidden: boolean): void => {
+    const state = node.states[0];
+    const hiddenHere =
+      hidden ||
+      (desktopIds.size > 0 && (state?.hiddenAt.some((id) => desktopIds.has(id)) ?? false));
+    const own = hiddenHere ? null : colorOfNode(node, tokens);
+    const color = own ?? inherited;
+    if (!hiddenHere && color !== null) {
+      const addColor = (content: string): void => {
+        const colors = colorsByText.get(content) ?? new Set<string>();
+        colors.add(color);
+        colorsByText.set(content, colors);
+      };
+      const addLayout = (key: string, layout: HtmlTextLayout): void => {
+        const entries = layoutsByText.get(key) ?? [];
+        entries.push({ color, layout });
+        layoutsByText.set(key, entries);
+      };
+      const inline = htmlTextLayoutOf(node);
       const content = textOfNode(node);
-      const color = colorOfNode(node, tokens);
-      if (content === null || color === null) return;
-      const colors = colorsByText.get(content) ?? new Set<string>();
-      colors.add(color);
-      colorsByText.set(content, colors);
-    });
-  }
+      if (content !== null) {
+        addColor(content);
+        const ownLayout = textWithBreaks(node);
+        if (ownLayout !== null) addLayout(content, { content: ownLayout, inline });
+      }
+      // A rich-text heading may split its words over spans; the project node
+      // carries the joined words. The wrapper's joined text is the key that
+      // meets it.
+      const joined = subtreeText(node);
+      if (joined.length >= 20 && joined.length <= 2000) {
+        addColor(joined);
+        const joinedLayout = subtreeTextWithBreaks(node);
+        if (joinedLayout !== "") addLayout(joined, { content: joinedLayout, inline });
+      }
+    }
+    for (const child of node.children) collectColors(child, color, hiddenHere);
+  };
+  if (root !== undefined) collectColors(root, null, false);
 
   let colors = 0;
   let ambiguous = 0;
@@ -145,8 +193,29 @@ export function enrichProjectDocument(
       const found = colorsByText.get(content);
       if (found === undefined) return;
       if (found.size === 1) {
-        text.inline["color"] = [...found][0] as string;
+        const color = [...found][0] as string;
+        text.inline["color"] = color;
         colors += 1;
+        // Framer puts explicit line breaks into a heading's inline markup
+        // ("Echte Meinungen<br>statt Werbetexte"). The project text is one
+        // string and carries non-breaking spaces; without regular spaces the
+        // line runs past its 806px box. `text-wrap: balance` then picks the
+        // source's break.
+        const layout = (layoutsByText.get(content) ?? []).find((entry) => entry.color === color)?.layout;
+        if (layout !== undefined) {
+          if (layout.content.trim() !== "") {
+            text.content = layout.content.replace(/\u00a0/g, " ");
+          }
+          for (const [property, value] of Object.entries(layout.inline)) {
+            if (text.inline[property] === undefined) text.inline[property] = value;
+          }
+          if (
+            (layout.content.includes("\n") || layout.inline["textWrap"] === "balance") &&
+            text.inline["whiteSpace"] === undefined
+          ) {
+            text.inline["whiteSpace"] = "pre-wrap";
+          }
+        }
       } else {
         ambiguous += 1;
       }
@@ -188,5 +257,189 @@ export function enrichProjectDocument(
     document.styles.body = merged;
   }
 
-  return { colors, ambiguous, fonts: addedFonts, body };
+  // The project XML names an image frame but not its file. The published page
+  // carries the file next to the same card text. Match by the card's words, not
+  // by list position: the page has four project cards, the XML only the two
+  // expanded ones, so "second image" would paint the wrong card.
+  const images = imageSourcesFromHtml(root);
+  let addedImages = 0;
+  const knownAssets = new Set(document.assets.map((asset) => asset.url));
+  for (const projectPage of document.pages) {
+    const parents = parentMap(projectPage.root);
+    walk(projectPage.root, (node) => {
+      if (node.kind !== "image" || node.assetUrl !== undefined || node.assetId !== undefined) return;
+      const key = ancestorText(node, parents);
+      if (key === null) return;
+      const matches = new Map<string, { url: string; alt: string | null }>();
+      for (const domain of domainsOf(key)) {
+        for (const [url, entry] of images.get(domain) ?? []) matches.set(url, entry);
+      }
+      if (matches.size !== 1) return;
+      const match = [...matches.values()][0] as { url: string; alt: string | null };
+      node.assetUrl = match.url;
+      if ((node.alt ?? "") === "") node.alt = match.alt;
+      if (!knownAssets.has(match.url)) {
+        knownAssets.add(match.url);
+        document.assets.push({
+          url: match.url,
+          kind: "image",
+          hash: null,
+          alt: match.alt,
+          width: null,
+          height: null,
+        });
+      }
+      addedImages += 1;
+    });
+  }
+
+  return { colors, ambiguous, fonts: addedFonts, body, images: addedImages };
+}
+
+function parentMap(root: IrNode): Map<IrNode, IrNode> {
+  const parents = new Map<IrNode, IrNode>();
+  const visit = (node: IrNode): void => {
+    for (const child of node.children) {
+      parents.set(child, node);
+      visit(child);
+    }
+  };
+  visit(root);
+  return parents;
+}
+
+// A rich-text heading can carry its words in `innerHtml` instead of a text
+// node ("Direkter Kontakt. Faire Preise. Modernestes Webdesign." on
+// fluffy-rectangle). Without the stripped markup the subtree key is empty and
+// the project heading stays black.
+function plainTextOf(node: IrNode): string {
+  const content = node.states[0]?.text?.content;
+  if (content !== undefined && content.trim() !== "") return content;
+  const html = node.innerHtml;
+  if (html === undefined || html === null || html === "") return "";
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// The same words, but with the source's explicit line breaks and non-breaking
+// spaces. The widget renderer turns the string into a text node; with
+// `white-space: pre-wrap` the breaks survive.
+function textWithBreaks(node: IrNode): string | null {
+  const html = node.innerHtml;
+  if (html === undefined || html === null || html === "") return null;
+  const text = html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;|&#160;/gi, "\u00a0")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .trim();
+  return text === "" ? null : text;
+}
+
+function subtreeTextWithBreaks(node: IrNode): string {
+  const parts: string[] = [];
+  const visit = (entry: IrNode): void => {
+    const content = textWithBreaks(entry) ?? plainTextOf(entry);
+    if (content !== "") parts.push(content);
+    for (const child of entry.children) visit(child);
+  };
+  visit(node);
+  return parts.join(" ").replace(/[ \t]+/g, " ").replace(/ *\n */g, "\n").trim();
+}
+
+function htmlTextLayoutOf(node: IrNode): Record<string, string> {
+  const visual = node.states[0]?.visual ?? {};
+  const out: Record<string, string> = {};
+  const properties: readonly [string, string][] = [
+    ["white-space", "whiteSpace"],
+    ["text-wrap", "textWrap"],
+    ["word-break", "wordBreak"],
+    ["overflow-wrap", "overflowWrap"],
+  ];
+  for (const [css, property] of properties) {
+    const value = visual[css];
+    if (
+      value !== undefined &&
+      value !== "" &&
+      value !== "normal" &&
+      value !== "initial" &&
+      value !== "inherit" &&
+      value !== "unset"
+    ) {
+      out[property] = value;
+    }
+  }
+  return out;
+}
+
+function subtreeText(node: IrNode): string {
+  const parts: string[] = [];
+  const visit = (entry: IrNode): void => {
+    const content = plainTextOf(entry);
+    if (content !== "") parts.push(content);
+    for (const child of entry.children) visit(child);
+  };
+  visit(node);
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function ancestorText(node: IrNode, parents: ReadonlyMap<IrNode, IrNode>): string | null {
+  let parent = parents.get(node);
+  while (parent !== undefined) {
+    const text = subtreeText(parent);
+    if (text.length >= 20 && text.length <= 2000) return text;
+    parent = parents.get(parent);
+  }
+  return null;
+}
+
+// The project card writes `5/31/26`, the published card `31.05.26`; the card
+// title (the domain) is the part both share. Matching by the whole card text
+// would paint nothing, matching by position would paint the wrong card
+// (the page has four, the XML two expanded).
+function domainsOf(text: string): string[] {
+  return [
+    ...new Set(
+      (text.match(/[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9-]+)+/g) ?? []).filter(
+        (entry) => !entry.includes("@"),
+      ),
+    ),
+  ];
+}
+
+function imageSourcesFromHtml(
+  root: IrNode | undefined,
+): Map<string, Map<string, { url: string; alt: string | null }>> {
+  const images = new Map<string, Map<string, { url: string; alt: string | null }>>();
+  if (root === undefined) return images;
+  const parents = parentMap(root);
+  walk(root, (node) => {
+    if (node.kind !== "image" || (node.assetUrl ?? "") === "") return;
+    const key = ancestorText(node, parents);
+    if (key === null) return;
+    const url = node.assetUrl as string;
+    for (const domain of domainsOf(key)) {
+      const entries = images.get(domain) ?? new Map<string, { url: string; alt: string | null }>();
+      // The SSR copies repeat the same URL; key by URL so two copies of one
+      // picture do not look like an ambiguity.
+      entries.set(url, { url, alt: node.alt ?? null });
+      images.set(domain, entries);
+    }
+  });
+  return images;
 }

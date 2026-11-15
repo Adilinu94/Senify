@@ -184,7 +184,7 @@ export function styleRulesReport(
   }
   const classRules = remapScopedRules(pages, rules)
     .flatMap((rule) => {
-      if (rule.origin?.source !== "framer-import") return [rule];
+      if (rule.origin?.source !== "framer-import" || rule.origin.keepBase === true) return [rule];
       // A definition that attaches by selector and belongs to no node — the
       // source's `:root` colour variables — has no node prop that already
       // carries it, and dropping it loses every `var(--token-…)` on the page.

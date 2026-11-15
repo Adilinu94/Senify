@@ -561,7 +561,31 @@ function visualOf(
   }
   const objectFit = attrOf(element, "objectFit") ?? attrOf(element, "fit");
   if (objectFit !== null && objectFit.trim() !== "") visual["object-fit"] = objectFit.trim();
+  // A Framer grid item states its span and its alignment next to the box. The
+  // width attribute is often only the design-time content width (the Heading
+  // group writes 100px and spans two 424px columns in the published page), so
+  // the span, not that width, defines the used grid area.
+  const columnSpan = Number(attrOf(element, "gridColumnSpan") ?? "1");
+  if (Number.isFinite(columnSpan) && columnSpan > 1) visual["grid-column"] = `span ${columnSpan}`;
+  const rowSpan = Number(attrOf(element, "gridRowSpan") ?? "1");
+  if (Number.isFinite(rowSpan) && rowSpan > 1) visual["grid-row"] = `span ${rowSpan}`;
+  const alignX = gridSelfAlignment(attrOf(element, "gridAlignX"));
+  if (alignX !== null) visual["justify-self"] = alignX;
+  const alignY = gridSelfAlignment(attrOf(element, "gridAlignY"));
+  if (alignY !== null) visual["align-self"] = alignY;
+  if ((attrOf(element, "gridFillHeight") ?? "").toLowerCase() === "true") {
+    visual["align-self"] = "stretch";
+  }
   return visual;
+}
+
+// `justify-self`/`align-self` take the grid keywords verbatim; the stack
+// alignment helper maps `start` to `flex-start`, which is invalid here.
+function gridSelfAlignment(raw: string | null): string | null {
+  const value = (raw ?? "").toLowerCase();
+  return value === "start" || value === "center" || value === "end" || value === "stretch"
+    ? value
+    : null;
 }
 
 // CSS shorthand (`168px 30px 54px 30px`) to one value per side.

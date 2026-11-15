@@ -21,6 +21,10 @@ describe("mapDocument", () => {
     // Every rule carries the import provenance.
     for (const rule of mapped.document.styleRules) {
       expect(rule.origin?.source).toBe("framer-import");
+      // An HTML capture repeats its base declarations in the node props, so
+      // the bake may drop them from the rule. Only the project path needs the
+      // keepBase marker.
+      expect(rule.origin?.keepBase).toBeUndefined();
     }
   });
 

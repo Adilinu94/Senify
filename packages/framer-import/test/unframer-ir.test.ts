@@ -300,7 +300,10 @@ describe("Unframer-IR: durch Normalisierer und Mapper", () => {
       bottom: "54px",
       left: "30px",
     });
-    expect(hero?.props["width"]).toBe("1fr");
+    // Framer's `1fr` is a fill token, not a CSS length; in a vertical stack it
+    // becomes 100%. Used literally, the browser ignored it and the column
+    // shrank to its content.
+    expect(hero?.props["width"]).toBe("100%");
     expect(hero?.props["height"]).toBe("100vh");
     const heroRule = mapped.document.styleRules.find((rule) => rule.name === hero?.classes?.[0]);
     expect(heroRule?.styles["justifyContent"]).toBe("center");

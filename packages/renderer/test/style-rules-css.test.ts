@@ -142,6 +142,22 @@ describe("styleRulesCss", () => {
     expect(css).not.toContain(".framer-1x");
   });
 
+  it("keeps the base declarations of a project-XML rule", () => {
+    const kept: StyleRule = {
+      ...createClassRule({
+        id: "project-rule",
+        name: "accent",
+        styles: { fontSize: "92px", color: "#ffffff" },
+      }),
+      origin: { source: "framer-import", ordinal: 2, keepBase: true },
+      authoredBy: "preset",
+    };
+    const css = styleRulesCss(page(), [kept]);
+    expect(css).toContain(".accent");
+    expect(css).toContain("92px");
+    expect(css).toContain("#ffffff");
+  });
+
   it("reports a value it had to drop instead of staying silent", () => {
     const report = styleRulesReport(page(), [
       createClassRule({

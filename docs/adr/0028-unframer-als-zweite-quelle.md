@@ -110,16 +110,30 @@ fluffy-rectangle-418998, 14.11.2026). Der Import übernimmt das Gewicht des Stil
 überschrieb bisher `Manrope-regular` = 400) und ergänzt bei einer Familie ohne Komma einen
 Sans-Fallback (`system-ui, sans-serif`), damit der Browser nicht auf Serif zurückfällt.
 
-Weil die XML die beiden fehlenden Stücke nicht hergibt, nimmt die Projekt-Quelle zusätzlich eine
+Weil die XML die fehlenden Stücke nicht hergibt, nimmt die Projekt-Quelle zusätzlich eine
 optionale `styleUrl` (die veröffentlichte Seite, in der CLI `--style-url`). Der Import liest daraus
-**nur die Typografie**: Textfarben werden über den sichtbaren Text zugeordnet, Schriftdateien über
-Familie und Gewicht an die Projekt-Familie gehängt. Die Struktur bleibt ausschließlich aus der XML.
-Mehrdeutige Worte (gleicher Text, mehrere Farben) bleiben ungesetzt statt geraten; ohne `styleUrl`
-oder bei nicht ladbarer Seite bleibt der bisherige Stand und der Bericht nennt die Lücke. Belege:
+Typografie und fehlende Bildquellen: Textfarben werden über den sichtbaren Text inklusive geerbter
+Farben und der sichtbaren Desktop-SSR-Kopie zugeordnet, Schriftdateien über Familie und Gewicht an
+die Projekt-Familie gehängt, Bildquellen über die Kartendomäne. Explizite Zeilenumbrüche sowie
+`white-space`/`text-wrap` kommen aus dem Quelltext mit. Die Struktur bleibt ausschließlich aus der
+XML. Mehrdeutige Worte (gleicher Text, mehrere Farben) bleiben ungesetzt statt geraten; ohne
+`styleUrl` oder bei nicht ladbarer Seite bleibt der bisherige Stand und der Bericht nennt die Lücke.
+
+Der Projekt-Weg normalisiert außerdem das Design-Canvas-Layout: Das absolute 1200px-Desktop-Frame
+wird relative/100%, Framer-`1fr` wird in vertikalen Stacks 100% und in horizontalen Stacks ein
+gleicher Flex-Anteil (`flex: 1 1 0`, `min-width: 0`), `gridColumnSpan`/`gridRowSpan` werden zu
+`grid-column`/`grid-row`, und die Breite eines Grid-Elements mit Span größer 1 kommt aus dem Span,
+nicht aus der Design-Zeit-Breite. Die XML beschreibt den Entwurfsstand (Hero 428px,
+Heading-Gruppe 100px), nicht die veröffentlichte 1440px-Seite. Belege:
 `packages/framer-import/test/unframer-mcp-format.test.ts` (DNA und Fidelity),
 `packages/framer-import/test/project-style-enrichment.test.ts`,
-`packages/engine/test/imports-project.test.ts` und der Live-Import von fluffy-rectangle
-(Seite `H56BsHlFuZpCfp`: H2 92 px, Gewicht 400, Farbe `#fff`, lokale Manrope-400-Datei, keine Konsolenfehler).
+`packages/framer-import/test/unframer-ir.test.ts`, `packages/engine/test/imports-project.test.ts`
+und der Live-Import von fluffy-rectangle (Seite `7fCjkme4ryDJ6g`): Hero-H2 872x184 an x=508,
+Badge 343x20 an x=526, Farben `#fff`/`#ebe4e4`, zwei Projektbilder als lokale Assets
+(1469x819, 1257x864), Warum-ich-Spalten 570/570, Body 1440x5070 gegen 1440x8486 der Quelle.
+Die Restdifferenz sitzt in den noch nicht portierten Code-Komponenten (Navbar, Process,
+ReviewsTicker, Footer) und einer Kartenvariante; der Live-Editor zeigt die Wave, die Vorschau
+bleibt im Design-Modus schwarz.
 
 **Nachtrag 02.11.2026 — die CMS-Antworten sind gemessen.** Gegen das laufende
 MCP (1.8.0) wurden `getCMSCollections` und `getCMSItems` an einem Projekt mit

@@ -857,15 +857,15 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
           url: input.source.styleUrl,
         });
         if (baseUrl === undefined) baseUrl = new URL(input.source.styleUrl).origin;
-        if (stats.colors > 0 || stats.fonts > 0 || stats.body) {
+        if (stats.colors > 0 || stats.fonts > 0 || stats.body || stats.images > 0) {
           document.findings.push({
             kind: "font-mapping",
             nodeKey: null,
-            message: `Typografie aus der veröffentlichten Seite ergänzt: ${stats.colors} Textfarbe(n), ${stats.fonts} Schriftschnitt(e)${stats.body ? ", Body-Stil" : ""}. Die Projekt-XML trägt keine Textfarbe und keine Schriftdatei.`,
+            message: `Typografie und Bilder aus der veröffentlichten Seite ergänzt: ${stats.colors} Textfarbe(n), ${stats.fonts} Schriftschnitt(e), ${stats.images} Bild(er)${stats.body ? ", Body-Stil" : ""}. Die Projekt-XML trägt keine Textfarbe, keine Schriftdatei und bei manchen Bildrahmen keine Quelle.`,
             evidence: input.source.styleUrl,
             severity: "info",
             suggestion:
-              "Nur die Typografie stammt aus der Seite. Struktur, Widgets und Code-Komponenten bleiben aus der Projekt-XML.",
+              "Nur Typografie und fehlende Bildquellen stammen aus der Seite. Struktur, Widgets und Code-Komponenten bleiben aus der Projekt-XML.",
           });
         }
         if (stats.ambiguous > 0) {
