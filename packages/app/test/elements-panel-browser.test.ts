@@ -436,8 +436,10 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       // faellt dann auf das Standardbild zurueck; in beiden Faellen steht ein
       // Bild, keine leere Kachel.
       // Die Route wurde WIRKLICH gefragt (202 oder 200) - das src-Attribut
-      // traegt nach dem Rueckfall auf das Standardbild dessen Pfad.
-      expect(sectionPreviewCalls.length).toBeGreaterThan(0);
+      // traegt nach dem Rueckfall auf das Standardbild dessen Pfad. Die Bilder
+      // fordert der Browser nach dem Rendern der Kacheln an; unter Last kam der
+      // erste Aufruf deshalb nach der Kachel-Zaehlung (CI-Lauf 16.11.2026).
+      await expect.poll(() => sectionPreviewCalls.length).toBeGreaterThan(0);
       expect(sectionPreviewCalls.every((url) => url.includes(`/api/sites/${site.id}/section-preview/`))).toBe(true);
       await expect
         .poll(() => firstImage.evaluate((img) => (img as unknown as { naturalWidth: number }).naturalWidth))
