@@ -358,5 +358,8 @@ describe.skipIf(!browserAvailable)("editor widget live mount", () => {
       await running.close();
       rmSync(dataDir, { recursive: true, force: true });
     }
-  });
+    // Unter Volllast (CI, zwei Worker) lief der Fall wiederholt in das
+    // globale 30-s-Limit; einzeln braucht er 11 bis 17 s (CI-Lauf 16.11.2026,
+    // 4030 Tests gruen, nur dieser Timeout). Das Limit ist keine Aussage.
+  }, 90_000);
 });
