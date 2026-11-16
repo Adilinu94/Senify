@@ -28,6 +28,7 @@ export type ListEntriesFilter = {
   trashed?: boolean;
   searchTokens?: readonly string[];
   limit?: number;
+  offset?: number;
 };
 
 export type CreateEntryInput = {
@@ -105,6 +106,10 @@ export class EntriesRepository {
     }
     params.push(Math.max(1, Math.min(500, filter.limit ?? 200)));
     sql += ` ORDER BY updated_at DESC, id DESC LIMIT $${params.length}`;
+    if (filter.offset !== undefined) {
+      params.push(Math.max(0, Math.trunc(filter.offset)));
+      sql += ` OFFSET $${params.length}`;
+    }
     const result = await this.#db.query<EntryRow>(sql, params);
     return result.rows.map(mapEntry);
   }

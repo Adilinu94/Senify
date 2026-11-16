@@ -16,6 +16,7 @@
     "@senify/section-sdk": "workspace:*",
     "@senify/tokens": "workspace:*",
     "@senify/widget-engine": "workspace:*",
+    "@senify/widgets": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "astro": "^7.3.3",
     "esbuild": "^0.28.2",

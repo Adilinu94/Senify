@@ -10,12 +10,12 @@
 import { SenifyError } from "@senify/core";
 import { pageOutline, selectNodes } from "./outline.ts";
 import {
-  listSchema,
   objectSchema,
   optionalNumber,
   optionalString,
   optionalStringArray,
   pageFor,
+  pagedListSchema,
   pagingQuery,
   requireArray,
   requireString,
@@ -35,7 +35,7 @@ export const PAGE_READ_TOOLS: ToolDefinition[] = [
       { siteId: { type: "string" }, limit: { type: "number" }, offset: { type: "number" } },
       ["siteId"],
     ),
-    outputSchema: listSchema("pages", PAGE_SCHEMA),
+    outputSchema: pagedListSchema("pages", PAGE_SCHEMA),
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) =>
       context.client.request(
@@ -205,6 +205,7 @@ export const PAGE_LIFECYCLE_TOOLS: ToolDefinition[] = [
     description:
       "Deletes a page and its draft (destructive, audited). Needs the publish scope.",
     scope: "publish",
+    outputSchema: { type: "object", properties: { deleted: { type: "string" } }, required: ["deleted"], additionalProperties: false },
     inputSchema: objectSchema({ pageId: { type: "string" } }, ["pageId"]),
     entity: (args) => `page:${String(args.pageId ?? "")}`,
     handler: async (context, args) => {

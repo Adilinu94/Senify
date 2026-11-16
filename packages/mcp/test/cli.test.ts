@@ -56,6 +56,14 @@ describe("senify CLI skeleton", () => {
     ]);
   });
 
+  it("bietet die Ausgabewahl auf allen Framer-Importbefehlen an", () => {
+    const importer = createProgram().commands.find((command) => command.name() === "import");
+    for (const name of ["framer", "framer-project", "framer-site"]) {
+      const command = importer?.commands.find((entry) => entry.name() === name);
+      expect(command?.options.map((option) => option.long)).toContain("--output");
+    }
+  });
+
   it("gives the Framer project its own import command and only private use", async () => {
     const program = createProgram();
     const importer = program.commands.find((command) => command.name() === "import");

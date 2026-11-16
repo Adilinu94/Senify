@@ -1,7 +1,7 @@
 import { listenReachable } from "@senify/core/net";
 import { createServer } from "node:http";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { PAGE_ROOT_TYPE, type NodeTree } from "@senify/section-sdk";
@@ -10,11 +10,14 @@ import {
   bootEngine,
   createTestPage,
   createTestSite,
+  realPostgresAvailable,
   TEST_AUTHOR,
   type BootEnv,
   type ErrorResponse,
   type PageResponse,
 } from "./helpers.ts";
+
+const hasRealPostgres = await realPostgresAvailable();
 
 // Framer import (plan S3): the engine route owns the rules around the run.
 // The dry run shows the report without writing anything; `write: true` lands
@@ -39,6 +42,11 @@ type ImportResponse = {
     receiptId: string | null;
     replayed: boolean;
     irHash: string;
+    requestedOutput?: "original" | "structure";
+    runtimeCarrier?: "page-payload" | "structure";
+    storedOutput?: "original" | "structure";
+    replacedRevisionId?: string;
+    editableShare?: { editable: number; original: number; nodes: number };
     score: number;
     counts: { nodes: number; mapped: number; placeholders: number };
     declarations: { total: number; carried: number; dropped: number };
@@ -111,7 +119,244 @@ async function getPage(pageId: string): Promise<PageResponse> {
   return (response.body as unknown as PageResponse) ?? response.body;
 }
 
+function outputStateOf(tree: NodeTree): unknown {
+  return tree.nodes[tree.rootNodeId]?.framerImport;
+}
+
+function hasActivePageCarrier(tree: NodeTree): boolean {
+  return Object.values(tree.nodes).some(
+    (node) =>
+      node.type === "payload" &&
+      node.props["coversPage"] === true &&
+      node.props["active"] !== false,
+  );
+}
+
 describe("POST /api/sites/:siteId/imports/framer", () => {
+  it("speichert die gewählte Ausgabe am Seitenwurzelknoten und trennt Anfrage, Träger und Ablage", async () => {
+    const own = await createTestSite(env.api, "Ausgabeanalyse");
+    const root = join(mirrorDir, "output-contract");
+    mkdirSync(join(root, "scripts"), { recursive: true });
+    writeFileSync(join(root, "index.html"), `<!doctype html><html><head>
+<script type="module" data-framer-bundle src="scripts/_script0.mjs"></script>
+</head><body><div id="main" data-framer-hydrate-v2='{"routeId":"abc"}'><p>Text</p></div></body></html>`);
+    writeFileSync(join(root, "scripts", "_script0.mjs"), `globalThis.fixture = document.getElementById("main");`);
+    const source = { rootDir: root };
+    const original = await runImport({ source }, own.id);
+    const explicitOriginal = await runImport({ source, output: "original" }, own.id);
+    const structure = await runImport({ source, output: "structure" }, own.id);
+    expect(original.status).toBe(201);
+    expect(explicitOriginal.status).toBe(201);
+    expect(structure.status).toBe(201);
+    expect(original.body.report.irHash).toBe(explicitOriginal.body.report.irHash);
+    expect(explicitOriginal.body.report.requestedOutput).toBe("original");
+    expect(structure.body.report.requestedOutput).toBe("structure");
+    expect(structure.body.report.irHash).not.toBe(original.body.report.irHash);
+    // The report names the carrier the run produced, not just the request.
+    expect(original.body.report.runtimeCarrier).toBe("page-payload");
+    expect(structure.body.report.runtimeCarrier).toBe("structure");
+    expect(original.body.report.payloads?.length).toBeGreaterThan(0);
+    expect(structure.body.report.payloads).toEqual([]);
+    expect(structure.body.report.editableShare).toBeUndefined();
+    expect(structure.body.report.storedOutput).toBeUndefined();
+    expect(structure.body.report.steps.join(" ")).toContain("nicht geprüft");
+    expect(structure.body.report.steps.join(" ")).not.toContain("noch nicht gespeichert");
+    expect((await runImport({ source, output: "unknown" }, own.id)).status).toBe(400);
+
+    const structureWrite = await runImport({
+      source, output: "structure", write: true, pagePath: "/struktur", assets: "skip", fonts: "skip",
+      expectedIrHash: structure.body.report.irHash,
+    }, own.id);
+    expect(structureWrite.status, JSON.stringify(structureWrite.body)).toBe(201);
+    expect(structureWrite.body.report.storedOutput).toBe("structure");
+    expect(structureWrite.body.report.runtimeCarrier).toBe("structure");
+    expect(structureWrite.body.report.steps.join(" ")).toContain('Ausgabe "structure" am Seitenwurzelknoten gespeichert');
+    const structurePage = await env.engine.store.getPage(structureWrite.body.report.pageId as string);
+    expect(outputStateOf(structurePage.draft)).toEqual({ output: "structure" });
+    expect(hasActivePageCarrier(structurePage.draft)).toBe(false);
+    // The build reads the same tree: the structure is delivered and the
+    // output state is no prop, no attribute and no active carrier.
+    const structureBakeDir = mkdtempSync(join(tmpdir(), "senify-output-bake-"));
+    try {
+      const baked = await bakePages(env.engine.store, {
+        site: await env.engine.store.getSite(own.id),
+        pages: [structurePage],
+        outDir: structureBakeDir,
+        dataDir: env.engine.dataDir,
+      });
+      expect(baked.pageCount).toBe(1);
+      const html = readFileSync(join(structureBakeDir, "struktur", "index.html"), "utf8");
+      expect(html).toContain("Text");
+      expect(html).not.toContain("framer-runtime-payload");
+      expect(html).not.toContain("framerImport");
+    } finally {
+      rmSync(structureBakeDir, { recursive: true, force: true });
+    }
+
+    const originalWrite = await runImport({
+      source, output: "original", write: true, pagePath: "/original", assets: "skip", fonts: "skip",
+      expectedIrHash: explicitOriginal.body.report.irHash,
+    }, own.id);
+    expect(originalWrite.status).toBe(201);
+    expect(originalWrite.body.report.requestedOutput).toBe("original");
+    expect(originalWrite.body.report.storedOutput).toBe("original");
+    expect(originalWrite.body.report.runtimeCarrier).toBe("page-payload");
+    const page = await env.engine.store.getPage(originalWrite.body.report.pageId as string);
+    expect(outputStateOf(page.draft)).toEqual({ output: "original" });
+    expect(hasActivePageCarrier(page.draft)).toBe(true);
+  }, 60_000);
+
+  it("verweigert den unbestimmten Reimport einer Strukturseite und stellt den Ausgabezustand per Revision wieder her", async () => {
+    const own = await createTestSite(env.api, "Ausgabezustand");
+    const html = framerHtml().replace("Willkommen", "Strukturseite");
+    const first = await runImport(
+      { source: { html }, output: "structure", write: true, pagePath: "/ausgabe", assets: "skip", fonts: "skip" },
+      own.id,
+    );
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    const pageId = first.body.report.pageId ?? "";
+    const created = await env.engine.store.getPage(pageId);
+    expect(outputStateOf(created.draft)).toEqual({ output: "structure" });
+
+    // A request that does not name the output must not switch the page to the
+    // default. The conflict explains both ways forward.
+    const ambiguous = await runImport(
+      { source: { html }, write: true, pagePath: "/ausgabe", assets: "skip", fonts: "skip" },
+      own.id,
+    );
+    expect(ambiguous.status).toBe(409);
+    expect(ambiguous.body.error.field).toBe("output");
+    const ambiguousPreview = await runImport(
+      { source: { html }, pagePath: "/ausgabe", assets: "skip", fonts: "skip" },
+      own.id,
+    );
+    expect(ambiguousPreview.status).toBe(409);
+    const unchanged = await env.engine.store.getPage(pageId);
+    expect(unchanged.draftVersion).toBe(created.draftVersion);
+    expect(outputStateOf(unchanged.draft)).toEqual({ output: "structure" });
+
+    // The explicit switch is one write, guarded by the draft version, and
+    // keeps the replaced draft as a revision.
+    const switched = await runImport(
+      {
+        source: { html }, output: "original", write: true, pagePath: "/ausgabe",
+        assets: "skip", fonts: "skip", baseDraftVersion: created.draftVersion,
+      },
+      own.id,
+    );
+    expect(switched.status, JSON.stringify(switched.body)).toBe(201);
+    expect(switched.body.report.storedOutput).toBe("original");
+    expect(switched.body.report.replacedRevisionId).toBeDefined();
+    const switchedPage = await env.engine.store.getPage(pageId);
+    expect(outputStateOf(switchedPage.draft)).toEqual({ output: "original" });
+
+    // A replay of the earlier structure request is a receipt, not a write: it
+    // must not switch the page back or add a revision.
+    const replay = await runImport(
+      {
+        source: { html }, output: "structure", write: true, pagePath: "/ausgabe",
+        assets: "skip", fonts: "skip", idempotencyKey: "framer-structure-replay",
+      },
+      own.id,
+    );
+    expect(replay.status, JSON.stringify(replay.body)).toBe(201);
+    expect(replay.body.report.replayed).toBe(true);
+    const afterReplay = await env.engine.store.getPage(pageId);
+    expect(afterReplay.draftVersion).toBe(switchedPage.draftVersion);
+    expect(outputStateOf(afterReplay.draft)).toEqual({ output: "original" });
+
+    // Restore brings the output state back together with the tree.
+    const restored = await env.api.request<{ draftVersion: number }>({
+      method: "POST",
+      path: `/api/pages/${pageId}/restore`,
+      body: { revisionId: switched.body.report.replacedRevisionId },
+    });
+    expect(restored.status).toBe(200);
+    const restoredPage = await env.engine.store.getPage(pageId);
+    expect(outputStateOf(restoredPage.draft)).toEqual({ output: "structure" });
+    expect(hasActivePageCarrier(restoredPage.draft)).toBe(false);
+
+    // Editing and saving another node keeps the state on the page root.
+    const theme = await env.engine.store.getTheme(own.id);
+    const edited = await env.api.request({
+      method: "POST",
+      path: `/api/pages/${pageId}/editor-mutations`,
+      body: {
+        baseDraftVersion: restoredPage.draftVersion,
+        baseThemeVersion: theme.version,
+        mutations: [
+          {
+            op: "insertNode",
+            parent: { nodeId: restoredPage.draft.rootNodeId },
+            node: { primitive: "divider", props: {} },
+          },
+        ],
+      },
+    });
+    expect(edited.status).toBe(200);
+    const editedPage = await env.engine.store.getPage(pageId);
+    expect(editedPage.draftVersion).toBe(restoredPage.draftVersion + 1);
+    expect(outputStateOf(editedPage.draft)).toEqual({ output: "structure" });
+  }, 120_000);
+
+  it("behandelt Altseiten ohne Ausgabefeld weiter mit dem Original-Standard", async () => {
+    const own = await createTestSite(env.api, "Ausgabestandard");
+    const existing = await createTestPage(env.api, own.id, { path: "/alt", title: "Alt" });
+    const response = await runImport(
+      { source: { html: framerHtml() }, write: true, pagePath: "/alt", assets: "skip", fonts: "skip" },
+      own.id,
+    );
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    expect(response.body.report.pageId).toBe(existing.id);
+    expect(response.body.report.storedOutput).toBe("original");
+    const page = await env.engine.store.getPage(existing.id);
+    expect(outputStateOf(page.draft)).toEqual({ output: "original" });
+  }, 60_000);
+
+  it("createOnly schützt eine nach der Analyse angelegte Zielseite", async () => {
+    const own = await createTestSite(env.api, "Import Race");
+    const source = { html: framerHtml() };
+    const preview = await runImport({ source, pagePath: "/geschuetzt", assets: "skip", fonts: "skip" }, own.id);
+    expect(preview.status).toBe(201);
+    const existing = await createTestPage(env.api, own.id, { path: "/geschuetzt", title: "Fremder Entwurf" });
+    const before = await env.engine.store.getPage(existing.id);
+    const response = await runImport({ source, pagePath: "/geschuetzt", assets: "skip", fonts: "skip", write: true, createOnly: true }, own.id);
+    expect(response.status).toBe(409);
+    const after = await env.engine.store.getPage(existing.id);
+    expect(after.draftVersion).toBe(before.draftVersion);
+    expect(after.draft).toEqual(before.draft);
+  }, 60_000);
+  it.skipIf(!hasRealPostgres)("weist einen konkurrierenden Import-Write unter der Datenbanksperre ab", async () => {
+    const own = await createTestSite(env.api, "Import-Konflikt");
+    const existing = await createTestPage(env.api, own.id, { path: "/konflikt", title: "Konflikt" });
+    const before = await env.engine.store.getPage(existing.id);
+    const sourceOf = (marker: string) =>
+      `<!doctype html><html lang="en"><head><title>${marker}</title></head><body><div id="main"><h1>${marker}</h1></div></body></html>`;
+    const body = (marker: string) => ({
+      source: { html: sourceOf(marker) },
+      write: true,
+      pageId: existing.id,
+      pagePath: "/konflikt",
+      baseDraftVersion: before.draftVersion,
+      assets: "skip",
+      fonts: "skip",
+    });
+    const [a, b] = await Promise.all([
+      runImport(body("KONFLIKT-A"), own.id),
+      runImport(body("KONFLIKT-B"), own.id),
+    ]);
+    expect([a.status, b.status].sort()).toEqual([201, 409]);
+    const winner = a.status === 201 ? a : b;
+    const loser = a.status === 201 ? b : a;
+    expect(winner.body.report.pageId).toBe(existing.id);
+    expect(winner.body.report.newDraftVersion).toBe(before.draftVersion + 1);
+    expect(loser.body.error).toBeDefined();
+    const after = await env.engine.store.getPage(existing.id);
+    expect(after.draftVersion).toBe(before.draftVersion + 1);
+    const tree = JSON.stringify(after.draft);
+    expect(tree).toContain(winner === a ? "KONFLIKT-A" : "KONFLIKT-B");
+    expect(tree).not.toContain(winner === a ? "KONFLIKT-B" : "KONFLIKT-A");
+  }, 60_000);
   it("reicht die Capture-Wahl durch und lehnt einen unbekannten Wert ab", async () => {
     // `capture` ist eine Wahl der Quelle (S2), kein freier Text: der Contract
     // kennt genau zwei Werte. Ein Tippfehler darf nicht still im statischen
@@ -480,6 +725,272 @@ describe("POST /api/sites/:siteId/imports/framer", () => {
       expect(once.length).toBeGreaterThan(0);
       expect(twice.length).toBe(once.length);
       expect(twice.map((rule) => rule.id).sort()).toEqual(once.map((rule) => rule.id).sort());
+    }, 120_000);
+
+    it("behält die alte globale Framer-Tokenregel, damit unveränderte Altseiten ihre Farben nicht verlieren", async () => {
+      // Altimporte hatten eine globale `framer-import-tokens`-Regel mit ungescopten
+      // `--token-*`-Namen. Ein scoped Reimport einer einzelnen Seite darf diese
+      // Definition nicht entfernen: andere alte Seiten können noch darauf verweisen.
+      // Scoped Imports benutzen eigene `--token-<scope>-*`-Namen und kollidieren nicht.
+      const own = await createTestSite(env.api, "Import Legacy Token Migration");
+      await env.engine.store.appendImportedStyleRules(
+        own.id,
+        [
+          {
+            id: "framer-import-tokens",
+            name: ":root",
+            kind: "ambient",
+            selector: ":root",
+            order: 0,
+            styles: { "--token-legacy-a": "#111111", "--token-legacy-b": "#222222" },
+            contextStyles: {},
+            origin: { source: "framer-import", ordinal: 0 },
+            authoredBy: "preset",
+          },
+        ],
+        TEST_AUTHOR,
+      );
+      // Zwei bestehende Altseiten mit ungescopten Token-Referenzen.
+      const pageA = await createTestPage(env.api, own.id, { path: "/alt-a", title: "Alt A" });
+      const pageB = await createTestPage(env.api, own.id, { path: "/alt-b", title: "Alt B" });
+      const legacyDraft = (colorToken: string) => ({
+        rootNodeId: "root",
+        nodes: {
+          root: { id: "root", type: PAGE_ROOT_TYPE, props: {}, children: ["n1"] },
+          n1: { id: "n1", type: "text", props: { text: "Alt", color: `var(${colorToken})` } },
+        },
+      });
+      await env.engine.store.replacePageDraft(pageA.id, legacyDraft("--token-legacy-a") as never);
+      await env.engine.store.replacePageDraft(pageB.id, legacyDraft("--token-legacy-b") as never);
+
+      const commitScoped = async (scope: string, path: string, token: string, color: string) => {
+        const job = await env.engine.store.createImportJob({
+          siteId: own.id,
+          source: { kind: "html", url: null, rootDir: null, html: "<!doctype html><html><body></body></html>", baseUrl: null },
+          pagePath: path,
+          dryRun: false,
+          maxAttempts: 1,
+        });
+        return env.engine.store.commitFramerImportPlan({
+          siteId: own.id,
+          jobId: job.id,
+          contentKey: `legacy-token-content-${scope}`,
+          requestFingerprint: `legacy-token-request-${scope}`,
+          author: TEST_AUTHOR,
+          target: { kind: "new", path, title: `Seite ${scope}` },
+          draft: { rootNodeId: "root", nodes: { root: { id: "root", type: PAGE_ROOT_TYPE, props: { color: `var(${token})` }, children: [] } } },
+          payloads: [],
+          styleRules: [
+            {
+              id: `fi-${scope}-0`,
+              name: ":root",
+              kind: "ambient",
+              selector: ":root",
+              order: 0,
+              description: `Scoped Token Root ${scope}`,
+              styles: { [token]: color },
+              contextStyles: {},
+              origin: { source: "framer-import", ordinal: 0 },
+              authoredBy: "preset",
+            },
+          ],
+          themePatch: null,
+          report: {
+            jobId: job.id, dryRun: false, irHash: `legacy-token-${scope}`, score: 1,
+            counts: { nodes: 1, mapped: 1, placeholders: 0 },
+            declarations: { total: 1, carried: 1, dropped: 0 },
+            assets: { downloaded: 0, deduped: 0, failed: 0, fonts: 0 },
+            motion: { measured: 0, mappedToPreset: 0, documented: 0 },
+            findings: [], marqueeCandidates: [], steps: ["test"],
+          },
+        });
+      };
+
+      // Nur eine neue/scoped Seite importieren.
+      await commitScoped("d4e5f6", "/neu", "--token-d4e5f6-brand", "#333333");
+
+      const rules = await env.api.request<{ rules: { id: string; kind: string; styles?: Record<string, string> }[] }>({
+        method: "GET",
+        path: `/api/sites/${own.id}/style-rules`,
+      });
+      expect(rules.status).toBe(200);
+      const legacy = rules.body.rules.find((r) => r.id === "framer-import-tokens");
+      expect(legacy?.styles?.["--token-legacy-a"]).toBe("#111111");
+      expect(legacy?.styles?.["--token-legacy-b"]).toBe("#222222");
+      expect(rules.body.rules.some((r) => r.id === "fi-d4e5f6-0")).toBe(true);
+
+      // Unveränderte Altseiten behalten ihre ungescopten Referenzen und die globale Definition bleibt verfügbar.
+      const draftA = await env.engine.store.getPage(pageA.id);
+      const draftB = await env.engine.store.getPage(pageB.id);
+      expect(JSON.stringify(draftA.draft)).toContain("--token-legacy-a");
+      expect(JSON.stringify(draftB.draft)).toContain("--token-legacy-b");
+      expect(draftA.draft.nodes["n1"]?.props?.color).toBe("var(--token-legacy-a)");
+      expect(draftB.draft.nodes["n1"]?.props?.color).toBe("var(--token-legacy-b)");
+    }, 120_000);
+
+    it("isoliert scoped Farbtoken mit gleicher Quell-ID auf neuen Seiten", async () => {
+      const own = await createTestSite(env.api, "Import Scoped Token Isolation");
+      const commitScoped = async (scope: string, path: string, token: string, color: string, text: string) => {
+        const job = await env.engine.store.createImportJob({
+          siteId: own.id,
+          source: { kind: "html", url: null, rootDir: null, html: "<!doctype html><html><body></body></html>", baseUrl: null },
+          pagePath: path,
+          dryRun: false,
+          maxAttempts: 1,
+        });
+        return env.engine.store.commitFramerImportPlan({
+          siteId: own.id,
+          jobId: job.id,
+          contentKey: `scoped-token-content-${scope}`,
+          requestFingerprint: `scoped-token-request-${scope}`,
+          author: TEST_AUTHOR,
+          target: { kind: "new", path, title: `Seite ${scope}` },
+          draft: { rootNodeId: "root", nodes: { root: { id: "root", type: PAGE_ROOT_TYPE, props: { color: `var(${token})` }, children: ["n1"] }, n1: { id: "n1", type: "text", props: { text, color: `var(${token})` } } } },
+          payloads: [],
+          styleRules: [
+            {
+              id: `fi-${scope}-0`,
+              name: ":root",
+              kind: "ambient",
+              selector: ":root",
+              order: 0,
+              description: `Scoped Token Root ${scope}`,
+              styles: { [token]: color },
+              contextStyles: {},
+              origin: { source: "framer-import", ordinal: 0 },
+              authoredBy: "preset",
+            },
+          ],
+          themePatch: null,
+          report: {
+            jobId: job.id, dryRun: false, irHash: `scoped-token-${scope}`, score: 1,
+            counts: { nodes: 2, mapped: 2, placeholders: 0 },
+            declarations: { total: 1, carried: 1, dropped: 0 },
+            assets: { downloaded: 0, deduped: 0, failed: 0, fonts: 0 },
+            motion: { measured: 0, mappedToPreset: 0, documented: 0 },
+            findings: [], marqueeCandidates: [], steps: ["test"],
+          },
+        });
+      };
+
+      // Zwei neue Seiten: gleicher Quell-Tokenname, aber pro Seite bereits auf scoped Namen gemappt.
+      const committedA = await commitScoped("a1b2c3", "/farbe-a", "--token-a1b2c3-brand", "#aa0000", "A");
+      const committedB = await commitScoped("d4e5f6", "/farbe-b", "--token-d4e5f6-brand", "#00bb00", "B");
+      const pageIdA = committedA.report.pageId;
+      const pageIdB = committedB.report.pageId;
+      if (pageIdA === null || pageIdB === null) throw new Error("commitFramerImportPlan hat keine pageId geliefert");
+
+      const rules = await env.api.request<{ rules: { id: string; styles?: Record<string, string> }[] }>({
+        method: "GET",
+        path: `/api/sites/${own.id}/style-rules`,
+      });
+      expect(rules.status).toBe(200);
+      const ruleA = rules.body.rules.find((r) => r.id === "fi-a1b2c3-0");
+      const ruleB = rules.body.rules.find((r) => r.id === "fi-d4e5f6-0");
+      expect(ruleA?.styles?.["--token-a1b2c3-brand"]).toBe("#aa0000");
+      expect(ruleB?.styles?.["--token-d4e5f6-brand"]).toBe("#00bb00");
+      expect(ruleA?.styles?.["--token-d4e5f6-brand"]).toBeUndefined();
+      expect(ruleB?.styles?.["--token-a1b2c3-brand"]).toBeUndefined();
+
+      const draftA = await env.engine.store.getPage(pageIdA);
+      const draftB = await env.engine.store.getPage(pageIdB);
+      expect(draftA.draft.nodes["n1"]?.props?.color).toBe("var(--token-a1b2c3-brand)");
+      expect(draftB.draft.nodes["n1"]?.props?.color).toBe("var(--token-d4e5f6-brand)");
+
+      // Reimport nur Seite A mit neuem Wert: Seite B bleibt unverändert.
+      const beforeReimport = await env.engine.store.getPage(pageIdA);
+      const reimportJob = await env.engine.store.createImportJob({
+        siteId: own.id,
+        source: { kind: "html", url: null, rootDir: null, html: "<!doctype html><html><body></body></html>", baseUrl: null },
+        pagePath: "/farbe-a",
+        dryRun: false,
+        maxAttempts: 1,
+      });
+      await env.engine.store.commitFramerImportPlan({
+        siteId: own.id,
+        jobId: reimportJob.id,
+        contentKey: "scoped-token-content-a1b2c3-r2",
+        requestFingerprint: "scoped-token-request-a1b2c3-r2",
+        author: TEST_AUTHOR,
+        target: { kind: "page", pageId: pageIdA, baseDraftVersion: beforeReimport.draftVersion },
+        draft: { rootNodeId: "root", nodes: { root: { id: "root", type: PAGE_ROOT_TYPE, props: { color: "var(--token-a1b2c3-brand)" }, children: ["n1"] }, n1: { id: "n1", type: "text", props: { text: "A2", color: "var(--token-a1b2c3-brand)" } } } },
+        payloads: [],
+        styleRules: [{
+          id: "fi-a1b2c3-0", name: ":root", kind: "ambient", selector: ":root", order: 0,
+          description: "Scoped Token Root a1b2c3 v2", styles: { "--token-a1b2c3-brand": "#cc0000" }, contextStyles: {},
+          origin: { source: "framer-import", ordinal: 0 }, authoredBy: "preset",
+        }],
+        themePatch: null,
+        report: {
+          jobId: reimportJob.id, dryRun: false, irHash: "scoped-token-a1b2c3-r2", score: 1,
+          counts: { nodes: 2, mapped: 2, placeholders: 0 }, declarations: { total: 1, carried: 1, dropped: 0 },
+          assets: { downloaded: 0, deduped: 0, failed: 0, fonts: 0 },
+          motion: { measured: 0, mappedToPreset: 0, documented: 0 },
+          findings: [], marqueeCandidates: [], steps: ["test"],
+        },
+      });
+
+      const after = await env.api.request<{ rules: { id: string; styles?: Record<string, string> }[] }>({
+        method: "GET",
+        path: `/api/sites/${own.id}/style-rules`,
+      });
+      expect(after.body.rules.find((r) => r.id === "fi-a1b2c3-0")?.styles?.["--token-a1b2c3-brand"]).toBe("#cc0000");
+      expect(after.body.rules.find((r) => r.id === "fi-d4e5f6-0")?.styles?.["--token-d4e5f6-brand"]).toBe("#00bb00");
+      const draftA2 = await env.engine.store.getPage(pageIdA);
+      const draftB2 = await env.engine.store.getPage(pageIdB);
+      expect(draftA2.draft.nodes["n1"]?.props?.text).toBe("A2");
+      expect(draftB2.draft.nodes["n1"]?.props?.color).toBe("var(--token-d4e5f6-brand)");
+    }, 120_000);
+
+    it("behaelt Fallback bei unbekanntem Token, auch wenn andere Tokens derselben Seite gescoped werden", async () => {
+      const own = await createTestSite(env.api, "Import Unknown Token Fallback");
+      const job = await env.engine.store.createImportJob({
+        siteId: own.id,
+        source: { kind: "html", url: null, rootDir: null, html: "<!doctype html><html><body></body></html>", baseUrl: null },
+        pagePath: "/unbekannt",
+        dryRun: false,
+        maxAttempts: 1,
+      });
+      const committed = await env.engine.store.commitFramerImportPlan({
+        siteId: own.id,
+        jobId: job.id,
+        contentKey: "unknown-token-content",
+        requestFingerprint: "unknown-token-request",
+        author: TEST_AUTHOR,
+        target: { kind: "new", path: "/unbekannt", title: "Unbekannt" },
+        draft: {
+          rootNodeId: "root",
+          nodes: {
+            root: { id: "root", type: PAGE_ROOT_TYPE, props: {}, children: ["known", "unknown"] },
+            known: { id: "known", type: "text", props: { text: "Bekannt", color: "var(--token-a1b2c3-brand)" } },
+            unknown: { id: "unknown", type: "text", props: { text: "Fallback", color: "var(--token-missing, #445566)" } },
+          },
+        },
+        payloads: [],
+        styleRules: [{
+          id: "fi-a1b2c3-0", name: ":root", kind: "ambient", selector: ":root", order: 0,
+          description: "Scoped Token Root", styles: { "--token-a1b2c3-brand": "#112233" }, contextStyles: {},
+          origin: { source: "framer-import", ordinal: 0 }, authoredBy: "preset",
+        }],
+        themePatch: null,
+        report: {
+          jobId: job.id, dryRun: false, irHash: "unknown-token", score: 1,
+          counts: { nodes: 3, mapped: 3, placeholders: 0 }, declarations: { total: 1, carried: 1, dropped: 0 },
+          assets: { downloaded: 0, deduped: 0, failed: 0, fonts: 0 },
+          motion: { measured: 0, mappedToPreset: 0, documented: 0 },
+          findings: [], marqueeCandidates: [], steps: ["test"],
+        },
+      });
+      const pageId = committed.report.pageId;
+      if (pageId === null) throw new Error("commitFramerImportPlan hat keine pageId geliefert");
+      const draft = await env.engine.store.getPage(pageId);
+      expect(draft.draft.nodes["known"]?.props?.color).toBe("var(--token-a1b2c3-brand)");
+      expect(draft.draft.nodes["unknown"]?.props?.color).toBe("var(--token-missing, #445566)");
+      const rules = await env.api.request<{ rules: { id: string; styles?: Record<string, string> }[] }>({
+        method: "GET", path: `/api/sites/${own.id}/style-rules`,
+      });
+      expect(rules.body.rules.find((r) => r.id === "fi-a1b2c3-0")?.styles?.["--token-a1b2c3-brand"]).toBe("#112233");
+      expect(rules.body.rules.some((r) => Object.keys(r.styles ?? {}).some((k) => k.includes("missing")))).toBe(false);
     }, 120_000);
   });
 

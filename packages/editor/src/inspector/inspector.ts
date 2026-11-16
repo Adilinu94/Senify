@@ -131,6 +131,17 @@ function h(doc: DomDocument, tag: string, spec: ElementSpec = {}): DomElement {
   return element;
 }
 
+// The label of a field is a plain span, so its inputs, selects and switches have
+// no accessible name. Name every control the renderer left without one after the
+// field's label (screen readers announce "Link-Ziel", not just "edit text").
+function nameControls(control: DomElement, label: string): void {
+  for (const element of control.querySelectorAll("input, textarea, select, [role=switch]")) {
+    if (element.getAttribute("aria-label") !== null) continue;
+    if (element.getAttribute("aria-labelledby") !== null) continue;
+    element.setAttribute("aria-label", label);
+  }
+}
+
 // Wenige, klare Auswahlen erscheinen als Segment-Gruppe statt als Auswahlfeld. Je
 // Eintrag der Icon-Name; fehlt er, zeigt das Segment den (deutschen) Text.
 const SEGMENTED: Record<string, Record<string, string>> = {
@@ -213,6 +224,11 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
   const isSet = (field: InspectorField): boolean =>
     field.source === "style" && field.value !== undefined && field.value !== null && field.value !== "";
   let selectedClassId: string | null = null;
+  // Die Klassensuche ueberlebt jeden Neu-Render: der Inspektor wird bei jedem
+  // Store-/Pipeline-Ereignis neu gebaut (auch bei Autosave-Statuswechseln).
+  // Ohne diesen Zustand leerte jeder solche Wechsel das Suchfeld mitten in
+  // der Eingabe (Flake im Volllauf 12.11.2026, class-editor-browser).
+  let classSearchQuery = "";
   let classOrderOpen = false;
   let classDeleteConfirmId: string | null = null;
   // One panel at a time, addressed by the field that owns it (a shared boolean
@@ -1573,6 +1589,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         break;
     }
     row.appendChild(control);
+    nameControls(control, field.label);
     // The token picker sits next to the free text of every style field that
     // has a theme family (ticket 02 point 6); colours own their palette.
     if (field.tokenOptions !== undefined && field.tokenOptions.length > 0 && field.kind !== "color") {
@@ -1999,6 +2016,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     const available = rules.filter((rule) => !assigned.includes(rule.name));
     if (available.length > 0) {
       const search = h(doc, "input", { className: "senify-inspector__class-search", attributes: { type: "search", placeholder: "Klasse suchen", "aria-label": "Klassen suchen" } });
+      search.value = classSearchQuery;
       const picker = h(doc, "select", { className: "senify-inspector__class-picker", attributes: { "aria-label": "Vorhandene Klasse hinzufügen" } });
       const filter = (): void => {
         const query = (search.value ?? "").trim().toLocaleLowerCase("de");
@@ -2007,7 +2025,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
         picker.appendChild(h(doc, "option", { text: matches.length === 0 ? "Keine Klasse gefunden" : "Klasse hinzufügen …", attributes: { value: "" } }));
         for (const rule of matches) picker.appendChild(h(doc, "option", { text: rule.name, attributes: { value: rule.id } }));
       };
-      search.addEventListener("input", filter);
+      search.addEventListener("input", () => { classSearchQuery = search.value ?? ""; filter(); });
       filter();
       picker.addEventListener("change", () => {
         const rule = available.find((entry) => entry.id === picker.value);
@@ -2027,7 +2045,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
       if (name === "") return;
       const previous = selectedClassId;
       try {
-        const rule = createClassRule({ id: newNodeId(), name, order: rules.length });
+        const rule = { ...createClassRule({ id: newNodeId(), name, order: rules.length }), authoredBy: "user" as const };
         selectedClassId = rule.id;
         options.store.applyBatch([
           { op: "upsertStyleRule", rule },
@@ -2116,6 +2134,7 @@ export function createInspector(options: InspectorOptions): InspectorInstance {
     if (nodeId !== lastNodeId) {
       lastNodeId = nodeId;
       selectedClassId = null;
+      classSearchQuery = "";
       classDeleteConfirmId = null;
       paletteKey = null;
       tokenPanelKey = null;

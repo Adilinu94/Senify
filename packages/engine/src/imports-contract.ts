@@ -27,6 +27,12 @@ export const ImportSourceSchema = Type.Object(
           xml: Type.String(),
           pageXml: Type.String(),
           page: Type.Optional(Type.String({ maxLength: 512 })),
+          // Optional style source: the published page the project XML belongs
+          // to. The XML carries structure and text styles, but no text colours
+          // and no font files (measured 14.11.2026); the page's SSR HTML and
+          // linked CSS carry both. The import reads them only for typography,
+          // never for structure, so WaveBackground keeps its project identity.
+          styleUrl: Type.Optional(Type.String({ maxLength: 2048 })),
           usage: Type.Union([Type.Literal("private"), Type.Literal("customer")]),
           // The answers of `getCMSCollections` and `getCMSItems` (ADR-0028,
           // Block 4), verbatim: JSON or XML, both are read. Collections and
@@ -76,6 +82,9 @@ export const CreateImportBodySchema = Type.Object(
     // "dna" (default) rewrites what the design DNA forbids (gradients, shadows,
     // radii, centered headings); "fidelity" keeps the source's look.
     mode: Type.Optional(Type.Union([Type.Literal("dna"), Type.Literal("fidelity")])),
+    // Output selection is independent from normalization. Structural writes
+    // remain guarded until the selection can survive reimport and restore.
+    output: Type.Optional(Type.Union([Type.Literal("original"), Type.Literal("structure")])),
     // How a URL source is read (S2): "static" (default) reads the SSR-HTML,
     // "browser" loads the page in Chromium first so content a script builds at
     // runtime is imported too. The browser path needs Playwright and produces a
@@ -88,6 +97,8 @@ export const CreateImportBodySchema = Type.Object(
     expectedIrHash: Type.Optional(Type.String()),
     // Write the imported document as one revision (S3.1). Absent = dry run.
     write: Type.Optional(Type.Boolean()),
+    // A coordinator may create a page but must never replace an existing one.
+    createOnly: Type.Optional(Type.Boolean()),
     // Target page for `write: true`. Absent = a new page is created under
     // `pagePath`.
     pageId: Type.Optional(Type.String({ minLength: 1 })),
@@ -104,6 +115,17 @@ export const ImportReportSchema = Type.Object(
   {
     jobId: Type.String(),
     dryRun: Type.Boolean(),
+    // A requested output is not a claim about actual runtime freedom.
+    requestedOutput: Type.Optional(Type.Union([Type.Literal("original"), Type.Literal("structure")])),
+    // The carrier the run actually produced: a page-wide Framer payload or the
+    // editable structure. `original` without a page payload delivers the
+    // structure, so the report names the carrier separately from the request.
+    runtimeCarrier: Type.Optional(
+      Type.Union([Type.Literal("page-payload"), Type.Literal("structure")]),
+    ),
+    // The output stored on the page root by a successful write. Absent for a
+    // dry run and for receipts written before this field existed.
+    storedOutput: Type.Optional(Type.Union([Type.Literal("original"), Type.Literal("structure")])),
     pageId: Type.Union([Type.String(), Type.Null()]),
     newDraftVersion: Type.Union([Type.Number(), Type.Null()]),
     receiptId: Type.Union([Type.String(), Type.Null()]),

@@ -24,6 +24,7 @@ import {
 import {
   IMPORT_MAX_ATTEMPTS,
   assertImportRootAllowed,
+  importPagePath,
   runFramerImportJob,
   sourceOf,
 } from "./imports.ts";
@@ -48,7 +49,7 @@ export const importRoutes: Route[] = [
       return withIdempotency(context, auth, req, url, idempotencyKey, parsed, async () => {
         const author = resolveAuthor(auth);
         const dryRun = importInput.write !== true;
-        const pagePath = importInput.pagePath ?? "/";
+        const pagePath = importPagePath(importInput.pagePath);
         const job = await context.store.createImportJob({
           siteId,
           source: {
@@ -165,7 +166,7 @@ export const importRoutes: Route[] = [
       const baseDuration = resolved.motion.duration.base;
       // The write would set the source's breakpoints only on a site without a
       // pair and without other pages; the preview bakes with what it would leave.
-      const targetPath = parsed.pagePath ?? "/";
+      const targetPath = importPagePath(parsed.pagePath);
       const otherPages = (await context.store.listPageDrafts(siteId)).some((page) =>
         parsed.pageId === undefined ? page.path !== targetPath : page.id !== parsed.pageId,
       );

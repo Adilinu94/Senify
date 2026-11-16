@@ -162,7 +162,12 @@ function appendText(stack: UnframerElement[], raw: string): void {
 // The XML the MCP answers with, as a small tree. Comments, the declaration and
 // CDATA are handled; a broken document throws instead of dropping half of it.
 export function parseUnframerXml(xml: string, quelle = "XML"): UnframerElement {
-  const text = xml.replace(/^\uFEFF/, "");
+  const text = xml.replace(/^\uFEFF/, "").replace(/<!--[\s\S]*?-->/g, "");
+  // Die Unframer-MCP schreibt Kommentare auch INNERHALB eines Tags (z.B.
+  // `<!-- the component id this instance uses -->` vor `componentId`).
+  // `tagEndOf` endet am ersten `>` ausserhalb von Anführungen — das wäre das
+  // `>` des Kommentar-Endes, und das Tag verlöre seine restlichen Attribute.
+  // Kommentare tragen keine Strukturdaten; wir entfernen sie vor dem Parsen.
   const roots: UnframerElement[] = [];
   const stack: UnframerElement[] = [];
   let at = 0;
@@ -302,6 +307,11 @@ const FONT_WEIGHTS: readonly [RegExp, number][] = [
 // The weight a family name states (`Neue Montreal Medium`). Null when the
 // name says nothing - the style then inherits what the theme sets.
 function weightOfFamily(family: string): number | null {
+  // Unframer writes Google/Fontshare styles as `Manrope-600`; the number is
+  // the weight. Without this the font entry had no weight and the enrichment
+  // attached every available Manrope face (400, 600 and 700) to it.
+  const numeric = /(?:^|[-_ ])([1-9]00)$/.exec(family);
+  if (numeric !== null) return Number(numeric[1]);
   for (const [pattern, weight] of FONT_WEIGHTS) {
     if (pattern.test(family)) return weight;
   }
@@ -405,7 +415,15 @@ function readProject(xml: string): UnframerProject {
       case "colorstyles":
         for (const color of group.children) {
           const path = attrOf(color, "path")?.trim() ?? "";
-          const value = (attrOf(color, "value") ?? attrOf(color, "color") ?? "").trim();
+          // Die Unframer-MCP schreibt den Wert als `light`/`dark` (Theme-Modi),
+          // nicht als `value`/`color` (gemessen an fluffy-rectangle, 14.11.2026).
+          const value = (
+            attrOf(color, "value") ??
+            attrOf(color, "color") ??
+            attrOf(color, "light") ??
+            attrOf(color, "dark") ??
+            ""
+          ).trim();
           if (path !== "" && value !== "") colors.set(path, value);
         }
         break;
@@ -543,7 +561,31 @@ function visualOf(
   }
   const objectFit = attrOf(element, "objectFit") ?? attrOf(element, "fit");
   if (objectFit !== null && objectFit.trim() !== "") visual["object-fit"] = objectFit.trim();
+  // A Framer grid item states its span and its alignment next to the box. The
+  // width attribute is often only the design-time content width (the Heading
+  // group writes 100px and spans two 424px columns in the published page), so
+  // the span, not that width, defines the used grid area.
+  const columnSpan = Number(attrOf(element, "gridColumnSpan") ?? "1");
+  if (Number.isFinite(columnSpan) && columnSpan > 1) visual["grid-column"] = `span ${columnSpan}`;
+  const rowSpan = Number(attrOf(element, "gridRowSpan") ?? "1");
+  if (Number.isFinite(rowSpan) && rowSpan > 1) visual["grid-row"] = `span ${rowSpan}`;
+  const alignX = gridSelfAlignment(attrOf(element, "gridAlignX"));
+  if (alignX !== null) visual["justify-self"] = alignX;
+  const alignY = gridSelfAlignment(attrOf(element, "gridAlignY"));
+  if (alignY !== null) visual["align-self"] = alignY;
+  if ((attrOf(element, "gridFillHeight") ?? "").toLowerCase() === "true") {
+    visual["align-self"] = "stretch";
+  }
   return visual;
+}
+
+// `justify-self`/`align-self` take the grid keywords verbatim; the stack
+// alignment helper maps `start` to `flex-start`, which is invalid here.
+function gridSelfAlignment(raw: string | null): string | null {
+  const value = (raw ?? "").toLowerCase();
+  return value === "start" || value === "center" || value === "end" || value === "stretch"
+    ? value
+    : null;
 }
 
 // CSS shorthand (`168px 30px 54px 30px`) to one value per side.
@@ -867,6 +909,10 @@ function mapElement(element: UnframerElement, context: MapContext): IrNode {
     name: attrOf(element, "name") ?? element.name,
     componentType:
       componentId === null ? null : componentTypeOf(componentId, element, key, context),
+    // Die Instanzattribute tragen bei Framer-Komponenten die Inhalte (Step 2:
+    // Nummer, Titel, Beschreibung und drei Label/Text-Paare). Der Mapper liest
+    // sie für DOM-Widgets; die übrigen Pfade ignorieren das Feld.
+    ...(componentId === null ? {} : { attrs: { ...element.attrs } }),
     baseClasses: [],
     tag: tagOf(element, kind, state.text?.tag ?? "div"),
     href: href ?? null,
@@ -880,18 +926,20 @@ function mapElement(element: UnframerElement, context: MapContext): IrNode {
     // Gemessen an fluffy-rectangle-418998 (Unframer MCP 1.8.0, 05.11.2026):
     // <CodeComponents>/<CodeComponent codeFileId path> + Instanzen mit
     // componentId. readCodeFile liefert den Quelltext; propertyControls
-    // waren in den gemessenen Dateien nicht vorhanden. Ohne gebündelte
-    // Quelle bleibt es eine ehrliche Platte/Fund; Bündelung via
+    // waren in den gemessenen Dateien nicht vorhanden. Die IR erkennt die
+    // Komponente nur; der Mapper entscheidet danach: bekannte, portierte
+    // Komponenten (WaveBackground, RibbonGallery) werden zu nativen Widgets,
+    // unbekannte bleiben eine Platte (spec 2026-11-12). Bündelung via
     // readCodeFile ist im Import-Pfad nicht verdrahtet (ADR-0028, nur lesen).
     context.findings.push({
       kind: "code-component",
       nodeKey: key,
       message:
-        "Framer-Code-Komponente im Projekt-XML erkannt; als Platte übernommen, weil Quelle/Bündelung in diesem Lauf nicht vorliegen.",
+        "Framer-Code-Komponente im Projekt-XML erkannt; der Mapper bildet bekannte Komponenten als natives Widget ab, sonst als Platte.",
       evidence: `codeFileId=${codeComponent.codeFileId} path=${codeComponent.path}`,
       severity: "warn",
       suggestion:
-        "Code-Datei über readCodeFile (ADR-0028) prüfen; propertyControls/Section-Abbildung nur bei gemessener Controls-Quelle umsetzen.",
+        "Bekannte Komponenten (WaveBackground, RibbonGallery) werden nativ bearbeitbar; andere Code-Dateien über readCodeFile (ADR-0028) prüfen.",
     });
   }
   if (kind === "image") {

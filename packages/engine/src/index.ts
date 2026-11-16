@@ -61,6 +61,15 @@ export {
   type CreateImportBody,
   type ImportReport,
 } from "./imports-contract.ts";
+export {
+  auditFramerRuntime,
+  type RuntimeAuditInput,
+  type RuntimeAuditNetworkEntry,
+  type RuntimeAuditResult,
+  type RuntimeAuditScript,
+  type RuntimeAuditSignal,
+  type RuntimeAuditVerdict,
+} from "./runtime-audit.ts";
 export { runChecks, type CheckStage } from "./checks.ts";
 export { imageDimensions } from "./media.ts";
 export { VARIANT_WIDTHS } from "./variants.ts";

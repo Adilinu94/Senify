@@ -18,6 +18,9 @@ _Avoid_: Element, Block, Widget
 **Section**: Ein registrierter Bautyp (z. B. `hero`, `pricing`) im Katalog.
 _Avoid_: Block, Baustein, Komponente, Modul
 
+**Widget (portierter Fremdteil)**: Ein Katalog-Primitive, das eine Framer-Komponente nativ rendert: als Canvas-Kern bei Effekt-Widgets (ADR-0035), als serverseitig gerenderter DOM-Inhalt bei DOM-Widgets (ADR-0038). Ein Widget ist ein Node, aber nicht jeder Node ist ein Widget.
+_Avoid_: Section, Baustein (für den portierten Fremdteil)
+
 **Registry**: Der Katalog aller Sections einer Senify-Instanz.
 _Avoid_: Bibliothek, Katalog
 
@@ -26,6 +29,9 @@ _Avoid_: Stil, Style, Design
 
 **Asset**: Eine hochgeladene Mediendatei mit Metadaten.
 _Avoid_: Datei, Media, Upload
+
+**Einbettung (Embed)**: Ein externer Inhalt, den eine Seite als iframe lädt. Der Framer-Import übernimmt nur ein https-Ziel; im Release steht es hinter dem Consent-Gate. Ein `srcdoc`-Dokument, ein fremdes Schema oder eine fehlende Adresse bleibt ein sichtbarer Platzhalter mit dem Befund `embed-blocked`.
+_Avoid_: iFrame-Kopie, Fremdcode, Payload
 
 ### Architektur
 
@@ -54,6 +60,9 @@ _Avoid_: Animation, Effekt, Übergang
 
 **Motion-Spec**: Die typisierte Gesamt-Konfiguration auf einem Node (Preset + Intensity-Dial + Tokens + Trigger), die der Renderer deterministisch in GSAP-/CSS-/Motion-Code übersetzt.
 _Avoid_: Animations-Config, Keyframes
+
+**Appear-Effekt**: Die Einblendung eines importierten Framer-Elements beim Laden. Der Import trennt Startzustand (`appearInitial`), gemessenen WAAPI-Aufruf und die daraus erzeugte CSS-Animation.
+_Avoid_: Reveal, Entrance-Animation
 
 **Breakpoint-Override**: Eine responsive Anpassung eines Nodes für Tablet oder Mobile.
 _Avoid_: Responsive-Variante, Media-Query

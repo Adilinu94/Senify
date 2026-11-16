@@ -29,6 +29,11 @@ const PRIMARY_CONTRAST_PAIRS: [foreground: string, background: string][] = [
   ["accent-ink", "accent"],
 ];
 
+// A reference that is an address of its own (`https://…`) instead of a stored
+// asset id. The importer writes it when the download of a picture failed; the
+// page renders it straight from the source, so it is no broken reference.
+const ABSOLUTE_ADDRESS = /^(?:https?:)?\/\//i;
+
 const SECONDARY_CONTRAST_PAIRS: [foreground: string, background: string][] = [
   ["fg.muted", "bg.base"],
   ["fg.faint", "bg.base"],
@@ -173,6 +178,11 @@ function checkPageAssetRefs(
     walkAssetIds(node.props, "", (assetId, path) => {
       const usage = assets.get(assetId);
       if (usage?.status === "ready") return;
+      // An absolute address is not a library id: it is the source picture of an
+      // imported page whose download failed (the origin home carries a 40 MB
+      // GIF against a 25 MB upload limit). The page still renders it — the
+      // release must not be refused as if an asset had been deleted.
+      if (ABSOLUTE_ADDRESS.test(assetId)) return;
       const trashed = usage?.status === "trashed";
       issues.push({
         code: "broken-asset",

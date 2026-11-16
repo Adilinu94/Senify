@@ -202,4 +202,18 @@ describe("sanitizeSvgMarkup", () => {
     expect(sanitizeSvgMarkup("<div><path d='M0 0'/></div>")).toBeUndefined();
     expect(sanitizeSvgMarkup("circle")).toBeUndefined();
   });
-});
+
+  // Framer annotates a token colour with its name: `fill="var(--token-…, rgb(156, 156, 156)) /* {&quot;name&quot;:&quot;background-inverse&quot;} */"`.
+  // The grammar refused the comment's characters and dropped the whole fill: the
+  // check icons of Chocolate painted black instead of the source's grey.
+  it("keeps the colour of a paint that carries Framer's trailing name comment", () => {
+    const out = sanitizeSvgMarkup(
+      '<svg viewBox="0 0 16 16"><path d="M0 0L5 5" fill="var(--token-a284, rgb(156, 156, 156)) /* {&quot;name&quot;:&quot;background-inverse&quot;} */"/></svg>',
+    );
+    expect(out?.html).toBe('<path d="M0 0L5 5" fill="var(--token-a284, rgb(156, 156, 156))"></path>');
+  });
+
+  it("does not let a comment smuggle a resource into a paint", () => {
+    const out = sanitizeSvgMarkup('<svg viewBox="0 0 8 8"><path d="M0 0" fill="url(https://x.test/a.svg) /* red */"/></svg>');
+    expect(out?.html).toBe('<path d="M0 0"></path>');
+  });});

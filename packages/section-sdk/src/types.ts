@@ -25,11 +25,16 @@ export type NodeOverride = {
   hidden?: boolean;
 };
 
+// Attached to the page root so revisions and restores carry the import choice.
+// It records the requested mode; the actual rendered output is checked separately.
+export type FramerImportState = { output: "original" | "structure" };
+
 export type Node = {
   id: NodeId;
   type: string;
   variant?: string;
   props: Record<string, PropValue>;
+  framerImport?: FramerImportState;
   children?: NodeId[];
   slots?: Record<string, NodeId[]>;
   overrides?: { tablet?: NodeOverride; mobile?: NodeOverride };

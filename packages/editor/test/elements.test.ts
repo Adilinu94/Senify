@@ -20,7 +20,7 @@ describe("elements model (E4)", () => {
     expect(types.sort()).toEqual([...insertable].sort());
     expect(types).not.toContain("root");
     expect(types).not.toContain("payload");
-    expect(types.length).toBe(22);
+    expect(types.length).toBe(28);
   });
 
   it("groups by catalog category in catalog order", () => {
@@ -133,7 +133,7 @@ function mount() {
 describe("elements panel (E4)", () => {
   it("renders one tile per insertable primitive, each bound as a drag source", () => {
     const { tiles, bound } = mount();
-    expect(tiles().length).toBe(22);
+    expect(tiles().length).toBe(28);
     expect(bound.sort()).toEqual([...insertable].sort());
     expect(tiles().every((tile) => tile.attrs.draggable === "true")).toBe(true);
   });
@@ -154,7 +154,7 @@ describe("elements panel (E4)", () => {
     input.fire("keydown", { key: "Escape", preventDefault: () => (prevented = true) });
     expect(prevented).toBe(true);
     expect(input.value).toBe("");
-    expect(tiles().length).toBe(22);
+    expect(tiles().length).toBe(28);
     // Escape ohne Suchtext tut nichts (und schluckt das Ereignis nicht).
     prevented = false;
     input.fire("keydown", { key: "Escape", preventDefault: () => (prevented = true) });
@@ -223,7 +223,7 @@ describe("elements panel, sections tab", () => {
   it("has no tabs and no section tiles without the section functions", () => {
     const { root, tiles } = mount();
     expect(walk(root, (el) => el.className === "senify-elements__tab")).toEqual([]);
-    expect(tiles().length).toBe(22);
+    expect(tiles().length).toBe(28);
   });
 
   it("starts on the building blocks and offers the sections as a second tab", () => {

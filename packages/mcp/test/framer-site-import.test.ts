@@ -5,6 +5,13 @@ import { describe, expect, it, vi } from "vitest";
 import { importFramerSite } from "../src/framer-site-import.ts";
 import type { EngineClient } from "../src/client.ts";
 
+// The coordinator tests supply a synthetic sitemap; network policy is tested
+// at the fetchPublic boundary rather than by reaching an external host here.
+vi.mock("@senify/core/net", async (original) => ({
+  ...(await original<typeof import("@senify/core/net")>()),
+  fetchPublic: (url: string, options: RequestInit) => fetch(url, options),
+}));
+
 function fixture(): string {
   const root = mkdtempSync(join(tmpdir(), "senify-site-import-"));
   mkdirSync(join(root, "blog"));
@@ -27,12 +34,24 @@ describe("importFramerSite", () => {
     const rootDir = fixture();
     try {
       const request = vi.fn().mockImplementation(async (_method, _path, body) => ({ job: { status: "succeeded" }, report: { irHash: `hash${body.pagePath}`, pageId: body.write ? `id${body.pagePath}` : null, findings: [], assets: { failed: 0 } } }));
-      const result = await importFramerSite({ request } as unknown as EngineClient, { siteId: "s1", rootDir, write: true });
+      const result = await importFramerSite({ request } as unknown as EngineClient, { siteId: "s1", rootDir, write: true, applyTheme: true });
       expect(result.status).toBe("imported");
       expect(result.runtimeFreeVerified).toBe(false);
       expect(result.pages.map((page) => page.state)).toEqual(["imported", "imported"]);
       expect(request).toHaveBeenCalledTimes(4);
-      expect(request.mock.calls[2]?.[2]).toMatchObject({ expectedIrHash: "hash/", source: { page: "/" } });
+      expect(request.mock.calls[2]?.[2]).toMatchObject({ applyTheme: true, createOnly: true, expectedIrHash: "hash/", source: { page: "/" } });
+      expect(request.mock.calls[3]?.[2].applyTheme).toBe(false);
+      expect(request.mock.calls[0]?.[2]).not.toHaveProperty("output");
+    } finally { rmSync(rootDir, { recursive: true, force: true }); }
+  });
+
+  it("reicht die gewaehlte Ausgabe an Analyse und Write weiter", async () => {
+    const rootDir = fixture();
+    try {
+      const request = vi.fn().mockImplementation(async (_method, _path, body) => ({ job: { status: "succeeded" }, report: { irHash: `hash${body.pagePath}`, pageId: body.write ? `id${body.pagePath}` : null, findings: [], assets: { failed: 0 } } }));
+      const result = await importFramerSite({ request } as unknown as EngineClient, { siteId: "s1", rootDir, write: true, output: "structure" });
+      expect(result.status).toBe("imported");
+      expect(request.mock.calls.every((call) => call[2].output === "structure")).toBe(true);
     } finally { rmSync(rootDir, { recursive: true, force: true }); }
   });
 
@@ -76,6 +95,40 @@ describe("importFramerSite", () => {
       expect(request.mock.calls[0]?.[2].capture).toBeUndefined();
       expect(request.mock.calls[1]?.[2]).toMatchObject({ pagePath: "/contact", capture: "browser", source: { url: "https://site.test/contact" }, write: false });
       expect(request.mock.calls[2]?.[2]).toMatchObject({ pagePath: "/blogs/a-post", capture: "browser", source: { url: "https://site.test/blogs/a-post" }, write: false });
+    } finally {
+      vi.unstubAllGlobals();
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("schreibt Browser-Routen ohne den Dry-Run-Hash, weil die Live-Aufnahme schwanken kann", async () => {
+    const rootDir = flattenedFixture();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      `<urlset><url><loc>https://site.test/</loc></url><url><loc>https://site.test/contact</loc></url><url><loc>https://site.test/blogs/a-post</loc></url></urlset>`,
+      { status: 200 },
+    )));
+    try {
+      const request = vi.fn().mockImplementation(async (_method, _path, body) => ({
+        job: { status: "succeeded" },
+        report: {
+          irHash: body.write ? `write${body.pagePath}` : `dry${body.pagePath}`,
+          pageId: body.write ? `id${body.pagePath}` : null,
+          findings: [],
+          assets: { failed: 0 },
+        },
+      }));
+      const result = await importFramerSite({ request } as unknown as EngineClient, {
+        siteId: "s1",
+        rootDir,
+        write: true,
+        sourceUrl: "https://site.test/",
+      });
+      expect(result.status).toBe("imported");
+      const writes = request.mock.calls.filter((call) => call[2].write === true);
+      expect(writes).toHaveLength(3);
+      expect(writes[0]?.[2]).toMatchObject({ expectedIrHash: "dry/" });
+      expect(writes[1]?.[2].expectedIrHash).toBeUndefined();
+      expect(writes[2]?.[2].expectedIrHash).toBeUndefined();
     } finally {
       vi.unstubAllGlobals();
       rmSync(rootDir, { recursive: true, force: true });

@@ -874,6 +874,23 @@ describe("asset reference checks", () => {
     ).toContain("trash");
   });
 
+  it("takes an absolute address for a source picture, not for a missing asset", () => {
+    // The Framer import writes the source address when the download of a
+    // picture failed (origin home, 14.11.2026: a 40 MB GIF against the 25 MB
+    // upload limit). That address is served by the source itself — the publish
+    // must not be refused as if an asset had been deleted.
+    const sourcePicture = runChecks({
+      stage: "publish",
+      pages: [galleryPage("https://framerusercontent.com/images/zu-gross.gif?width=1080")],
+      site,
+      theme: defaultTheme(),
+      assets: usage([]),
+    });
+    expect(
+      sourcePicture.hard.filter((issue) => issue.code === "broken-asset"),
+    ).toHaveLength(0);
+  });
+
   it("blocks submit when a section references a missing asset", async () => {
     const siteId = (await createTestSite(env.api, "Broken Asset")).id;
     const page = await createTestPage(env.api, siteId, { title: "Start" });

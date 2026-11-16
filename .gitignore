@@ -90,3 +90,12 @@ packages/app/dist/
 /_messung/
 /_messung-*/
 _preview/
+# Lokaler Paket-Cache des Awwwards-Testlaufs.
+/.pnpm-store/
+# Chocolate-Abnahme 09.11.2026: Snapshot, Mirror, Build und Mess-JSON sind
+# erzeugte Beweisläufe mit Projektinhalten; nur Notizen und Werkzeuge werden getrackt.
+/.scratch/framer-live-2026-11-09/
+# Chocolate-Importtest 12.11.2026: Mess-JSON und Bildlauf sind erzeugte Beweisläufe;
+# getrackt werden nur Bericht, Tickets und Werkzeuge (.mts/.mjs).
+.scratch/choc-*.json
+/.scratch/choc-visual-2026-11-12/

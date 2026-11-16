@@ -6,6 +6,7 @@
 // Modul mit zwei Spreizungen; die Manifest-Reihenfolge bleibt unveraendert.
 
 import { objectSchema, requireRecord, requireString } from "./tools-support.ts";
+import { THEME_SCHEMA } from "./tools-schemas.ts";
 import type { ToolDefinition } from "./tools.ts";
 
 /** Das Theme lesen. */
@@ -93,6 +94,7 @@ export const THEME_WRITE_TOOLS: ToolDefinition[] = [
     description:
       "Patches the theme of a site (scales, semantic roles, fonts, motion) and records the change in the audit log. Send only the branches you change.",
     scope: "write",
+    outputSchema: THEME_SCHEMA,
     inputSchema: objectSchema(
       {
         siteId: { type: "string" },

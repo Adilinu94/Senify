@@ -83,6 +83,46 @@ describe("what names a start state", () => {
     expect(node?.states[0]?.visual.transform).toBeUndefined();
   });
 
+  it("erkennt eine reine Deblur-Einblendung ohne Bewegung", () => {
+    // The live capture meets the word reveal as `opacity:0.001; filter:blur(4px);
+    // transform:none`. Without the deblur in the predicate the words stayed at
+    // 0.1 % for good (measured on the Astra start page, 10.11.2026).
+    const document = captureHtml({
+      html: page(`<div style="opacity:0.001;filter:blur(4px);transform:none">x</div>`),
+    });
+    const node = nodeWithTag(document.pages[0]?.root as IrNode, "div");
+    expect(node?.appearInitial?.opacity).toBe("0.001");
+    expect(node?.appearInitial?.filter).toBe("blur(4px)");
+    expect(node?.states[0]?.visual.opacity).toBeUndefined();
+    expect(node?.states[0]?.visual.filter).toBeUndefined();
+  });
+
+  it("entfernt eine reine Deblur-Einblendung aus dem Inline-Markup", () => {
+    const document = captureHtml({
+      html: page(
+        `<h1>Hello <span style="display:inline-block;opacity:0.001;filter:blur(4px);transform:none">Run</span> world</h1>`,
+      ),
+    });
+    const heading = nodeWithTag(document.pages[0]?.root as IrNode, "h1");
+    expect(heading?.innerHtml).toBeDefined();
+    expect(heading?.innerHtml).not.toContain("opacity");
+    expect(heading?.innerHtml).not.toContain("blur");
+    expect(heading?.children[0]?.states[0]?.visual.opacity).toBeUndefined();
+  });
+
+  it("hält eine prozentuale Zentrierung, wenn der Marker nur eine Bewegung ankündigt", () => {
+    // Ein Puls-Punkt schreibt `translate(-50%, -50%) scale(...)` mit
+    // `will-change: transform` inline. Der verschiebende Anteil gehört zur
+    // Bewegung, die prozentuale Zentrierung aber zum Ruhezustand: ohne sie
+    // sitzt der Punkt vier Pixel versetzt (gemessen an Relay `/`, 11.11.2026).
+    const document = captureHtml({
+      html: page(`<div style="will-change:transform;transform:translate(-50%, -50%) scale(0.35)">x</div>`),
+    });
+    const node = nodeWithTag(document.pages[0]?.root as IrNode, "div");
+    expect(node?.states[0]?.visual.transform).toBe("translate(-50%, -50%)");
+    expect(node?.appearInitial).toEqual({ transform: "scale(0.35)" });
+  });
+
   it("keeps a shifted element that carries no will-change", () => {
     // A centring transform is a design, not a start state. Measured on the
     // site: the three hover offsets and the two centring transforms carry no
@@ -93,5 +133,51 @@ describe("what names a start state", () => {
     const node = nodeWithTag(document.pages[0]?.root as IrNode, "div");
     expect(node?.appearInitial).toBeUndefined();
     expect(node?.states[0]?.visual.transform).toBe("translate(-50%, -50%)");
+  });
+
+  it("erkennt eine reine Fade-Einblendung am will-change-Marker", () => {
+    // Framer schreibt den Startzustand eines Scroll-Reveals auch ohne Bewegung:
+    // `will-change:transform;opacity:0;transform:none`, ohne Appear-id. Das
+    // Original blendet das Element per reinem Opazitäts-Fade ein (gemessen an
+    // Chocolate, 11.11.2026: 44 Elemente dieser Form im SSR, der Fade läuft
+    // ~990 ms). Ohne den Marker als Beweis blieb die Opazität im Visual und
+    // der Import fror 28 Knoten dauerhaft auf `opacity:0` ein — auf Desktop
+    // UND Tablet fehlten dadurch ganze Bild- und Textblöcke.
+    const document = captureHtml({
+      html: page(`<div style="will-change:transform;opacity:0;transform:none">x</div>`),
+    });
+    const node = nodeWithTag(document.pages[0]?.root as IrNode, "div");
+    expect(node?.appearInitial?.opacity).toBe("0");
+    expect(node?.states[0]?.visual.opacity).toBeUndefined();
+    expect(node?.states[0]?.visual.transform).toBeUndefined();
+    const derived = (document.appear ?? []).filter((spec) => spec.appearId.includes("derived"));
+    expect(derived).toHaveLength(1);
+    expect(derived[0]?.variants["default"]?.initial?.opacity).toBe(0);
+    expect(derived[0]?.variants["default"]?.animate?.opacity).toBe(1);
+  });
+
+  it("behält ein bewusst verstecktes Element ohne Marker", () => {
+    // Dieselbe Opazität, aber kein `will-change`: das geschlossene Menü, die
+    // eingeklappte Antwort. Es bleibt versteckt, wie es die Quelle meint.
+    const document = captureHtml({
+      html: page(`<div style="opacity:0;transform:none">x</div>`),
+    });
+    const node = nodeWithTag(document.pages[0]?.root as IrNode, "div");
+    expect(node?.appearInitial).toBeUndefined();
+    expect(node?.states[0]?.visual.opacity).toBe("0");
+    expect(document.appear ?? []).toEqual([]);
+  });
+
+  it("entfernt die reine Fade-Einblendung aus dem Inline-Markup", () => {
+    const document = captureHtml({
+      html: page(
+        `<h1>Hello <span style="display:inline-block;will-change:transform;opacity:0;transform:none">Run</span> world</h1>`,
+      ),
+    });
+    const heading = nodeWithTag(document.pages[0]?.root as IrNode, "h1");
+    expect(heading?.innerHtml).toBeDefined();
+    expect(heading?.innerHtml).not.toContain("opacity");
+    expect(heading?.innerHtml).not.toContain("will-change");
+    expect(heading?.children[0]?.states[0]?.visual.opacity).toBeUndefined();
   });
 });

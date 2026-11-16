@@ -1,0 +1,12 @@
+{
+  "name": "@senify/widgets",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Native Widget-Kerne (Vanilla-TS, kein React/Framer) für den Widget-Island.",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@senify/core": "workspace:*",
+    "@senify/widget-engine": "workspace:*"
+  }
+}

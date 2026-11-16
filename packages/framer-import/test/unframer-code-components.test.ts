@@ -8,7 +8,7 @@ const FLUFFY = join(fileURLToPath(new URL("./fixtures/unframer/fluffy", import.m
 const CAPTURED = "2026-11-05T12:00:00.000Z";
 
 describe("Unframer-IR: Code-Komponenten (fluffy-rectangle, gemessen 05.11.2026)", () => {
-  it("liest CodeComponents/Overrides und mappt Instanzen als Platzhalter mit code-component-Fund", () => {
+  it("erkennt CodeComponents und mappt bekannte als natives Widget, unbekannte als Platte", () => {
     const document = mapUnframerProject({
       projectXml: readFileSync(join(FLUFFY, "project.xml"), "utf8"),
       pages: [{ path: "/", xml: readFileSync(join(FLUFFY, "page-home.xml"), "utf8") }],
@@ -35,10 +35,16 @@ describe("Unframer-IR: Code-Komponenten (fluffy-rectangle, gemessen 05.11.2026)"
 
     const normalized = normalize(document);
     const mapped = mapDocument(document, normalized.rules);
+    const nodes = mapped.document.nodes as Record<string, { primitive: string; props: Record<string, unknown> }>;
+    // WaveBackground ist portiert: natives, bearbeitbares Widget statt Platte.
     const waveId = mapped.nodeIdByIrKey["/#n-wave"];
     expect(waveId).toBeDefined();
-    const waveNode = (mapped.document.nodes as Record<string, { primitive: string; props: Record<string, unknown> }>)[waveId as string];
-    expect(waveNode?.primitive).toBe("payload");
-    expect(String(waveNode?.props["label"] ?? "")).toContain("Platte");
+    expect(nodes[waveId as string]?.primitive).toBe("wave-background");
+    expect(String(nodes[waveId as string]?.props["label"] ?? "")).not.toContain("Platte");
+    // FormPopup ist nicht portiert: bleibt eine ehrliche Platte.
+    const formId = mapped.nodeIdByIrKey["/#n-form"];
+    expect(formId).toBeDefined();
+    expect(nodes[formId as string]?.primitive).toBe("payload");
+    expect(String(nodes[formId as string]?.props["label"] ?? "")).toContain("Platte");
   });
 });

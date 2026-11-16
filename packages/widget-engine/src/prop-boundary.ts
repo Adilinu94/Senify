@@ -11,6 +11,7 @@ import { baseKeyOf } from "./device.ts";
 import { matchesValueType } from "./controls.ts";
 import {
   camelToKebab,
+  formatGaps,
   formatSpacing,
   isRecord,
   tokenRef,
@@ -87,12 +88,13 @@ export function checkSafeValue(value: PropValue): PropProblem | undefined {
         ? undefined
         : { message: `Invalid token reference "${ref}"` };
     }
-    const formatted = formatSpacing(value);
+    const formatted = formatSpacing(value) ?? formatGaps(value);
     const parsed = formatted === undefined ? undefined : parseCssValue(formatted);
     if (parsed !== undefined && parsed.ok) return undefined;
     return {
       message: "Unsupported style value shape",
-      suggestion: "Use a number, a string, a token reference or a four-side bag.",
+      suggestion:
+        "Use a number, a string, a token reference, a four-side bag or a row/column gap bag.",
     };
   }
   return { message: "Unsupported style value" };
@@ -116,6 +118,11 @@ export function checkPropValue(
       // goes through the value grammar: an unsafe reference must not pass just
       // because the control accepted the shape.
       if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+        // Asset and link references are opaque ids the media/link pipeline
+        // resolves, not CSS values — the style grammar does not apply to them
+        // (ADR-0005 Nachtrag). Re-running it rejected `{ assetId }` and broke
+        // the carrier toggle (ADR-0026) for every import with a mandatory poster.
+        if (control.valueType === "asset" || control.valueType === "link") return undefined;
         return checkSafeValue(value);
       }
       return undefined;

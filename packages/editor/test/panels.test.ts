@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildMotionPanel, buildPanels, tokenOptionsFor, type PanelField } from "@senify/editor";
-import { defaultTheme } from "@senify/tokens";
+import { defaultTheme, mergeThemePatch } from "@senify/tokens";
 import { SenifyError } from "@senify/core";
 import { draftTree, nodeOf, registry } from "./fixtures.ts";
 
@@ -118,6 +118,15 @@ describe("registry-generated property panels", () => {
       "radius.full",
     );
     expect(tokenOptionsFor("type", defaultTheme()).map((option) => option.ref)).toContain("type.h1.size");
+    const withFontSize = mergeThemePatch(defaultTheme(), {
+      tokens: { primitive: { fontSize: { gross: "1.5rem" }, fontFamily: { marke: "\"Sora\", sans-serif" } } },
+    });
+    expect(tokenOptionsFor("type", withFontSize).map((option) => option.ref)).toContain(
+      "fontSize.gross",
+    );
+    expect(tokenOptionsFor("font", withFontSize).map((option) => option.ref)).toContain(
+      "fontFamily.marke",
+    );
   });
 
   it("warns on a literal where the theme expects a token", () => {

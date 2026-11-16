@@ -483,6 +483,8 @@ export type ErrorResponse = {
     // The version the server is on, when it refuses a write because the
     // client's base version is stale.
     currentVersion?: number;
+    // The full list of failed checks, when a guardrail blocks on several.
+    issues?: { code: string; severity: string; message: string }[];
   };
 };
 

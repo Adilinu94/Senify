@@ -29,9 +29,13 @@ describe("interaction states reach the baked page", () => {
       );
       const files = [join(out, "index.html"), ...readdirSync(join(out, "assets")).filter((name) => name.endsWith(".css")).map((name) => join(out, "assets", name))];
       const css = files.map((file) => readFileSync(file, "utf8")).join("\n");
-      expect(css).toMatch(/\.framer-[0-9a-f]{6}-\d+:hover\s*\{[^}]*background-color:\s*#f00/);
-      expect(css).toMatch(/\.framer-[0-9a-f]{6}-\d+:focus\s*\{[^}]*color:\s*(#0f0|#00ff00)/);
-      expect(css.indexOf(":hover")).toBeGreaterThan(css.indexOf("background-color: #111"));
+      // Nur der Block der importierten Regel: Widget-Klassen bringen eigenes CSS
+      // mit eigenen `:hover`-Regeln, die vor der Seitenregel im Bündel stehen.
+      const base = css.indexOf("background-color: #111");
+      const authored = css.slice(css.lastIndexOf("@layer user-authored", base), base + 4000);
+      expect(authored).toMatch(/\.framer-[0-9a-f]{6}-\d+:hover\s*\{[^}]*background-color:\s*#f00/);
+      expect(authored).toMatch(/\.framer-[0-9a-f]{6}-\d+:focus\s*\{[^}]*color:\s*(#0f0|#00ff00)/);
+      expect(authored.indexOf(":hover")).toBeGreaterThan(authored.indexOf("background-color: #111"));
       // The page root's title and language are metadata, never declarations.
       expect(css).not.toMatch(/\[data-node-id="root"\]\s*\{[^}]*(lang|title)\s*:/);
     } finally {

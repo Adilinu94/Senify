@@ -67,6 +67,10 @@ export type StyleRuleScope = {
 export type StyleRuleOrigin = {
   source: string;
   ordinal: number;
+  // The project-XML import keeps typography and layout only in these rules;
+  // its nodes do not repeat them as props. The bake may therefore not strip
+  // the base declarations the way it does for an HTML capture.
+  keepBase?: boolean;
 };
 
 export type StyleRule = {
@@ -118,6 +122,7 @@ const StyleRuleOriginSchema = Type.Object(
   {
     source: Type.String({ minLength: 1 }),
     ordinal: Type.Integer({ minimum: 0 }),
+    keepBase: Type.Optional(Type.Boolean()),
   },
   CLOSED,
 );
@@ -371,7 +376,11 @@ function asOrigin(value: unknown): StyleRuleOrigin | undefined {
   if (typeof value.ordinal !== "number" || !Number.isFinite(value.ordinal)) {
     return undefined;
   }
-  return { source: value.source, ordinal: Math.trunc(value.ordinal) };
+  return {
+    source: value.source,
+    ordinal: Math.trunc(value.ordinal),
+    ...(value.keepBase === true ? { keepBase: true } : {}),
+  };
 }
 
 // Only the known states survive a tolerant read; an unknown key is

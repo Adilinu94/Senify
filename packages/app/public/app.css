@@ -744,6 +744,11 @@ dialog.ask-dialog p {
   overflow-wrap: anywhere;
 }
 
+/* Ein langer Name ohne Leerzeichen steht auch in der Ueberschrift. */
+dialog.ask-dialog h2 {
+  overflow-wrap: anywhere;
+}
+
 dialog.ask-dialog [aria-invalid="true"] {
   border-color: var(--danger, var(--ui-signal-danger));
 }
@@ -3947,6 +3952,15 @@ body.is-editor .view.editor-view > .toolbar > .senify-canvas__topbar {
   border: 0;
   background: transparent;
   font-size: inherit;
+}
+@media (max-width: 1100px) {
+  /* Unter 1100 px stapelt der Editor ohnehin; die Leiste bricht um, statt die
+     Seite seitwaerts zu verbreitern (Elementor-Abgleich 11.11.2026). */
+  body.is-editor .view.editor-view > .toolbar {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+    padding-block: 0.4rem;
+  }
 }
 @media (min-width: 1101px) {
   body.is-editor {

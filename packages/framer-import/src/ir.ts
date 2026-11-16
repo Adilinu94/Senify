@@ -113,11 +113,27 @@ export const IR_FINDING_KINDS = [
   // instead. A warn, not a block: the import still delivers, but runtime
   // content (script-built parts, the other device builds) is missing.
   "capture-fallback",
+  // loader-skipped — the live page showed a site loader; the capture waited
+  // for it and removed it before reading the markup. The loader is page UX,
+  // not content; a native rebuild has its own loader.
+  "loader-skipped",
+  // loader-dismissed — the site loader was still covering the page at the
+  // timeout. The capture removed it by force and reports the wait time, so the
+  // run never bakes the overlay as content and never claims a clean wait.
+  "loader-dismissed",
   // motion-absent — the source carries structure only and no timing (the
   // Framer project XML, ADR-0028: `appear`/`transition` were 0x in the
   // measured dump). The runtime effect stays with the browser capture
   // (ADR-0027); the report says so instead of dropping it silently.
   "motion-absent",
+  // embed-blocked — a third-party frame the import cannot take over safely
+  // (`srcdoc`, a non-https scheme, a missing address). The box stays as a
+  // placeholder and the report names source and reason.
+  "embed-blocked",
+  // heading-levels — the normalizer smoothed the heading hierarchy (first
+  // heading h1, no level jumps) so the release gate passes; an info, not a
+  // block: the optical layout is unchanged (12.11.2026).
+  "heading-levels",
 ] as const;
 
 export type IrFindingKind = (typeof IR_FINDING_KINDS)[number];
@@ -252,6 +268,13 @@ export type IrNode = {
   visibleOn?: IrDevice[];
   alt?: string | null;
   target?: string | null;
+  // A third-party frame (`<iframe>`): the address as the source wrote it and
+  // its accessible title. `embedBlocked` names why the frame cannot be taken
+  // over (a `srcdoc` document, a scheme other than https, a missing address);
+  // the node then keeps its box as a named placeholder.
+  embedUrl?: string | null;
+  embedTitle?: string | null;
+  embedBlocked?: "srcdoc" | "scheme" | "missing" | null;
   innerHtml?: string | null;
   // The `style` attribute of the source, as written. The visual holds the
   // resolved cascade; this holds the source's own declarations — they are
@@ -297,6 +320,10 @@ export type FramerIrDocument = {
     colors: IrColorToken[];
     textPresets: IrTextPreset[];
     fonts: IrFontFace[];
+    // Computed page chrome. Framer sites often paint the palette on <body>,
+    // not on a node; without this the imported page inherits Senify's light
+    // base even though all node text colours are dark-mode values.
+    body?: { background?: string; color?: string };
   };
   assets: IrAsset[];
   motion: IrMotionSample[];
@@ -664,6 +691,11 @@ function asIrNode(value: unknown): IrNode | undefined {
     ...(asString(value.htmlId) === undefined ? {} : { htmlId: asString(value.htmlId) ?? null }),
     ...(asString(value.alt) === undefined ? {} : { alt: asString(value.alt) ?? null }),
     ...(asString(value.target) === undefined ? {} : { target: asString(value.target) ?? null }),
+    ...(asString(value.embedUrl) === undefined ? {} : { embedUrl: asString(value.embedUrl) ?? null }),
+    ...(asString(value.embedTitle) === undefined ? {} : { embedTitle: asString(value.embedTitle) ?? null }),
+    ...(asString(value.embedBlocked) === undefined
+      ? {}
+      : { embedBlocked: (asString(value.embedBlocked) as "srcdoc" | "scheme" | "missing") ?? null }),
     ...(asString(value.innerHtml) === undefined ? {} : { innerHtml: asString(value.innerHtml) ?? null }),
     ...(isRecord(value.appearInitial)
       ? {

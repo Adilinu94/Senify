@@ -24,6 +24,13 @@ import { CASCADE_LAYER } from "./css/cascade.ts";
 import type { Control, PrimitiveDefinition, PropValue } from "./types.ts";
 import { isSafeHref, sanitizeInlineHtml } from "./inline-html.ts";
 import { sanitizeSvgMarkup } from "./svg-markup.ts";
+import { isWidgetPrimitive, widgetPrimitive } from "./widgets.ts";
+import { DOM_WIDGET_CSS, renderDomWidget } from "./dom-widgets.ts";
+
+// A source address (`https://…`) instead of a stored asset id. The Framer import
+// writes one when the download of a picture failed; the markup renders it as the
+// image source itself.
+const ABSOLUTE_ADDRESS = /^(?:https?:)?\/\//i;
 
 // ---------------------------------------------------------------------------
 // Element description
@@ -133,6 +140,47 @@ function list(props: Record<string, PropValue>, key: string): Record<string, Pro
   );
 }
 
+// Serialisiert die Control-Werte eines Widgets als JSON für das data-props-Attribut.
+// Media-Refs (assetId) bleiben IDs — der gemeinsame Registry-Renderer löst sie
+// unmittelbar vor dem Attribut auf (`primitives.tsx`, resolveWidgetProps).
+function widgetProps(primitive: string, props: Record<string, PropValue>): Record<string, PropValue> {
+  const def = widgetPrimitive(primitive);
+  const out: Record<string, PropValue> = {};
+  for (const control of def?.controls ?? []) {
+    const found = props[control.key];
+    out[control.key] = found === undefined || found === null ? control.default : found;
+  }
+  return out;
+}
+
+function widgetPropsJson(primitive: string, props: Record<string, PropValue>): string {
+  return JSON.stringify(widgetProps(primitive, props));
+}
+
+// Das erste Bild des ersten Media-Repeaters — der Poster, der ohne JS und bei
+// einem Mount-Fehler stehen bleibt. Asset-IDs werden im Registry-Renderer über
+// `data-asset` aufgelöst; direkte URLs gehen als `src` durch.
+function widgetPoster(primitive: string, props: Record<string, PropValue>): string {
+  const control = widgetPrimitive(primitive)?.controls.find(
+    (entry) => entry.kind === "repeater" && entry.fields?.some((field) => field.kind === "media"),
+  );
+  const mediaKey = control?.fields?.find((field) => field.kind === "media")?.key;
+  if (control === undefined || mediaKey === undefined) return "";
+  const entries = props[control.key];
+  if (!Array.isArray(entries)) return "";
+  const first = entries[0];
+  if (typeof first !== "object" || first === null || Array.isArray(first)) return "";
+  const media = (first as Record<string, PropValue>)[mediaKey];
+  if (typeof media === "string") return media;
+  if (typeof media === "object" && media !== null && !Array.isArray(media)) {
+    const record = media as Record<string, PropValue>;
+    if (typeof record["assetId"] === "string") return record["assetId"];
+    if (typeof record["src"] === "string") return record["src"];
+    if (typeof record["url"] === "string") return record["url"];
+  }
+  return "";
+}
+
 // ---------------------------------------------------------------------------
 // Per-primitive markup
 // ---------------------------------------------------------------------------
@@ -215,6 +263,22 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
       const eyebrow = text(props, "eyebrow");
       const children: ElementSpec[] =
         eyebrow === "" ? [] : [{ tag: "span", classes: [modifier("heading", "eyebrow")], text: eyebrow }];
+      // A safe target wraps the text in an anchor inside the heading (the level
+      // stays the heading's); an empty or unsafe one renders no link at all.
+      const target = linkOf(props, "link");
+      if (target.href !== "" && isSafeHref(target.href)) {
+        const newTab = flag(props, "newTab") || target.newTab;
+        children.push({
+          tag: "a",
+          classes: [modifier("heading", "link")],
+          attrs: {
+            href: target.href,
+            ...(newTab ? { target: "_blank", rel: "noopener noreferrer" } : {}),
+          },
+          text: text(props, "text"),
+        });
+        return { tag, classes: [primitiveClass("heading")], children, root: true };
+      }
       return { tag, classes: [primitiveClass("heading")], children, text: text(props, "text"), root: true };
     }
 
@@ -254,6 +318,7 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
     case "link": {
       const target = linkOf(props, "link");
       const newTab = flag(props, "newTab") || target.newTab;
+      const html = text(props, "html");
       return {
         tag: "a",
         classes: [primitiveClass("link")],
@@ -261,7 +326,9 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
           href: target.href !== "" && isSafeHref(target.href) ? target.href : "#",
           ...(newTab ? { target: "_blank", rel: "noopener noreferrer" } : {}),
         },
-        text: text(props, "label"),
+        ...(html !== ""
+          ? { html: sanitizeInlineHtml(html) }
+          : { text: text(props, "label") }),
         root: true,
       };
     }
@@ -278,10 +345,27 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
     case "image": {
       const asset = assetOf(props, "asset");
       const alt = text(props, "alt");
+      const source = text(props, "src");
+      // An absolute address is a picture of its own (the import writes it when
+      // the download of a source picture failed), not a library id: prefixing it
+      // with `/assets/` built `/assets/https://…`, which 404s — measured on the
+      // origin import, 14.11.2026.
+      const address = ABSOLUTE_ADDRESS.test(asset);
+      // An image without a source gets NO `src` attribute. `src=""` makes the
+      // browser request the page itself and log a warning for every such node
+      // (measured on the fluffy import, 14.11.2026: three placeholder images,
+      // two warnings). The box stays, the empty image stays quiet.
       return root("img", [primitiveClass("image")], {
-        src: asset === "" ? "" : `/assets/${asset}`,
+        src:
+          source !== ""
+            ? source
+            : asset === ""
+              ? undefined
+              : address
+                ? asset
+                : `/assets/${asset}`,
         alt,
-        "data-asset": asset === "" ? undefined : asset,
+        "data-asset": asset === "" || address ? undefined : asset,
       });
     }
 
@@ -609,10 +693,70 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
       };
     }
 
-    default:
+    default: {
+      if (isWidgetPrimitive(primitive)) {
+        const definition = widgetPrimitive(primitive);
+        // DOM-Widget (ADR-0038): Der Inhalt steht als gerendertes HTML im Host,
+        // damit Bake und Design-Canvas ihn ohne JavaScript zeigen. Der Kern
+        // schreibt beim Mount dasselbe HTML erneut; `renderDomWidget` escaped
+        // alle Props und prüft Links, deshalb ist `html` hier sicher.
+        if (definition?.dom === true) {
+          return {
+            tag: "div",
+            classes: [primitiveClass(primitive)],
+            attrs: {
+              "data-island": "widget",
+              "data-widget-type": primitive,
+              "data-props": widgetPropsJson(primitive, props),
+              "data-widget-state": "pending",
+            },
+            html: renderDomWidget(primitive, widgetProps(primitive, props)),
+            root: true,
+          };
+        }
+        const poster = widgetPoster(primitive, props);
+        const posterAttrs =
+          poster === ""
+            ? undefined
+            : /^(?:data:|blob:|https?:|\/)/.test(poster)
+              ? { src: poster, alt: "" }
+              : { "data-asset": poster, alt: "" };
+        // Nur Bild-Widgets zeigen den Bilder-Hinweis; ein Shader-Hintergrund
+        // (wave-background) hat keine Bilder und bleibt bis zum Mount leer.
+        const hasMedia =
+          definition?.controls.some(
+            (c) => c.kind === "media" || c.kind === "repeater" || c.valueType === "asset",
+          ) ?? false;
+        return {
+          tag: "div",
+          classes: [primitiveClass(primitive)],
+          attrs: {
+            "data-island": "widget",
+            "data-widget-type": primitive,
+            "data-props": widgetPropsJson(primitive, props),
+            "data-widget-state": "pending",
+            role: "img",
+            "aria-label": definition?.name ?? primitive,
+          },
+          children: [
+            ...(posterAttrs === undefined
+              ? [
+                  {
+                    tag: "div",
+                    classes: [modifier(primitive, "plate")],
+                    text: hasMedia ? "Keine Bilder hinterlegt" : "",
+                  },
+                ]
+              : [{ tag: "img", classes: [modifier(primitive, "poster")], attrs: posterAttrs }]),
+            { tag: "canvas", classes: [modifier(primitive, "canvas")], attrs: { "data-widget-canvas": "" } },
+          ],
+          root: true,
+        };
+      }
       // Unknown or legacy section type: not part of the catalog. The caller
       // falls back to the section components.
       return { tag: "div", classes: [], root: true };
+    }
   }
 }
 
@@ -652,6 +796,29 @@ export function defaultValuesOf(primitive: string): Record<string, PropValue> {
     const fallback = control.default;
     if (fallback === undefined || fallback === null || fallback === "") continue;
     values[control.key] = fallback;
+  }
+  return values;
+}
+
+// Text controls whose default identifies something (a field name in a form post,
+// the collection a list reads) rather than shows something. Two fresh inputs
+// must not both be named "feld", and "sammlung" points at a collection that may
+// not exist, so these stay empty on insert.
+const IDENTIFIER_TEXT_KEYS: ReadonlySet<string> = new Set(["name", "source", "lang"]);
+
+// The props a freshly inserted building block starts with: the catalog's visible
+// text (a heading says "Neue Überschrift", a button "Knopf"), so the canvas shows
+// the block at once. Only text and textarea controls count; style values and
+// selects are resolved by the cascade and the inspector, not stored.
+export function insertPropsOf(primitive: string): Record<string, PropValue> {
+  const definition = getPrimitive(primitive);
+  if (definition === undefined || definition.legacy === true) return {};
+  const values: Record<string, PropValue> = {};
+  for (const control of definition.controls) {
+    if (control.kind !== "text" && control.kind !== "textarea") continue;
+    if (IDENTIFIER_TEXT_KEYS.has(control.key)) continue;
+    if (typeof control.default !== "string" || control.default === "") continue;
+    values[control.key] = control.default;
   }
   return values;
 }
@@ -777,6 +944,56 @@ const PART_RESET: Readonly<Record<string, readonly string[]>> = {
     "text-align: left;",
   ],
   ".w-accordion--summary": ["cursor: pointer;"],
+  // The anchor inside a linked heading takes the heading's type and colour; the
+  // heading's own style is what the author sets.
+  ".w-heading--link": ["color: inherit;", "font: inherit;"],
+  // The widget host is a canvas frame: the poster gives it height before the
+  // module mounts, the canvas covers it afterwards. The poster keeps its box
+  // after the mount (`visibility`, not `display`), so the height does not
+  // collapse when the canvas takes over.
+  ".w-ribbon-gallery": ["position: relative;", "display: block;", "min-height: 320px;"],
+  ".w-ribbon-gallery--poster": ["display: block;", "width: 100%;", "height: auto;"],
+  ".w-ribbon-gallery--plate": [
+    "display: flex;",
+    "align-items: center;",
+    "justify-content: center;",
+    "min-height: 320px;",
+    "padding: 1rem;",
+  ],
+  '.w-ribbon-gallery[data-widget-ready="1"] .w-ribbon-gallery--plate': ["display: none;"],
+  '.w-ribbon-gallery[data-widget-state="mounted"] .w-ribbon-gallery--poster': ["visibility: hidden;"],
+  ".w-ribbon-gallery--canvas": [
+    "position: absolute;",
+    "inset: 0;",
+    "width: 100%;",
+    "height: 100%;",
+    "display: block;",
+  ],
+  // Shader-Hintergrund: schwarze Box bis zum Mount, dann deckt der Canvas sie.
+  // Kein Bilder-Hinweis; die Plate bleibt leer und verschwindet nach dem Mount.
+  ".w-wave-background": [
+    "position: relative;",
+    "display: block;",
+    "min-height: 320px;",
+    "background: #000;",
+    "overflow: hidden;",
+    "z-index: -1;",
+    "pointer-events: none;",
+  ],
+  ".w-wave-background--plate": [
+    "display: flex;",
+    "align-items: center;",
+    "justify-content: center;",
+    "min-height: 320px;",
+  ],
+  '.w-wave-background[data-widget-state="mounted"] .w-wave-background--plate': ["display: none;"],
+  ".w-wave-background--canvas": [
+    "position: absolute;",
+    "inset: 0;",
+    "width: 100%;",
+    "height: 100%;",
+    "display: block;",
+  ],
 };
 
 export function primitiveResetCss(): string {
@@ -790,6 +1007,9 @@ export function primitiveResetCss(): string {
   for (const [selector, declarations] of Object.entries(PART_RESET)) {
     blocks.push(`${selector} {\n${declarations.map((line) => `  ${line}`).join("\n")}\n}`);
   }
+  // DOM-Widgets (ADR-0038): volle Regeln inklusive Media Queries; sie stehen
+  // wie die übrigen Reset-Regeln in der authored layer.
+  blocks.push(DOM_WIDGET_CSS.trim());
   return blocks.join("\n\n");
 }
 

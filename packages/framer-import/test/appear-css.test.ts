@@ -118,10 +118,53 @@ describe("compiling the channel to rules", () => {
     const rule = result.rules[0];
     expect(rule?.keyframes).toHaveLength(1);
     // The source's 1.4 s, not a fraction of it.
-    expect(rule?.animation["animation"]).toBe("senify-appear-hero-default 1.4s ease 0s both");
+    expect(rule?.animation["animation"]).toBe("senify-appear-abcdef-hero-default 1.4s ease 0s both");
     // `both`: the element holds the start state through the delay and the end
     // state afterwards. Without it a reveal at opacity 0.001 flashes.
     expect(rule?.animation["animation"]).toContain("both");
+  });
+
+  it("scopes the keyframes name to the page so two pages cannot overwrite each other", () => {
+    // The appear id is the browser's stamp key and starts at the same number on
+    // every page. Without the page scope the second page's `@keyframes` of the
+    // same name wins: measured on Relay, where page two's `n47` (0.001 → 1)
+    // overwrote the dot's fade (0.5 → 0) in the shared stylesheet.
+    const run = (scope: string) =>
+      compileAppearRules({
+        specs,
+        breakpoints: [],
+        nodeIdByAppearId: new Map([["hero", "n1"]]),
+        scope,
+      });
+    const one = run("aaaaaa").rules[0];
+    const two = run("bbbbbb").rules[0];
+    expect(one?.keyframes[0]).toContain("@keyframes senify-appear-aaaaaa-hero-default");
+    expect(two?.keyframes[0]).toContain("@keyframes senify-appear-bbbbbb-hero-default");
+    expect(one?.animation["animation"]).toContain("senify-appear-aaaaaa-hero-default");
+    expect(two?.animation["animation"]).toContain("senify-appear-bbbbbb-hero-default");
+  });
+
+  it("writes no transform into the frames when the variant only fades", () => {
+    // A keyframe without a transform leaves the element's own transform (a
+    // centring translate) alone. Written as `transform:none`, it would throw
+    // the centred dot into the corner for the duration of the fade.
+    const result = compileAppearRules({
+      specs: [
+        {
+          appearId: "dot",
+          variants: {
+            default: { initial: { opacity: 0.5 }, animate: { opacity: 0, transition: { duration: 0.7 } } },
+          },
+        },
+      ],
+      breakpoints: [],
+      nodeIdByAppearId: new Map([["dot", "n1"]]),
+      scope: "abcdef",
+    });
+    const frames = result.rules[0]?.keyframes[0] ?? "";
+    expect(frames).toContain("opacity:0.5");
+    expect(frames).toContain("opacity:0");
+    expect(frames).not.toContain("transform");
   });
 
   it("scopes a breakpoint variant with its media condition", () => {
@@ -213,6 +256,24 @@ describe("the rules reach the mapped document", () => {
       (node) => (node.classes ?? []).some((name) => name.includes("appear")),
     );
     expect(withClass).toHaveLength(3);
+  });
+
+  it("entfernt die eigene Animation des Knotens, damit die Appear-Klasse greift", () => {
+    // Framer writes `animation:none` into the source style. The class rule is
+    // the weaker authored level and the node base is emitted after it, so the
+    // imported reveal would never run.
+    const withAnimation = page(
+      { hero: { default: variant({ y: 40 }, {}, { type: "duration", duration: 1.4 }) } },
+      '<div data-framer-appear-id="hero" style="opacity:0.001;transform:translateY(40px);animation:none;animation-name:none">Held</div>',
+    );
+    const document = captureHtml({ html: withAnimation });
+    const normalized = normalize(document, { mode: "fidelity" });
+    const mapped = mapDocument(document, normalized.rules);
+    const hero = Object.values(mapped.document.nodes).find(
+      (node) => (node.classes ?? []).some((name) => name.includes("appear-1")),
+    );
+    expect(hero).toBeDefined();
+    expect(Object.keys(hero?.props ?? {}).filter((key) => key.startsWith("animation"))).toEqual([]);
   });
 
   it("keeps the effect that has a preset out of the duplicate path", () => {

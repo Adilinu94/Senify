@@ -33,10 +33,18 @@
 | [ADR-0028](0028-unframer-als-zweite-quelle.md) | Der Unframer-MCP wird die zweite Import-Quelle für Projektstruktur | angenommen |
 | [ADR-0029](0029-deklarative-import-animationen.md) | Deklarative Framer-Importanimationen | angenommen |
 | [ADR-0030](0030-historische-tokenmigration-bei-umbenennung.md) | Historische Tokenverweise bei einer Umbenennung | angenommen |
+| [ADR-0031](0031-lokale-stile-vor-globalen-klassen.md) | Bedingung vor Herkunft, lokal vor global bei gleicher Bedingung | angenommen |
+| [ADR-0032](0032-ausgabeart-framer-import.md) | Ausgabeart beim Framer-Import | angenommen |
+| [ADR-0033](0033-hover-messung-im-browser-capture.md) | Hover-Zustände aus dem Browser-Capture | angenommen |
+| [ADR-0034](0034-hover-uebergangszeit-im-browser-capture.md) | Übergangszeit der Hover-Zustände aus dem Browser-Capture | angenommen |
+| [ADR-0035](0035-native-widget-klassen-fuer-framer-code-komponenten.md) | Native Widget-Klassen für Framer-Code-Komponenten | angenommen |
+| [ADR-0036](0036-import-portierte-code-komponenten-als-widgets.md) | Der Import bildet portierte Code-Komponenten als native Widgets ab | angenommen |
+| [ADR-0037](0037-effekt-widgets-im-design-canvas.md) | Effekt-Widgets im Design-Canvas | angenommen |
+| [ADR-0038](0038-dom-widgets-fuer-framer-komponenten.md) | DOM-Widgets für Framer-Komponenten ohne XML-Innenleben | angenommen |
 
 ## Nächste Nummer
 
-Die nächste freie Nummer ist `ADR-0031`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
+Die nächste freie Nummer ist `ADR-0039`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
 
 ## Regeln
 

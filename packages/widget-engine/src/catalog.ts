@@ -11,6 +11,7 @@ import type {
   Unit,
 } from "./types.ts";
 import { componentPrimitive, legacyPrimitive } from "./legacy.ts";
+import { widgetPrimitive, WIDGET_PRIMITIVES } from "./widgets.ts";
 
 export const CATEGORIES: readonly CategoryDefinition[] = [
   { id: "layout", name: "Layout", order: 1 },
@@ -274,6 +275,8 @@ export const PRIMITIVES: readonly PrimitiveDefinition[] = [
       area("text", "Überschrift", "Neue Überschrift"),
       choose("level", "Ebene", S("h1", "h2", "h3", "h4", "h5", "h6"), "h2"),
       text("eyebrow", "Kicker", ""),
+      url("link", "Link-Ziel", ""),
+      toggle("newTab", "Neuer Tab", false),
     ],
     styleGroups: ["spacing", "typography", "color", "effects"],
   },
@@ -341,6 +344,7 @@ export const PRIMITIVES: readonly PrimitiveDefinition[] = [
     slots: {},
     controls: [
       text("label", "Beschriftung", "Link"),
+      area("html", "Inhalt", ""),
       url("link", "Ziel", "#"),
       toggle("newTab", "Neuer Tab", false),
     ],
@@ -716,7 +720,7 @@ export const PRIMITIVES: readonly PrimitiveDefinition[] = [
 ];
 
 export function primitiveTypes(): string[] {
-  return PRIMITIVES.map((primitive) => primitive.type);
+  return [...PRIMITIVES.map((primitive) => primitive.type), ...WIDGET_PRIMITIVES.map((primitive) => primitive.type)];
 }
 
 export function getPrimitive(type: string): PrimitiveDefinition | undefined {
@@ -725,6 +729,7 @@ export function getPrimitive(type: string): PrimitiveDefinition | undefined {
   // The reserved component types (ticket 04) resolve the same way.
   return (
     PRIMITIVES.find((primitive) => primitive.type === type) ??
+    widgetPrimitive(type) ??
     legacyPrimitive(type) ??
     componentPrimitive(type)
   );
@@ -762,5 +767,5 @@ export function sectionTwinControls(type: string): Control[] | undefined {
 }
 
 export function primitivesByCategory(category: PrimitiveDefinition["category"]): PrimitiveDefinition[] {
-  return PRIMITIVES.filter((primitive) => primitive.category === category);
+  return [...PRIMITIVES, ...WIDGET_PRIMITIVES].filter((primitive) => primitive.category === category);
 }

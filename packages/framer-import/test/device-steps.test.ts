@@ -32,7 +32,7 @@ const node = (over: Partial<Node>): Node => ({
 });
 
 const document = (root: Node) =>
-  ({ pages: [{ root }], breakpoints: [], findings: [] }) as never;
+  ({ pages: [{ root }], breakpoints: [], findings: [], assets: [] }) as never;
 
 type Mapped = {
   pages: { root: { states: State[]; visibleOn?: string[]; children: Node[] } }[];

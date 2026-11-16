@@ -17,7 +17,7 @@ describe("Dateien eines Builds ausliefern", () => {
     mkdirSync(join(root, "assets"), { recursive: true });
     mkdirSync(join(root, "nested"), { recursive: true });
     writeFileSync(join(root, "assets", "theme.css"), "body{color:red}");
-    writeFileSync(join(root, "index.html"), '<a href="/nested?x=1#part">Local</a><a href="//example.test/x">Foreign</a><a href="#part">Fragment</a><img src="/assets/photo.png" srcset="/assets/photo.png 1x, /assets/photo2.png?size=2#crop 2x">');
+    writeFileSync(join(root, "index.html"), '<a href="/nested?x=1#part">Local</a><a href="//example.test/x">Foreign</a><a href="#part">Fragment</a><img src="/assets/photo.png" srcset="/assets/photo.png 1x, /assets/photo2.png?size=2#crop 2x"><script>var urls = {"widget":"/assets/widgets/wave.js"};</script>');
     writeFileSync(join(root, "nested", "index.html"), "Nested index");
   });
   afterAll(async () => { await env.close(); });
@@ -66,6 +66,8 @@ describe("Dateien eines Builds ausliefern", () => {
     expect(html).toContain('href="//example.test/x"');
     expect(html).toContain('href="#part"');
     expect(html).toContain(`srcset="${prefix}assets/photo.png?token=${signed.token} 1x, ${prefix}assets/photo2.png?size=2&token=${signed.token}#crop 2x"`);
+    // Inline-Skripte tragen den Widget-Island-Loader als String-Literal.
+    expect(html).toContain(`"${prefix}assets/widgets/wave.js?token=${signed.token}"`);
     for (const path of ["nested", "nested/"]) {
       const nested = await fetch(`${env.server.origin}${prefix}${path}?token=${signed.token}`);
       expect(nested.status).toBe(200);

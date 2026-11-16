@@ -57,18 +57,18 @@ describe("the compiled appear channel reaches the baked page", () => {
       ];
       const css = files.map((file) => readFileSync(file, "utf8")).join("\n");
 
-      // The keyframes exist …
-      expect(css).toContain("@keyframes senify-appear-hero-default");
-      expect(css).toContain("@keyframes senify-appear-side-default");
-      expect(css).toContain("@keyframes senify-appear-tilt-default");
+      // The keyframes exist and carry the page scope in their name …
+      expect(css).toMatch(/@keyframes senify-appear-[0-9a-f]{6}-hero-default/);
+      expect(css).toMatch(/@keyframes senify-appear-[0-9a-f]{6}-side-default/);
+      expect(css).toMatch(/@keyframes senify-appear-[0-9a-f]{6}-tilt-default/);
       // … they carry the source's motion …
       expect(css).toContain("translateY(40px)");
       expect(css).toContain("translateX(150px)");
       expect(css).toContain("rotateX(-25deg)");
       // … the duration is the source's (1.4 s, not 30 ms) …
-      expect(css).toMatch(/senify-appear-hero-default\s+1\.4s/);
+      expect(css).toMatch(/senify-appear-[0-9a-f]{6}-hero-default\s+1\.4s/);
       // … and the element holds both ends (`both`).
-      expect(css).toMatch(/senify-appear-hero-default\s+1\.4s[^;"]*both/);
+      expect(css).toMatch(/senify-appear-[0-9a-f]{6}-hero-default\s+1\.4s[^;"]*both/);
     } finally {
       rmSync(out, { recursive: true, force: true });
     }
@@ -131,9 +131,22 @@ describe("the compiled appear channel reaches the baked page", () => {
           .map((name) => join(out, "assets", name)),
       ];
       const css = files.map((file) => readFileSync(file, "utf8")).join("\n");
-      // The style registry compiles the rule's own states; a motion rule that
-      // stops under reduced motion must be visible, not blank.
-      expect(css).toContain("prefers-reduced-motion");
+      // The imported class itself must sit in the reduced-motion gate. The
+      // renderer's preset path emits its own media block; checking only the
+      // media feature stayed green while the import's rule was never wired.
+      const appearClass = run.mapped.rules
+        .map((rule) => rule.name)
+        .find((name) => name.includes("-appear-"));
+      expect(appearClass).toBeDefined();
+      const blocks = [
+        ...css.matchAll(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\}\s*\}/g),
+      ].map((match) => match[0]);
+      expect(
+        blocks.some(
+          (block) =>
+            block.includes(`.${appearClass}`) && block.includes("animation:none!important"),
+        ),
+      ).toBe(true);
     } finally {
       rmSync(out, { recursive: true, force: true });
     }

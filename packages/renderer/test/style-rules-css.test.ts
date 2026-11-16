@@ -90,6 +90,22 @@ describe("styleRulesCss", () => {
     expect(css).toContain("@keyframes pulse");
   });
 
+  it("gates imported appear classes for reduced motion", () => {
+    const rules: StyleRule[] = [
+      createClassRule({
+        id: "appear",
+        name: "fi-abc123-appear-1",
+        styles: { animation: "senify-appear-a 1.2s ease both" },
+      }),
+      createClassRule({ id: "plain", name: "plain", styles: { color: "#fff" } }),
+    ];
+    const css = styleRulesCss(page(), rules);
+    expect(css).toContain(
+      "@media (prefers-reduced-motion: reduce){.fi-abc123-appear-1{animation:none!important;opacity:1!important}}",
+    );
+    expect(css).not.toContain(".plain{animation:none");
+  });
+
   // The import reads every colour of the source twice: as a `--token-<uuid>`
   // definition (the block in the page's head) and as `var(--token-…)` at each
   // use. Only the uses reach the nodes, so the definitions travel as one
@@ -124,6 +140,22 @@ describe("styleRulesCss", () => {
     expect(css).toContain("--token-ad88ec39-610d-4049-b505-52d900326a21: #fff");
     expect(css).toContain("--token-e74bb192-828a-4c9f-acc8-19214660ae49: #06f");
     expect(css).not.toContain(".framer-1x");
+  });
+
+  it("keeps the base declarations of a project-XML rule", () => {
+    const kept: StyleRule = {
+      ...createClassRule({
+        id: "project-rule",
+        name: "accent",
+        styles: { fontSize: "92px", color: "#ffffff" },
+      }),
+      origin: { source: "framer-import", ordinal: 2, keepBase: true },
+      authoredBy: "preset",
+    };
+    const css = styleRulesCss(page(), [kept]);
+    expect(css).toContain(".accent");
+    expect(css).toContain("92px");
+    expect(css).toContain("#ffffff");
   });
 
   it("reports a value it had to drop instead of staying silent", () => {

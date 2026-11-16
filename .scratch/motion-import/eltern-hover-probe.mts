@@ -1,0 +1,10 @@
+import { captureBrowser } from "@senify/framer-import";
+const mode = process.argv[2] ?? "measure";
+const r = await captureBrowser({ url: "https://gracious-balance-599544.framer.app/", settleMs: 1500, hover: mode as "measure" | "off" });
+const f = r.document.findings.filter((x) => x.message.includes("Hover"));
+console.log(mode, "Befunde mit Hover:", f.length);
+const counts = new Map<string, number>();
+for (const x of f) counts.set(x.message.replace(/n\d+/g, "nX"), (counts.get(x.message.replace(/n\d+/g, "nX")) ?? 0) + 1);
+for (const [m, c] of counts) console.log(c, m);
+console.log(JSON.stringify(f.slice(0, 3), null, 1));
+console.log("KEYS", f.filter((x)=>x.nodeKey).map((x)=>x.nodeKey).join(","));

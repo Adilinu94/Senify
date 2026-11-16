@@ -23,7 +23,7 @@
 | `store-collections.ts` | `CollectionsRepository` | 153 | Collection schemas of the Store (ADR 0019, T09): list, read, find by slug, create and update the field definitions of a site's collections. `Store` delegates here. | - |
 | `store-deploy.ts` | `DeployRepository` | 290 | Deployments and deploy settings of the Store (ADR 0019): deploy records of a release and the per-site hosted-provider target. `Store` delegates here. | - |
 | `store-design-records.ts` | `DesignRecordsRepository` | 115 | Design records of the Store (ADR 0019, Fahrplan P2-4, R4): the frozen design reports of a site, written once per measurement. `Store` delegates here. | - |
-| `store-entries.ts` | `EntriesRepository` | 405 | Entries of the Store (ADR 0019): the entries of a collection with their version snapshots and slug redirects. `Store` delegates here. | - |
+| `store-entries.ts` | `EntriesRepository` | 410 | Entries of the Store (ADR 0019): the entries of a collection with their version snapshots and slug redirects. `Store` delegates here. | - |
 | `store-form-mappers.ts` | - | 107 | Row types and mappers for form snapshots, notifications and newsletter tokens (P3-2, moved out of store.ts). | - |
 | `store-forms.ts` | `FormsRepository` | 122 | Form operations of the Store (ADR 0019): the signing secret and the per-bake form snapshots. `Store` delegates here. | - |
 | `store-idempotency.ts` | `IdempotencyRepository` | 208 | Idempotency slots of the Store (ADR 0019, ticket 18, R6): claim a key before the operation runs, store its response, mark a committed write whose response was lost, release a failed attempt. `Store` delegates here. | - |
@@ -56,13 +56,13 @@
 
 ## Engine: HTTP-Routen-Module
 
-**25 Dateien** mit zusammen **185 Routen**.
+**25 Dateien** mit zusammen **186 Routen**.
 
 | Modul | Routen | Zeilen | Zweck |
 |---|---|---|---|
-| `http-build-files.ts` | - | 334 | Serving files out of a bake (P3-2 extraction from `http.ts`). |
+| `http-build-files.ts` | - | 345 | Serving files out of a bake (P3-2 extraction from `http.ts`). |
 | `http-contract.ts` | - | 118 | Der Vertrag der HTTP-Schicht: der Kontext, den eine Route bekommt, die Form einer Route und die Form ihrer Antwort. Die Routen liegen in `http-routes-*.ts`, der Dispatcher in `http.ts`; dieses Modul ist, was beide sprechen (ADR-0019). |
-| `http-response.ts` | - | 231 | The response primitives of the HTTP surface (P3-2 extraction from `http.ts`). Everything that writes bytes to the socket lives here, so the two rules that must hold for EVERY answer are written once: |
+| `http-response.ts` | - | 232 | The response primitives of the HTTP surface (P3-2 extraction from `http.ts`). Everything that writes bytes to the socket lives here, so the two rules that must hold for EVERY answer are written once: |
 | `http-route-support.ts` | - | 730 | Die Helfer der HTTP-Schicht: was die Routen und der Dispatcher gemeinsam brauchen - Body lesen, Idempotenz, die Kontexte der Fach-Module, die Mutation auf einer Seite (ADR-0019). |
 | `http-routes-assets.ts` | 11 | 219 | Die Asset-Routen einer Site (P3-2, Schritt 53): Upload-Adresse, Liste, Lesen, Aendern, Papierkorb, Wiederherstellen, Verlauf, Massenoperation und die Asset-Ordner. |
 | `http-routes-content.ts` | 17 | 500 | Die Routen des Bereichs api/reviews, api/forms, api/redesign-proposals, api/collections, api/code-payloads, api/imports. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
@@ -70,22 +70,22 @@
 | `http-routes-design.ts` | 2 | 68 | Der Design-Vertrag einer Site (P3-2, Schritt 64): die Konstanten, die Verbote und das Vokabular, an denen sich jeder Entwurf messen lassen muss. |
 | `http-routes-formular.ts` | 3 | 88 | Die Formular-Routen einer Site (P3-2, Schritt 54): die Einsendungen eines Formulars, der Plan fuer eine Sammlung aus einem Formular und ihre Anlage. |
 | `http-routes-images.ts` | 2 | 158 | Bild-Jobs einer Site (P3-2, Schritt 66): einen Auftrag starten (der Worker geht die Anbieter-Kette durch und legt das Ergebnis ueber die Medien-Pipeline ab) und die Job-Liste lesen, die ein Agent am haeufigsten abfragt. |
-| `http-routes-imports.ts` | 3 | 203 | Die Framer-Import-Routen einer Site (P3-2, Schritt 61): Import anlegen (mit Idempotenz und Job-Zustand), Vorschau ohne Schreiben und der Verlauf. |
+| `http-routes-imports.ts` | 3 | 204 | Die Framer-Import-Routen einer Site (P3-2, Schritt 61): Import anlegen (mit Idempotenz und Job-Zustand), Vorschau ohne Schreiben und der Verlauf. |
 | `http-routes-library.ts` | 5 | 92 | Die Bibliotheks-Installationen einer Site (P3-2, Schritt 63): was aus der geteilten Bibliothek uebernommen wurde, ein neues Installieren, das Nachziehen einer Installation, das Wieder-Anhaengen nach einem Detach und das Loesen. |
-| `http-routes-media.ts` | 16 | 357 | Die Routen des Bereichs assets/:assetId, assets/:filename, _astro/:filename, api/assets, api/images, api/library-components, api/motion-vendor. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
+| `http-routes-media.ts` | 17 | 383 | Die Routen des Bereichs assets/:assetId, assets/:filename, _astro/:filename, api/assets, api/images, api/library-components, api/motion-vendor. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-ops.ts` | 17 | 495 | Die Routen des Bereichs api/settings, api/backups, api/tokens, api/mcp, api/events, api/whoami, api/notifications, api/newsletter, api/health. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-pages.ts` | 27 | 601 | Die Routen des Bereichs api/pages, api/entries, api/page-starters, api/releases, api/revisions. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-references.ts` | 23 | 710 | Die Routen des Bereichs api/references, api/reference-collections. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-section-preview.ts` | 2 | 264 | Die Vorschaubilder der Sektions-Varianten im Theme einer Site. |
 | `http-routes-site-assets.ts` | 2 | 86 | Die zwei Asset-Routen einer Site: eine Upload-Adresse ausstellen und den Bestand lesen. Der Zuschnitt aus `http-routes-sites.ts` (Schritt 68). |
 | `http-routes-site-code-payloads.ts` | 2 | 56 | Die zwei Code-Payload-Routen einer Site: einen Payload anlegen und die vorhandenen lesen. Der Zuschnitt aus `http-routes-sites.ts` (Schritt 70). |
-| `http-routes-site-content.ts` | 7 | 196 | Sammlungen und Eintraege EINER SITE (P3-2, Schritt 65): anlegen, auflisten, aus Feldern ableiten, Eintraege schreiben, lesen, suchen und einen Pfad aufloesen. |
+| `http-routes-site-content.ts` | 7 | 197 | Sammlungen und Eintraege EINER SITE (P3-2, Schritt 65): anlegen, auflisten, aus Feldern ableiten, Eintraege schreiben, lesen, suchen und einen Pfad aufloesen. |
 | `http-routes-site-lifecycle.ts` | 8 | 260 | Die Routen des Site-Lebenszyklus (P3-2, Schritt 60): anlegen, listen, aendern, Papierkorb, wiederherstellen, duplizieren, lesen, loeschen. |
 | `http-routes-site-references.ts` | 3 | 101 | Referenzen einer Site (P3-2, Schritt 67): die Zuordnung der Referenzprojekte samt abgeleitetem Theme-Entwurf, das Anwenden einer Referenz und das Loesen einer Zuordnung. |
 | `http-routes-site-reviews.ts` | 4 | 134 | Die zwei Vorschau- und zwei Review-Routen einer Site: eine Vorschau ausstellen, die Vorschauen lesen (und dabei abgelaufene aufraeumen), einen Review einreichen und Reviews lesen. Der Zuschnitt aus `http-routes-sites.ts` (Schritt 69). |
 | `http-routes-sites.ts` | 9 | 270 | Die verbleibenden Routen einer Site: Seiten, Audit, Releases, Bake-Jobs, Formulare, Benachrichtigungen und Redesign. Die Tabelle des Dispatchers in `http.ts` nimmt sie unveraendert auf (ADR-0019). |
 | `http-routes-theme.ts` | 18 | 332 | Theme und Style-Regeln einer Site (P3-2, Schritt 57): das Theme lesen, als CSS ausliefern, schreiben, den Theme-Bericht, den Design-Bericht und die sechs Style-Regel-Routen (lesen, anlegen, aendern, sortieren, loeschen). |
-| **Summe** | **185** | | |
+| **Summe** | **186** | | |
 
 ## Oberfläche: ES-Module
 
@@ -97,7 +97,7 @@
 | `app-core.js` | 446 | Die Grundlagen der Oberflaeche. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-editor-agent-preview.js` | 65 | Die Agent-Vorschau (Ticket 05, Punkt 5) - aus `app-editor.js` (R12). |
 | `app-editor-bake-status.js` | 66 | Der Re-Bake-Status am Canvas (E12) - aus `app-editor.js` (R12). |
-| `app-editor-canvas.js` | 898 | Die Buehne des Seiten-Editors (R12). |
+| `app-editor-canvas.js` | 950 | Die Buehne des Seiten-Editors (R12). |
 | `app-editor-conflict-dialog.js` | 71 | Der Konflikt-Dialog des Editors (L17) - aus `app-editor.js` (R12). |
 | `app-editor-live-events.js` | 40 | Die zwei Regeln am Live-Kanal (Ticket 05) - aus `app-editor.js` (R12). |
 | `app-editor-live-sync.js` | 62 | Was der Editor mit einer fremden Live-Meldung tut - aus `app-editor.js` (R12). |
@@ -107,7 +107,7 @@
 | `app-editor-save-status.js` | 51 | Was die Statuszeile des Editors sagt - aus `app-editor.js` (R12). |
 | `app-editor-toolbar-overflow.js` | 109 | Das Overflow-Menue der Editor-Toolbar - aus `app-editor.js` (R12). |
 | `app-editor.js` | 317 | Der Seiten-Editor: die Ansicht (`pageView`), der Wartepunkt auf einen Bild-Job und der Hinweis auf den alten Deep-Link. |
-| `app-framer-import.js` | 680 | Der Import aus Framer (P3-2, Schritt 45): der Bericht nach der Analyse und der Dialog, der die Adresse abfragt, analysiert und den Write ausloest. `app-import.js` importiert die zwei Einstiegspunkte. |
+| `app-framer-import.js` | 717 | Der Import aus Framer (P3-2, Schritt 45): der Bericht nach der Analyse und der Dialog, der die Adresse abfragt, analysiert und den Write ausloest. `app-import.js` importiert die zwei Einstiegspunkte. |
 | `app-import.js` | 484 | Der Import aus Framer und die Redesign-Dialoge. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-library.js` | 280 | Die Bausteinbibliothek und der Papierkorb (P3-2, Schritt 42). Beide Views standen in `app-projects.js`; sie teilen sich nichts mit den Projekten - keine Modulvariable, keinen Zustand, nur die Kern-Helfer. |
 | `app-markdown.js` | 158 | Das Markdown der importierten Referenzen (design.md, Guidelines, Komponenten). |
@@ -127,7 +127,7 @@
 | `app-refs-styles.js` | 83 | Der Stil-Guide der Referenzen-Seite: je Stilfamilie eine Karte mit Vorschau, Vokabular, Beispielen und den beiden Kopier-Aktionen. Der Block stand in `app-references.js` und ist bis auf das `export` unveraendert hierher gewandert; was dort bleibt, sind Auswahl, Suche und der Aufbau der Seite. |
 | `app-review.js` | 257 | Die Reviews und ihre Belege. Die Bloecke standen in `app.js` und sind unveraendert hierher gewandert; die Importe zwischen den Modulen sagt ESLint. |
 | `app-settings.js` | 602 | Die Einstellungen eines Projekts (P3-2, Schritt 43): Profil, Modus, Engine, Bilder, Referenzen, Formulare und der Papierkorb der Backups. `app-projects.js` importiert die View. |
-| `app-variables.js` | 601 | Variablen-Oberfläche der App: Liste, Anlegen, Speichern, Umbenennen, Löschen/Wiederherstellen und die gemeinsame Server-History. |
+| `app-variables.js` | 639 | Variablen-Oberfläche der App: Liste, Anlegen, Speichern, Umbenennen, Löschen/Wiederherstellen und die gemeinsame Server-History. |
 | `app-workspace-lists.js` | 133 | Die Listen-Tabs des Projekt-Workspace: Seiten, Pruefen und Aktivitaet (P3-2, Schritt 49). |
 | `app-workspace-settings.js` | 232 | Der Workspace-Tab „Einstellungen": die Projekteinstellungen (Kurzname, Niveau, öffentliche Adresse), die Breakpoints, die hinterlegten Referenzen und der Deploy (P3-2, Schritt 48). |
 | `app-workspace-submissions.js` | 191 | Der Workspace-Tab „Einsendungen": die Formulare einer Site, ihre Einsendungen und die Benachrichtigungs-Jobs dazu (P3-2, Schritt 47). |
@@ -145,19 +145,19 @@ Vertrags und die Reihenfolge der Spreizungen, jedes Werkzeug steht in seinem Fac
 | `tools-bibliothek.ts` | 10 | 120 | Die Bibliotheks-Werkzeuge der MCP-Fassade (R12, Schritt 71). |
 | `tools-components.ts` | - | 112 | The component view of a page draft (P3-2 extraction from `tools.ts`). |
 | `tools-doku.ts` | 2 | 65 | Die Doku-Werkzeuge (R12-Schnitt): die Senify-Dokumentation durchsuchen und eine Seite als Markdown lesen. |
-| `tools-import.ts` | 6 | 221 | Die Import-Werkzeuge (R12-Schnitt): eine Framer-Seite importieren und den Bericht eines Import-Jobs lesen. |
+| `tools-import.ts` | 6 | 224 | Die Import-Werkzeuge (R12-Schnitt): eine Framer-Seite importieren und den Bericht eines Import-Jobs lesen. |
 | `tools-katalog.ts` | 4 | 148 | Der Katalog (R12-Schnitt): Abschnitte und Bausteine lesen - Typen, Props, Steuerelemente, Stil-Gruppen, Stil-Eigenschaften. |
 | `tools-komponenten.ts` | 6 | 394 | Die Komponenten-Werkzeuge der MCP-Fassade (R12). |
-| `tools-medien.ts` | 21 | 622 | Die Medien-Werkzeuge der MCP-Fassade (P3-2, Schritt 57): Assets lesen, hochladen, aendern, ersetzen, loeschen und wiederherstellen, Bilder erzeugen und abfragen, Sammlungen und Eintraege samt Einsendungen. |
-| `tools-mutationen.ts` | 4 | 147 | Die Mutations-Werkzeuge (R12-Schnitt): eine Mutationsliste anwenden, die letzten Stapel zuruecknehmen, Bewegung setzen und loeschen. |
+| `tools-medien.ts` | 21 | 635 | Die Medien-Werkzeuge der MCP-Fassade (P3-2, Schritt 57): Assets lesen, hochladen, aendern, ersetzen, loeschen und wiederherstellen, Bilder erzeugen und abfragen, Sammlungen und Eintraege samt Einsendungen. |
+| `tools-mutationen.ts` | 4 | 150 | Die Mutations-Werkzeuge (R12-Schnitt): eine Mutationsliste anwenden, die letzten Stapel zuruecknehmen, Bewegung setzen und loeschen. |
 | `tools-referenzen.ts` | 32 | 1026 | Die zweiunddreissig Werkzeuge der Referenz- und Design-Arbeit: Referenzen analysieren, sammeln, zuweisen, in Revisionen fuehren, Dokumente und Briefings; Redesign planen und anwenden; das Design-System importieren und den Design-Vertrag lesen und schreiben. |
-| `tools-release.ts` | 12 | 307 | Die Werkzeuge der Veroeffentlichung und des Betriebs (R12-Schnitt): Vorschau bauen, zur Pruefung einreichen, Rueckmeldung lesen, Release veroeffentlichen, zurueckrollen und lesen, Bake-Jobs und Auslieferungen samt Ziel-Einstellungen. |
-| `tools-schemas.ts` | - | 182 | Die Ausgabeschemas der lesenden Werkzeuge (P3-3, R8). |
-| `tools-seiten.ts` | 7 | 216 | Die Seiten-Werkzeuge (R12-Schnitt): Seiten lesen, anlegen und ihr Lebenszyklus (Vorlage, Revision, Loeschen). |
+| `tools-release.ts` | 12 | 310 | Die Werkzeuge der Veroeffentlichung und des Betriebs (R12-Schnitt): Vorschau bauen, zur Pruefung einreichen, Rueckmeldung lesen, Release veroeffentlichen, zurueckrollen und lesen, Bake-Jobs und Auslieferungen samt Ziel-Einstellungen. |
+| `tools-schemas.ts` | - | 260 | Die Ausgabeschemas der lesenden Werkzeuge (P3-3, R8). |
+| `tools-seiten.ts` | 7 | 217 | Die Seiten-Werkzeuge (R12-Schnitt): Seiten lesen, anlegen und ihr Lebenszyklus (Vorlage, Revision, Loeschen). |
 | `tools-sites.ts` | 5 | 110 | Identitaet und Projekte (R12-Schnitt): wer bin ich, welche Sites gibt es, eine laden, anlegen, kopieren. |
-| `tools-stile.ts` | 2 | 252 | Die Stil-Werkzeuge (R12-Schnitt): Stil-Deklarationen auf einen Knoten schreiben und Stil-Regeln anlegen. |
-| `tools-support.ts` | - | 291 | The machinery every tool goes through (P3-2 extraction from `tools.ts`): the argument readers, the schema helpers, paging and the shared HTTP calls. |
-| `tools-theme.ts` | 3 | 113 | Das Theme (R12-Schnitt): die Design-Token einer Site lesen und schreiben. |
+| `tools-stile.ts` | 2 | 255 | Die Stil-Werkzeuge (R12-Schnitt): Stil-Deklarationen auf einen Knoten schreiben und Stil-Regeln anlegen. |
+| `tools-support.ts` | - | 325 | The machinery every tool goes through (P3-2 extraction from `tools.ts`): the argument readers, the schema helpers, paging and the shared HTTP calls. |
+| `tools-theme.ts` | 3 | 115 | Das Theme (R12-Schnitt): die Design-Token einer Site lesen und schreiben. |
 | `tools.ts` | - | 94 | Die Werkzeug-Tabelle der MCP-Fassade: der Komponist der Fachmodule. |
 | **Summe** | **114** | | |
 
@@ -173,25 +173,31 @@ er laeuft selbst durch `packages` und meldet jede Datei ueber der Schwelle, die 
 
 | Datei | Zeilen | Warum sie so gross ist |
 |---|---|---|
-| `packages/engine/src/store.ts` | 3248 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; 203 von 250 Methoden sind reine Delegaten (gemessen), der Rest steht in 38 `store-*`-Modulen |
-| `packages/framer-import/src/capture-html.ts` | 2947 | der HTML-Capture des Imports - **gemessen am 26.10.2026, und der Schnitt wurde versucht und verworfen.** Der CSS-Block am Dateiende (21 Funktionen) sieht wie ein eigenes Fachgebiet aus, ist aber keine Senke: `applyClassRules` ist die einzige öffentliche Funktion und liest den BAUM (`SPACED_TEXT`, `KEEPS_SPACES`, `FRAMER_TEXT_PROPS`, `IrInteraction`, `IrVisual`, `elementStyleToParts`) und neun interne Helfer (`parseCssRules`, `buildIndex`, `devicesOf`, `tokenDefinitionsOf`, `matchingRules`, `cascade`, `resolveVars`, `tokensOf`, `Vars`). Ein Modul mit 15 Importen aus der Quelldatei waere keine Naht, sondern eine Verschiebung. Die anderen 50 Funktionen lesen denselben Rohtext (HTML-Scan, Appear-Ableitung, IR-Bau) |
-| `packages/editor/src/inspector/inspector.ts` | 2220 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält. **Gemessen am 06.11.2026:** 24 Renderer, und nur ZWEI kommen ohne Fremdnamen aus (`renderSpacingUnit` und `renderSwitcher`, 24 Zeilen); alle anderen brauchen `commitProp`, ein Geschwister oder den Zustand. `renderFieldRow` allein nennt elf Fremdnamen (`breakpoint`, `tokenPanelKey`, `apply`, `commitProp`, `toggleVariant`, `removeVariant`, `clearProp`, `clearField`, `commitMotion`, `motionModel`) und zehn Geschwister-Renderer. Eine Fabrik, die elf Rückrufe durchreicht, ist keine Naht, sondern eine Verschiebung mit mehr Parametern: dieselbe Prüfung, mit der die Betriebsgruppe der Routen verworfen wurde |
-| `packages/framer-import/src/mapper.ts` | 2080 | die Abbildung Framer nach NodeTree. **Gemessen am 01.11.2026:** 58 Funktionen, und `mapNode` allein sind 336 Zeilen. Sie liest dieselben Tabellen wie `mapDocument` und die Zustaende des Mappers - ein Schnitt muesste diese als Parameter durchreichen. Die Datei ist am 26.10.2026 um 190 Zeilen gewachsen (Browser-Abgriff der Animationen, `appearStyleRulesOf` und `ruleFamilyWeights`): der Abgriff liefert die Daten, die Abbildung auf den NodeTree bleibt hier |
-| `packages/manifest/src/tools.ts` | 1879 | ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 114 Werkzeugen mit je vier Angaben |
-| `packages/engine/src/content.ts` | 1703 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
-| `packages/editor/src/inspector/model.ts` | 1536 | das Modell des Inspektors |
+| `packages/engine/src/store.ts` | 3255 | vier fachübergreifende Transaktionen (`applyRedesignPlan`, `duplicateSiteWithPlan`, `duplicateAssetRecords`, `commitFramerImportPlan`), `replaceTables` und die Fassade; 203 von 250 Methoden sind reine Delegaten (gemessen), der Rest steht in 38 `store-*`-Modulen |
+| `packages/framer-import/src/capture-html.ts` | 3169 | der HTML-Capture des Imports - **gemessen am 11.11.2026: 79 Funktionen; der Schnitt wurde versucht und verworfen.** Der CSS-Block am Dateiende (21 Funktionen) sieht wie ein eigenes Fachgebiet aus, ist aber keine Senke: `applyClassRules` liest den Baum (`SPACED_TEXT`, `KEEPS_SPACES`, `FRAMER_TEXT_PROPS`, `IrInteraction`, `IrVisual`, `elementStyleToParts`) und interne Helfer (`parseCssRules`, `buildIndex`, `devicesOf`, `tokenDefinitionsOf`, `matchingRules`, `cascade`, `resolveVars`, `tokensOf`, `Vars`). Die weiteren Funktionen lesen denselben Rohtext (HTML-Scan, Appear-Ableitung, IR-Bau); der Merge ergänzt Farbschema- und Body-Palette-Helfer |
+| `packages/framer-import/src/mapper.ts` | 2502 | die Abbildung Framer nach NodeTree. **Gemessen am 01.11.2026:** 58 Funktionen, und `mapNode` allein sind 336 Zeilen; am 10.11.2026 sind es 64 Funktionen (`flatTextOf` und `plainTextOfHtml` für Textlinks), am 12.11.2026 sind es 65 Funktionen (`normalizeHeadingLevels` glättet die Überschriften-Hierarchie für das Release-Tor). Sie liest dieselben Tabellen wie `mapDocument` und die Zustaende des Mappers - ein Schnitt muesste diese als Parameter durchreichen. Die Datei ist am 26.10.2026 um 190 Zeilen gewachsen (Browser-Abgriff der Animationen, `appearStyleRulesOf` und `ruleFamilyWeights`): der Abgriff liefert die Daten, die Abbildung auf den NodeTree bleibt hier |
+| `packages/editor/src/inspector/inspector.ts` | 2239 | eine Closure (`createInspector`), die DOM und Zustand gemeinsam hält. **Gemessen am 06.11.2026:** 24 Renderer, und nur ZWEI kommen ohne Fremdnamen aus (`renderSpacingUnit` und `renderSwitcher`, 24 Zeilen); alle anderen brauchen `commitProp`, ein Geschwister oder den Zustand. `renderFieldRow` allein nennt elf Fremdnamen (`breakpoint`, `tokenPanelKey`, `apply`, `commitProp`, `toggleVariant`, `removeVariant`, `clearProp`, `clearField`, `commitMotion`, `motionModel`) und zehn Geschwister-Renderer. Eine Fabrik, die elf Rückrufe durchreicht, ist keine Naht, sondern eine Verschiebung mit mehr Parametern: dieselbe Prüfung, mit der die Betriebsgruppe der Routen verworfen wurde |
+| `packages/manifest/src/tools.ts` | 1880 | ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 114 Werkzeugen mit je vier Angaben |
+| `packages/engine/src/content.ts` | 1711 | Sammlungen, Einträge und ihre Suche in einem Fachgebiet |
+| `packages/editor/src/inspector/model.ts` | 1577 | das Modell des Inspektors |
 | `packages/engine/src/types.ts` | 1487 | die öffentlichen Typen der Engine; keine Logik |
-| `packages/editor/src/canvas/canvas.ts` | 1421 | die Bühne des Editors |
+| `packages/editor/src/canvas/canvas.ts` | 1452 | die Bühne des Editors |
+| `packages/framer-import/src/import.ts` | 1329 | Orchestriert Capture, Assetverarbeitung, Runtime-Payload, Mapping und Berichte. Die Datei überschreitet nach dem internen Strukturpfad die Schwelle; die Runtime-Payload-Extraktion ist ein Kandidat für einen eigenen geprüften Schnitt, bevor weitere Ausgabearten hier wachsen. |
+| `packages/widgets/src/ribbon-gallery.ts` | 1314 | der 1:1 portierte Ribbon-Kern (Spec 2026-11-12, ADR-0035): Shader, Geometrie und Animationslogik bleiben verbatim aus der Framer-Quelle, damit die Parität prüfbar bleibt. Die Vanilla-Hülle (`mount`, `setProps`, `destroy`) ist klein und liegt am Ende; ein Schnitt würde den portierten Kern von seiner Quelle trennen |
 | `packages/engine/src/forms.ts` | 1285 | Formulare, Einsendungen und die Einsendungs-Ansicht. Der CSV-Export ist am 31.10.2026 als reine Formatierung nach `forms-csv.ts` gewandert (die Regeln einer Tabellenkalkulation: Trenner, RFC 4180, BOM, Formelanfang); was bleibt, ist das Fachgebiet - Snapshot, Token, Spam-Schutz, Benachrichtigungen, Sammlung aus dem Formular |
+| `packages/renderer/src/motion.ts` | 1268 | die Motion-Auslieferung: `renderPageScript` und `renderIslandsScript` sind die beiden Laufzeit-Skripte, die als TEXT ausgeliefert werden - der groesste Teil der Datei steht in Template-Literalen, also in ausgeliefertem Code, nicht in Quellcode. Ein Schnitt wuerde zwei Skripte mit gemeinsamem Zustand (Lenis, GSAP, ScrollTrigger) auf zwei Dateien verteilen |
 | `packages/editor/src/state/operations.ts` | 1251 | die Editor-Operationen: ein Dispatcher (`applyEditorMutation`) und je eine Funktion pro Operation, dazu die gemeinsamen Pruefer fuer Katalog, Props, Styles und Motion. Die Pruefer teilen den Katalog und die Fehlerform - sie zu trennen hiesse, den Katalog zweimal zu lesen. Geteilt wird ueber `applyEditorMutation`, geprueft ueber `EditorStore` (`mutations.test.ts`, `history.test.ts`, `save-pipeline.test.ts`) |
+| `packages/framer-import/src/capture-browser.ts` | 1199 | der Browser-Capture: ein zusammenhaengender Playwright-Lauf ueber Navigation, Ladephase, Seiten-Loader, Scroll-/Settle-Pass, Geraetevarianten, Hover und IR-Erzeugung. Die Schritte teilen den Browser-Kontext, die Laufzeit-Hooks und die Befunde; ein Schnitt wuerde die Reihenfolge (Loader vor Freeze, Scroll vor Startzustand-Restore) ueber Dateien verteilen. Geprueft in `capture-browser.test.ts`, `capture-browser-loader.test.ts`, `capture-browser-scroll.test.ts` |
 | `packages/engine/src/lifecycle.ts` | 1190 | der Release-Lebenszyklus in einem Fachgebiet: Revision, Re-Bake, Veroeffentlichung, Preview und Review gehoeren zusammen, weil ein Release ohne die anderen drei nicht entsteht; ein Schnitt muesste die gemeinsame Transaktion teilen |
 | `packages/engine/src/mutations/apply.ts` | 1179 | die Mutationen der Engine: ein Dispatcher (`applyOne`) und je eine Funktion pro Operation, dazu die Platzierungspruefer (`assertChildPlacement`, `assertSlotPlacement`, `assertSlotAllowedTypes`). Allen gemeinsam ist der `ApplierState`: der Dispatcher setzt `currentOpIndex`, die Faelle lesen ihn. Ein Schnitt muesste diesen Zustand teilen. Geprueft in `mutations.test.ts`, `transactions.test.ts`, `undo-batch.test.ts` |
-| `packages/renderer/src/motion.ts` | 1168 | die Motion-Auslieferung: `renderPageScript` und `renderIslandsScript` sind die beiden Laufzeit-Skripte, die als TEXT ausgeliefert werden - der groesste Teil der Datei steht in Template-Literalen, also in ausgeliefertem Code, nicht in Quellcode. Ein Schnitt wuerde zwei Skripte mit gemeinsamem Zustand (Lenis, GSAP, ScrollTrigger) auf zwei Dateien verteilen |
 | `packages/engine/src/media.ts` | 1107 | Assets, Ableitungen und Ordner |
-| `packages/renderer/src/bake.ts` | 1053 | der Bake: `bakeSite` haelt Warnungen, Manifest-Seiten, Motion-/Lenis-/Formular-Flags, Island-Arten und benutzte Payload-Ids ueber alle Seiten - genau dieser geteilte Zustand ist der Grund, warum der Bake in einem Durchgang laeuft. Die Helfer (`stageTemplate`, `runAstroBuild`, `writeAeoFiles`, `assertBakeable`) sind bereits eigenstaendig |
+| `packages/renderer/src/bake.ts` | 1086 | der Bake: `bakeSite` haelt Warnungen, Manifest-Seiten, Motion-/Lenis-/Formular-Flags, Island-Arten und benutzte Payload-Ids ueber alle Seiten - genau dieser geteilte Zustand ist der Grund, warum der Bake in einem Durchgang laeuft. Die Helfer (`stageTemplate`, `runAstroBuild`, `writeAeoFiles`, `assertBakeable`) sind bereits eigenstaendig |
+| `packages/framer-import/src/unframer-ir.ts` | 1070 | der Leser des Unframer-Projekt-XML (ADR-0028): ein toleranter XML-Baum, die Stapel-/Box-/Text-Metadaten und die Ableitung ins Import-IR greifen auf dieselben Tabellen und denselben Elementbaum zu. Ein Schnitt wuerde den Baum und die Zustands-Tabellen als Parameter durchreichen; die Datei ist eine Uebersetzung mit einem Eingang und einem Ausgang |
+| `packages/widget-engine/src/markup.ts` | 1058 | der Markup-Serializer: er entscheidet pro Primitive ueber Tag, Klassen, Attribute, Poster/Platzhalter und den `data-props`-Kanal der Widgets. Die Faelle teilen die Default-Aufloesung, Asset-Referenzen und den HTML-Schreiber; ein Schnitt wuerde den gemeinsamen Vertrag (ein Element pro Primitive) auseinanderziehen. Geprueft in `markup.test.ts`, `widget-markup.test.ts` |
 | `packages/engine/src/references-lifecycle.ts` | 1046 | die Referenz-Pipeline: Analyse, Job-Lauf, Snapshot, Playwright-Aufnahme und Anwendung; der Capture-Treiber allein sind 250 Zeilen, und er teilt den Zustand mit dem Job-Lauf |
+| `packages/engine/src/imports.ts` | 1034 | der Import-Auftrag in einem Fachgebiet: Quellenprüfung, Framer-Lauf, Asset-/CMS-Plan, Ausgabewahl und der eine Commit lesen dieselben Zwischenstände. Die Datei reißt die Schwelle seit der revisionssicheren Ausgabewahl; ein Schnitt müsste diese Zwischenstände als Parameter durchreichen |
+| `packages/framer-import/src/ir.ts` | 1029 | das gemeinsame Import-Zwischenmodell mit Typen und zugehörigen Schemas: Capture, Normalisierung, Mapper und Berichte teilen diesen Vertrag. Die Datei enthält überwiegend deklarative Strukturen; eine Aufteilung braucht getrennte stabile Importpfade und wird als eigener Schritt geprüft |
 | `packages/mcp/src/tools-referenzen.ts` | 1026 | die 32 Werkzeuge der Referenz- und Design-Arbeit: 24 Referenz, 4 Redesign, 4 Design. Am 26.10.2026 bei 993 Zeilen angelegt, am 01.11.2026 mit `set_design_contract` zu seinem Lese-Paar gewachsen (1 026). Der Block definiert keine lokalen Helfer (gemessen: 0 auf oberster Ebene) - die Groesse ist die Zahl der Werkzeug-Literale; ein Schnitt muesste die drei verwandten Fachgebiete trennen, die dieselben Schemas und Dokument-Arten lesen |
-| `packages/framer-import/src/unframer-ir.ts` | 1022 | der Leser des Unframer-Projekt-XML (ADR-0028): ein toleranter XML-Baum, die Stapel-/Box-/Text-Metadaten und die Ableitung ins Import-IR greifen auf dieselben Tabellen und denselben Elementbaum zu. Ein Schnitt wuerde den Baum und die Zustands-Tabellen als Parameter durchreichen; die Datei ist eine Uebersetzung mit einem Eingang und einem Ausgang |
 
 ## Der laufende Zuschnitt
 

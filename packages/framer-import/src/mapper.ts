@@ -16,7 +16,11 @@ import type {
   EditorDocument,
   EditorNode,
 } from "@senify/editor/state";
-import { sanitizeInlineHtml, sanitizeSvgMarkup, type DeviceValueMap, type StyleRule } from "@senify/widget-engine";
+import { sanitizeInlineHtml, sanitizeSvgMarkup, widgetPrimitive, type DeviceValueMap, type PropValue, type StyleRule } from "@senify/widget-engine";
+import { stepWidgetProps } from "@senify/widget-engine/dom-widgets";
+import { widgetTypeForComponent } from "./widget-mapping.ts";
+export { widgetTypeForCodeComponent, widgetTypeForComponent } from "./widget-mapping.ts";
+import { decodeEntities } from "./capture-html.ts";
 import { brandColorOf } from "./brand-color.ts";
 import { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
 import { devicesContaining } from "./devices.ts";
@@ -210,7 +214,7 @@ function mergeStates(states: IrState[]): MergedState {
 
 const ALL_DEVICES: readonly IrDevice[] = ["desktop", "tablet", "mobile"];
 
-type IrBreakpointMap = Map<string, { minWidth: number; maxWidth: number | null }>;
+export type IrBreakpointMap = Map<string, { minWidth: number; maxWidth: number | null }>;
 
 // The devices a Framer duplicate is visible on. `hiddenAt` names the
 // breakpoints that hide the copy. A copy is visible on the devices that
@@ -224,7 +228,7 @@ type IrBreakpointMap = Map<string, { minWidth: number; maxWidth: number | null }
 // hides itself on tablet and desktop (`1yjwnyq`, `72rtr7`) — the universe
 // method called it visible on mobile AND desktop, so the desktop showed the
 // quote twice and the section grew by the height of the hidden copy.
-function visibleDevicesOf(
+export function visibleDevicesOf(
   hiddenAt: readonly string[],
   universe: ReadonlySet<string>,
   breakpoints: IrBreakpointMap,
@@ -266,7 +270,7 @@ function visibleDevicesOf(
 // base-class token list. Measured in S0 (befund §4/5): the three <header>
 // variants share `framer-dttxA…framer-14hdl1s` and differ only in the
 // `framer-v-<hash>` class.
-function baseSignature(node: IrNode): string {
+export function baseSignature(node: IrNode): string {
   const module = node.kind === "placeholder"
     ? `foreign:${node.componentType ?? node.tag}:${node.codeModule?.path ?? ""}:${node.codeModule?.adapter ?? ""}`
     : node.codeModule === undefined || node.codeModule === null
@@ -280,7 +284,7 @@ function baseSignature(node: IrNode): string {
 // breakpoint, but the inner nodes carry no marker of their own, so the shape
 // is the only proof. A copy with different text or links is a different
 // element for that device and must not be folded (its content would be lost).
-function sameShape(a: IrNode, b: IrNode): boolean {
+export function sameShape(a: IrNode, b: IrNode): boolean {
   if (a.tag !== b.tag || a.kind !== b.kind || a.children.length !== b.children.length) return false;
   if ((a.states[0]?.text?.content ?? "") !== (b.states[0]?.text?.content ?? "")) return false;
   if (a.href !== b.href || (a.assetUrl ?? null) !== (b.assetUrl ?? null)) return false;
@@ -426,13 +430,14 @@ function diffValues(
 
 type Ids = { next: number };
 
-function newId(ids: Ids): string {
+function newId(ids: Ids, prefix: string): string {
   ids.next += 1;
-  return `fi${ids.next}`;
+  return `${prefix}${ids.next}`;
 }
 
 type MapContext = {
   ids: Ids;
+  idPrefix: string;
   nodes: Record<string, EditorNode>;
   classByNode: Map<string, string>;
   nodeIdByIrKey: Record<string, string>;
@@ -445,11 +450,59 @@ type MapContext = {
   mode: NormalizeMode;
   stats: { nodes: number; mergedVariants: number; placeholders: number };
   findings: IrFinding[];
+  // Die Assets des Laufs: Quelladresse -> lokaler Beleg. DOM-Widgets setzen ihre
+  // Bild-Defaults daraus auf `{ assetId, src: localUrl }`; ohne lokalen Beleg
+  // bleibt das Feld leer (kein CSP-blockiertes CDN-Bild).
+  assets: ReadonlyMap<string, { assetId?: string | null; localUrl?: string | null }>;
   // The appear ids of folded elements that became a class INSIDE a container's
   // inline markup (`senify-inline-<id>`). Their reveal has no node of its own,
   // so the compiled rule is attached through that class rather than a node id.
   inlineRevealIds?: Set<string>;
 };
+
+type MapperAssets = ReadonlyMap<string, { assetId?: string | null; localUrl?: string | null }>;
+
+// Eine Bild-Quelladresse wird zum lokalen Beleg. `src` bleibt zusätzlich am
+// Objekt: Der statische Widget-Inhalt (Bake, Vorschau) rendert ihn direkt, der
+// Registry-Renderer löst für den Kern die `assetId` auf.
+function mediaValue(value: unknown, assets: MapperAssets): PropValue {
+  if (typeof value !== "string" || value === "") return "";
+  const asset = assets.get(value);
+  if (asset === undefined) return "";
+  if (asset.assetId !== undefined && asset.assetId !== null) {
+    return asset.localUrl === undefined || asset.localUrl === null
+      ? { assetId: asset.assetId }
+      : { assetId: asset.assetId, src: asset.localUrl };
+  }
+  return asset.localUrl ?? "";
+}
+
+// Die Bild-Defaults eines DOM-Widgets, aufgelöst gegen die Assets des Laufs.
+// Repeater (Bewertungen, soziale Links) behalten ihre Textfelder und bekommen
+// nur die Medienfelder ersetzt.
+function widgetMediaProps(type: string, assets: MapperAssets): Record<string, PropValue> {
+  const definition = widgetPrimitive(type);
+  if (definition?.dom !== true) return {};
+  const out: Record<string, PropValue> = {};
+  for (const control of definition.controls) {
+    if (control.kind === "media") {
+      out[control.key] = mediaValue(control.default, assets);
+      continue;
+    }
+    if (control.kind !== "repeater" || !Array.isArray(control.default)) continue;
+    const mediaFields = (control.fields ?? []).filter((field) => field.kind === "media");
+    if (mediaFields.length === 0) continue;
+    out[control.key] = control.default.map((entry) => {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return entry;
+      const record = { ...(entry as Record<string, PropValue>) };
+      for (const field of mediaFields) {
+        record[field.key] = mediaValue(record[field.key], assets);
+      }
+      return record;
+    });
+  }
+  return out;
+}
 
 function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null): EditorNode | null {
   // The sibling device merge (S1.5): the capture keeps Framer's per-breakpoint
@@ -459,11 +512,68 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
   const siblings = mergeSiblingVariants(node.children, context.breakpoints, foldStats);
   context.stats.mergedVariants += foldStats.merged;
   const merged = mergeStates(node.states);
-  const id = newId(context.ids);
+  const id = newId(context.ids, context.idPrefix);
   // The primitive decision runs AFTER the sibling merge: the merged children
   // decide whether a `list` stays a list or degrades to a frame.
   let primitive = primitiveFor(node, siblings);
-  if (node.kind === "placeholder" && (node.codeModule === undefined || node.codeModule === null)) {
+  // Eine portierte Framer-Komponente wird zum nativen Widget statt zur Platte
+  // oder zum leeren Rahmen: der Inspector bearbeitet sie über die
+  // Katalog-Controls, der Release rendert den gebündelten Kern (ADR-0035,
+  // ADR-0036, ADR-0038). Die Defaults füllt der Markup-Serializer; Step 2
+  // übernimmt die Instanzwerte aus der Projekt-XML.
+  const widgetType =
+    node.kind === "placeholder" || node.kind === "component-instance"
+      ? widgetTypeForComponent(node.componentType)
+      : undefined;
+  if (widgetType !== undefined) {
+    primitive = widgetType;
+    context.findings.push({
+      kind: "code-component",
+      nodeKey: node.key,
+      message: `Framer-Komponente als natives Widget „${widgetType}“ importiert; im Editor bearbeitbar.`,
+      evidence: node.componentType ?? node.tag,
+      severity: "info",
+      suggestion: "Einstellungen im Inspector anpassen; der Kern läuft im Release als Widget-Island.",
+    });
+  }
+  // WaveBackground ist in der Quelle ein fixed Vollbild-Hintergrund (inset:0).
+  // Der Framer-Wrapper trägt davon abweichende Werte (gemessen left:-860px);
+  // gerendert wird die Komponente trotzdem vollflächig. Wir normalisieren die
+  // Box, damit der importierte Hintergrund die Quelle nicht versetzt zeigt.
+  if (widgetType === "wave-background") {
+    merged.base.box = {
+      ...(merged.base.box ?? {}),
+      position: "fixed",
+      width: "100%",
+      height: "100%",
+      inset: { top: "0px", right: "0px", bottom: "0px", left: "0px" },
+    };
+  }
+  // A third-party frame the import cannot embed safely stays an `embed` node,
+  // but without a usable address: the registry renders its visible blocked
+  // placeholder instead of an empty box, and the report names source and
+  // reason. `srcdoc` is a whole foreign document; only https frames load.
+  if (primitive === "embed" && node.embedBlocked !== undefined && node.embedBlocked !== null) {
+    const reason =
+      node.embedBlocked === "srcdoc"
+        ? "Der Rahmen trägt sein Dokument in `srcdoc`; der Inhalt ist ein eigenes Dokument."
+        : node.embedBlocked === "scheme"
+          ? `Die Adresse ${node.embedUrl ?? ""} nutzt kein https.`
+          : "Der Rahmen nennt keine Adresse.";
+    context.findings.push({
+      kind: "embed-blocked",
+      nodeKey: node.key,
+      message: `Externe Einbettung nicht übernommen: ${reason}`,
+      evidence:
+        node.embedBlocked === "srcdoc"
+          ? "iframe[srcdoc]"
+          : `iframe[src="${node.embedUrl ?? ""}"]`,
+      severity: "warn",
+      suggestion:
+        "Im Editor durch einen sicheren https-Embed oder einen Link auf die Quelle ersetzen.",
+    });
+  }
+  if (node.kind === "placeholder" && widgetType === undefined && (node.codeModule === undefined || node.codeModule === null)) {
     context.stats.placeholders += 1;
     context.findings.push({
       kind: "unknown-node",
@@ -474,8 +584,11 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
       suggestion: "Als Island-Payload importieren oder die Stelle manuell nachbauen.",
     });
   }
-  const props: Record<string, unknown> = {};
-  if (node.kind === "placeholder") {
+  const widgetProps =
+    widgetType === "framer-step" ? stepWidgetProps(node.attrs ?? {}) : {};
+  const props: Record<string, unknown> = { ...widgetProps };
+  if (widgetType !== undefined) Object.assign(props, widgetMediaProps(widgetType, context.assets));
+  if (node.kind === "placeholder" && widgetType === undefined) {
     props["label"] = "Platte · Framer-Fremdcode";
     props["alt"] = "Importierte Framer-Komponente ohne verfügbares Modul";
     if (node.assetId !== undefined && node.assetId !== null) props["poster"] = { assetId: node.assetId };
@@ -586,9 +699,33 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
     // containers) stays a link; an <a> wrapping blocks (cards, logos) is a
     // frame — the `link` primitive accepts no children. Nothing is lost (the
     // frame keeps the target and the children), so it is reported as an info.
-    const label = deepTextOf(node) ?? baseText?.content ?? "";
+    //
+    // The full text and the inline markup come from `innerHtml`: the capture
+    // stores the mixed content there and keeps only the marked-up elements as
+    // child nodes. Reading the first child text alone dropped "Hallo" and
+    // "fertig" from `<a>Hallo <strong>Welt</strong> fertig</a>`.
+    const innerHtml = node.innerHtml ?? "";
+    const fullText =
+      innerHtml !== ""
+        ? plainTextOfHtml(innerHtml)
+        : flatTextOf(node) || baseText?.content || "";
+    const markup =
+      innerHtml !== ""
+        ? attachInlineReveals(
+            framerVarsAsCss(
+              withTextTypography(node, sanitizeInlineHtml(innerHtml)),
+              lineHeightFactorOf(node),
+            ),
+            node,
+            context,
+          )
+        : hasElementChildren
+          ? inlineHtmlOf(node, baseText?.content ?? "", context)
+          : "";
+    const html = /<[a-z][^>]*>/i.test(markup) ? markup : "";
     if (hasElementChildren && isTextOnlyLink(node)) {
-      props["label"] = label;
+      props["label"] = fullText;
+      if (html !== "") props["html"] = html;
       if (node.href !== null) props["link"] = { url: node.href, newTab: node.target === "_blank" };
     } else if (hasElementChildren) {
       // A card/logo wrapper: the frame itself becomes the anchor, so the whole
@@ -608,10 +745,18 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
         suggestion: "Link-URL als Fund im Bericht behalten; bei Bedarf als eigenes link-Kind ergänzen.",
       });
     } else {
-      props["label"] = label;
+      props["label"] = fullText;
+      if (html !== "") props["html"] = html;
       if (node.href !== null) props["link"] = { url: node.href, newTab: node.target === "_blank" };
     }
   } else if (primitive === "image") {
+    // A page asset is named by its uploaded id (`download.assetId`); without an
+    // upload the source address stands in its place, which is what the preview
+    // and the source-delivery map expect (`sourceAssetDeliveries` looks the
+    // address up as the key). An address is NOT an id: the release check treats
+    // a URL as a source to fetch, not as a reference to a stored asset — the
+    // distinction keeps one oversized picture (origin home: 40 MB against a
+    // 25 MB upload limit) from stopping the whole publish.
     const assetId = node.assetId ?? node.assetUrl;
     if (assetId !== undefined && assetId !== null) props["asset"] = { assetId };
     props["alt"] = node.alt ?? "";
@@ -620,6 +765,15 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
     // container that lacks the id) the sanitizer has nothing to draw, so the icon
     // keeps its ring instead of an empty box.
     if (node.svg !== null && sanitizeSvgMarkup(node.svg) !== undefined) props["svg"] = node.svg;
+  } else if (primitive === "embed") {
+    // Only a safe https address is handed on; a blocked frame keeps its node
+    // (and therefore its box and title) but no target, so the registry draws
+    // its blocked placeholder instead of loading anything.
+    const blocked = node.embedBlocked !== undefined && node.embedBlocked !== null;
+    if (!blocked && node.embedUrl !== undefined && node.embedUrl !== null && node.embedUrl !== "") {
+      props["url"] = node.embedUrl;
+    }
+    props["title"] = node.embedTitle ?? "Einbettung";
   } else if (primitive === "frame") {
     props["semantic"] = node.tag === "header" || node.tag === "footer" || node.tag === "nav" || node.tag === "section" || node.tag === "main" ? node.tag : "div";
   }
@@ -631,7 +785,10 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
   }
 
   if (primitive === "heading") {
-    props["fontWeight"] = "700";
+    // The `w-heading` rule resets the face (`font: inherit`), so a heading
+    // without an inline weight would lose its default bold. The text style's
+    // weight wins (`Manrope-regular` is 400); without one the old default stays.
+    props["fontWeight"] = baseText?.inline["fontWeight"] ?? "700";
   } else if (primitive === "text") {
     if (node.tag === "strong") props["fontWeight"] = "700";
     if (node.tag === "em") props["fontStyle"] = "italic";
@@ -727,12 +884,29 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
   // --- absolute positioning
   const box = merged.base.box;
   if (box !== null) {
-    if (box.width !== undefined) props["width"] = box.width;
-    if (box.height !== undefined) props["height"] = box.height;
-    if (box.minWidth !== undefined) props["minWidth"] = box.minWidth;
-    if (box.maxWidth !== undefined) props["maxWidth"] = box.maxWidth;
-    if (box.minHeight !== undefined) props["minHeight"] = box.minHeight;
-    if (box.maxHeight !== undefined) props["maxHeight"] = box.maxHeight;
+    // The grid span owns the used width. Framer writes the design-time content
+    // width next to it (Heading: 100px, span 2); keeping that width would leave
+    // the heading in a 100px column although the grid gives it 872px.
+    const columnSpan = Number(/span\s+(\d+)/.exec(String(merged.base.visual["grid-column"] ?? ""))?.[1] ?? "1");
+    // In a horizontal stack `1fr` is an equal share, not a full-width box:
+    // the WarumIch text and image columns would otherwise become 760/380
+    // instead of 570/570. In a vertical stack it fills the column width.
+    const rowShare = parent?.states[0]?.layout?.direction === "horizontal" && box.width === "1fr";
+    if (rowShare) {
+      props["flexGrow"] = "1";
+      props["flexShrink"] = "1";
+      props["flexBasis"] = "0px";
+      props["width"] = "auto";
+      // Without `min-width: 0` the image's min-content width wins and the
+      // equal 1fr columns become 760/380 instead of 590/590.
+      if (props["minWidth"] === undefined) props["minWidth"] = "0px";
+    } else if (columnSpan > 1) props["width"] = "100%";
+    else if (box.width !== undefined) props["width"] = framerLength(box.width);
+    if (box.height !== undefined) props["height"] = framerLength(box.height);
+    if (box.minWidth !== undefined) props["minWidth"] = framerLength(box.minWidth);
+    if (box.maxWidth !== undefined) props["maxWidth"] = framerLength(box.maxWidth);
+    if (box.minHeight !== undefined) props["minHeight"] = framerLength(box.minHeight);
+    if (box.maxHeight !== undefined) props["maxHeight"] = framerLength(box.maxHeight);
     if (box.aspectRatio !== undefined) props["aspectRatio"] = box.aspectRatio;
     // `fixed` and `sticky` are page-level positioning (a pinned overlay, a
     // sticky header) and map like `absolute`; `relative`/`static` are the
@@ -752,8 +926,15 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
   // `body` accepts no children: a rich-text with element children bakes them
   // into the `html` prop instead of mapping child nodes. A heading lifted
   // from its rich-text container owns the container's children the same way.
+  // A `link` renders only its `label`: the element children of a text-only
+  // link are the rich-text wrappers the label already spells out, and mapping
+  // them would leave children no component renders.
   const children: string[] = [];
-  if (primitive !== "body" && !(primitive === "heading" && hasElementChildren)) {
+  if (
+    primitive !== "body" &&
+    primitive !== "link" &&
+    !(primitive === "heading" && hasElementChildren)
+  ) {
     for (const child of siblings) {
       const mapped = mapNode(child, context, node);
       if (mapped !== null) {
@@ -1375,14 +1556,13 @@ function typographyOf(visual: { [key: string]: string | undefined }): { [key: st
   return Object.fromEntries(Object.entries(visual).filter(([property]) => TYPOGRAPHY_PROPERTY.test(property)));
 }
 
-function deepTextOf(node: IrNode): string | null {
-  const own = node.states[0]?.text?.content ?? null;
-  if (own !== null && own !== "") return own;
-  for (const child of node.children) {
-    const inner = deepTextOf(child);
-    if (inner !== null && inner !== "") return inner;
-  }
-  return null;
+function flatTextOf(node: IrNode): string {
+  const own = node.states[0]?.text?.content ?? "";
+  return `${own}${node.children.map(flatTextOf).join("")}`.replace(/\s+/g, " ").trim();
+}
+
+function plainTextOfHtml(html: string): string {
+  return decodeEntities(html.replace(/<[^>]*>/g, "")).replace(/\s+/g, " ").trim();
 }
 
 // A link whose children are only text/rich-text wrappers (no blocks) keeps
@@ -1644,13 +1824,23 @@ export function themePatchOf(
 
 /* ------------------------------------------------------------------ rules */
 
+// A Framer `1fr` is a fill token, not a CSS length. In a stack it means the
+// available width; in a grid the track already sizes the item. Written
+// literally, CSS ignores `width: 1fr` and the item shrinks to its content
+// (measured on fluffy-rectangle: the Hero container became 428px instead of
+// 1440px and the grid columns 100px instead of 424px).
+function framerLength(value: string): string {
+  return value.trim() === "1fr" ? "100%" : value;
+}
+
 const camelStyles = (declarations: Record<string, string>): Record<string, string> =>
   Object.fromEntries(
     Object.entries(declarations)
       .filter(([name, value]) => !isBackgroundReset(name, value))
       .map(([name, value]) => {
         const mapped = cssName(name);
-        return [mapped ?? name, value];
+        const key = mapped ?? name;
+        return [key, key === "width" || key === "height" ? framerLength(value) : value];
       }),
   );
 
@@ -1671,6 +1861,7 @@ function slotStyles(
 function styleRulesOf(
   normalized: NormalizedStyleRule[],
   slots: ReadonlyMap<string, string>,
+  keepBase: boolean,
 ): StyleRule[] {
   return normalized.map((rule, index) => ({
     id: rule.id,
@@ -1689,7 +1880,11 @@ function styleRulesOf(
           ),
         }),
     contextStyles: {},
-    origin: { source: "framer-import", ordinal: index },
+    origin: {
+      source: "framer-import",
+      ordinal: index,
+      ...(keepBase ? { keepBase: true } : {}),
+    },
     authoredBy: "preset" as const,
   }));
 }
@@ -1706,27 +1901,103 @@ function styleRulesOf(
 //
 // They are emitted as an ambient rule because that is exactly what they are:
 // definitions on the page root, attached by selector, owned by no node.
-const TOKEN_VARIABLE = /^--token-[a-f0-9-]{36}$/;
+const TOKEN_ID = /^([a-z0-9_-]+)$/i;
+const TOKEN_VAR_RE = /--token-([a-z0-9_-]+)/gi;
 
-function tokenRootRule(document: FramerIrDocument, order: number): StyleRule | null {
+function tokenVarName(tokenId: string, tokenScope: string | undefined): string | null {
+  if (!TOKEN_ID.test(tokenId)) return null;
+  return tokenScope === undefined ? `--token-${tokenId}` : `--token-${tokenScope}-${tokenId}`;
+}
+
+function scopedTokenText(text: string, tokenScope: string | undefined, tokenIds: ReadonlySet<string>): string {
+  if (tokenScope === undefined || tokenIds.size === 0) return text;
+  return text.replace(TOKEN_VAR_RE, (match, id: string) =>
+    tokenIds.has(id.toLowerCase()) ? `--token-${tokenScope}-${id}` : match,
+  );
+}
+
+function scopedTokenValue(value: unknown, tokenScope: string | undefined, tokenIds: ReadonlySet<string>): unknown {
+  if (typeof value === "string") return scopedTokenText(value, tokenScope, tokenIds);
+  if (Array.isArray(value)) return value.map((entry) => scopedTokenValue(entry, tokenScope, tokenIds));
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) out[key] = scopedTokenValue(entry, tokenScope, tokenIds);
+    return out;
+  }
+  return value;
+}
+
+function scopeTokenRules(
+  rules: StyleRule[],
+  tokenScope: string | undefined,
+  tokenIds: ReadonlySet<string>,
+): void {
+  if (tokenScope === undefined || tokenIds.size === 0) return;
+  const rewriteBag = (bag: DeviceValueMap | undefined): DeviceValueMap | undefined => {
+    if (bag === undefined) return undefined;
+    const out: DeviceValueMap = {};
+    for (const [name, value] of Object.entries(bag)) {
+      out[name] = typeof value === "string" ? scopedTokenText(value, tokenScope, tokenIds) : value;
+    }
+    return out;
+  };
+  for (const rule of rules) {
+    rule.styles = rewriteBag(rule.styles) ?? rule.styles;
+    if (rule.states !== undefined) {
+      for (const [state, bag] of Object.entries(rule.states)) {
+        (rule.states as Record<string, DeviceValueMap>)[state] = rewriteBag(bag) ?? bag;
+      }
+    }
+    if (rule.contextStyles !== undefined) {
+      for (const [context, bag] of Object.entries(rule.contextStyles)) {
+        rule.contextStyles[context] = rewriteBag(bag) ?? bag;
+      }
+    }
+  }
+}
+
+function scopeTokenNodes(
+  nodes: Record<string, EditorNode>,
+  tokenScope: string | undefined,
+  tokenIds: ReadonlySet<string>,
+): void {
+  if (tokenScope === undefined || tokenIds.size === 0) return;
+  for (const node of Object.values(nodes)) {
+    node.props = scopedTokenValue(node.props, tokenScope, tokenIds) as EditorNode["props"];
+  }
+}
+
+function tokenRootRule(
+  document: FramerIrDocument,
+  order: number,
+  tokenScope: string | undefined,
+  tokenIds: Set<string>,
+): StyleRule | null {
   const styles: Record<string, string> = {};
   for (const token of document.styles.colors) {
-    const name = `--token-${token.id}`;
-    if (!TOKEN_VARIABLE.test(name)) continue;
+    const name = tokenVarName(token.id, tokenScope);
+    if (name === null) continue;
+    tokenIds.add(token.id.toLowerCase());
     const value = (token.value ?? "").trim();
     // A definition that is itself a `var()` names another token; it has no
     // colour of its own to write, and the root rule would only re-name it.
     if (value === "" || value.includes("var(")) continue;
-    styles[name] = value;
+    styles[name] = tokenScope === undefined ? value : scopedTokenText(value, tokenScope, tokenIds);
   }
   if (Object.keys(styles).length === 0) return null;
+  // The id follows the page-scope pattern (`fi-<scope>-0`) so a re-import of the
+  // same page replaces its own token definitions instead of stacking them beside
+  // another page's definitions (both used the global id `framer-import-tokens`).
+  const id = tokenScope === undefined ? "framer-import-tokens" : `fi-${tokenScope}-0`;
   return {
-    id: "framer-import-tokens",
+    id,
     name: ":root",
     kind: "ambient",
     selector: ":root",
     order,
-    description: "Farbdefinitionen der Quelle (--token-*)",
+    description: tokenScope === undefined
+      ? "Farbdefinitionen der Quelle (--token-*)"
+      : `Farbdefinitionen der Quelle, seitenbezogen (--token-${tokenScope}-*)`,
     styles,
     contextStyles: {},
     origin: { source: "framer-import", ordinal: order },
@@ -1734,12 +2005,67 @@ function tokenRootRule(document: FramerIrDocument, order: number): StyleRule | n
   };
 }
 
+/* ------------------------------------------------- heading hierarchy */
+
+// The release gate forbids level jumps (h1 → h4 is a hard failure) and
+// recommends h1 as the page's first heading. Framer pages carry the source's
+// own levels: the hero is an h3, sections jump h2 → h4 (measured on Chocolate:
+// 17 hard jump findings over 7 pages). The import normalizes the sequence in
+// document order — first heading h1, no rise of more than one step — across
+// BOTH paths a heading takes: the `level` prop of a heading node and the raw
+// tags inside a body's inline markup. The look stays: the typography sits on
+// the node's attribute selectors, not on the tag (the only h1–h6 tag rule in
+// the build is the preflight reset).
+function normalizeHeadingLevels(
+  nodes: Record<string, EditorNode>,
+  rootId: string,
+): { changed: number; examples: string[] } {
+  let previous = 0;
+  let changed = 0;
+  const examples: string[] = [];
+  const nextLevel = (tag: string): string => {
+    const level = Number(tag.slice(1));
+    const normalized = previous === 0 ? 1 : Math.min(level, previous + 1);
+    previous = normalized;
+    if (normalized !== level) {
+      changed += 1;
+      if (examples.length < 6) examples.push(`${tag}→h${normalized}`);
+    }
+    return `h${normalized}`;
+  };
+  // Headings do not nest: each closing tag belongs to the last opening.
+  const htmlHeadings = (html: string): string => {
+    const stack: string[] = [];
+    return html.replace(/<h([1-6])\b([^>]*)>|<\/h([1-6])\s*>/gi, (_match, open, attrs, close) => {
+      if (close !== undefined) return `</${stack.pop() ?? `h${close}`}>`;
+      const tag = nextLevel(`h${open}`);
+      stack.push(tag);
+      return `<${tag}${attrs}>`;
+    });
+  };
+  const walk = (id: string): void => {
+    const node = nodes[id];
+    if (node === undefined) return;
+    const level = node.props["level"];
+    if (node.primitive === "heading" && typeof level === "string" && HEADING_TAGS.has(level)) {
+      node.props["level"] = nextLevel(level);
+    }
+    const html = node.props["html"];
+    if (typeof html === "string" && /<h[1-6]\b/i.test(html)) {
+      node.props["html"] = htmlHeadings(html);
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(rootId);
+  return { changed, examples };
+}
+
 /* ------------------------------------------------------------------- main */
 
 export function mapDocument(
   document: FramerIrDocument,
   normalized: NormalizedStyleRule[],
-  options: { mode?: NormalizeMode } = {},
+  options: { mode?: NormalizeMode; nodeIdPrefix?: string; tokenScope?: string } = {},
 ): MapperResult {
   // The mode decides what the page's fonts say:
   //  - fidelity: the source's own families. The page is the source's page, and
@@ -1748,9 +2074,12 @@ export function mapDocument(
   //  - dna: the theme's slots. The page joins the site's typography, and a
   //    family the site does not have can no longer fall back to a system
   //    font (which would draw every text differently from the source).
+  const tokenScope = options.tokenScope ?? /^fi-([0-9a-f]{6})-$/.exec(options.nodeIdPrefix ?? "")?.[1];
+  const tokenIds = new Set<string>();
   const slots = (options.mode ?? "dna") === "dna" ? sourceFontsOf(document).slots : new Map<string, string>();
   const context: MapContext = {
     ids: { next: 0 },
+    idPrefix: options.nodeIdPrefix ?? "fi",
     nodes: {},
     classByNode: new Map(normalized.flatMap((rule) => rule.device === "desktop" ? rule.nodeKeys.map((key) => [key, rule.name] as const) : [])),
     breakpoints: new Map(
@@ -1761,6 +2090,7 @@ export function mapDocument(
     stats: { nodes: 0, mergedVariants: 0, placeholders: 0 },
     nodeIdByIrKey: {},
     findings: [...document.findings],
+    assets: new Map(document.assets.map((asset) => [asset.url, asset])),
   };
 
   // In the DNA mode the page names the theme's slots, not the source's
@@ -1797,6 +2127,8 @@ export function mapDocument(
       title: page?.title ?? "Importierte Seite",
       lang: page?.lang ?? "de",
       ...rootProps,
+      ...(document.styles.body?.background === undefined ? {} : { backgroundColor: document.styles.body.background }),
+      ...(document.styles.body?.color === undefined ? {} : { color: document.styles.body.color }),
     },
     children: [],
   };
@@ -1817,6 +2149,19 @@ export function mapDocument(
     root.children = children;
   }
 
+  const headings = normalizeHeadingLevels(context.nodes, "root");
+  if (headings.changed > 0) {
+    context.findings.push({
+      kind: "heading-levels",
+      nodeKey: null,
+      message: `Überschriften-Ebenen normalisiert: ${headings.changed} Korrektur(en), erste Überschrift h1, keine Sprünge.`,
+      evidence: headings.examples.join(", "),
+      severity: "info",
+      suggestion:
+        "Die Ebenen sind semantisch korrigiert (Release-Tor); die Typografie der Knoten bleibt unverändert.",
+    });
+  }
+
   // Smooth-scroll and loop findings ride through (S1.6): they are profile
   // concerns, never silently dropped.
   const hasSmoothScroll = context.findings.some((finding) => finding.kind === "smooth-scroll");
@@ -1831,10 +2176,12 @@ export function mapDocument(
     });
   }
 
-  const rules = styleRulesOf(normalized, context.fontSlots);
+  const rules = styleRulesOf(normalized, context.fontSlots, document.source.kind === "plugin");
   // The source's colour definitions come first: every `var(--token-…)` in the
   // page (and inside an imported SVG) resolves against them.
-  const tokenRule = tokenRootRule(document, 0);
+  const tokenRule = tokenRootRule(document, 0, tokenScope, tokenIds);
+  scopeTokenRules(rules, tokenScope, tokenIds);
+  scopeTokenNodes(context.nodes, tokenScope, tokenIds);
   if (tokenRule !== null) {
     rules.unshift(tokenRule);
     // The later rules keep their ordinal AFTER the token block so the cascade
@@ -1866,6 +2213,15 @@ export function mapDocument(
     if (node === undefined) continue;
     const built = appearStyleRulesOf(rule, rules.length + appearStyleRules.length, context.fontSlots);
     appearStyleRules.push(...built);
+    // The node's own `animation` would override the appear class: class rules
+    // are the weaker authored level (ADR-0031) and the node base is emitted
+    // after them. Framer writes `animation: none` into the source style, so the
+    // imported reveal never played on 74 of 93 nodes (measured 10.11.2026).
+    // The class owns this animation; the node may not compete with it.
+    for (const property of Object.keys(node.props)) {
+      const base = property.replace(/_(?:tablet|mobile)$/, "");
+      if (base === "animation" || base.startsWith("animation")) delete node.props[property];
+    }
     node.classes = [...(node.classes ?? []), ...built.map((entry) => entry.name)];
   }
   if (appearStyleRules.length > 0) {
@@ -1884,9 +2240,37 @@ export function mapDocument(
       nodeKey: null,
       message: finding.reason,
       evidence: finding.appearId,
-      severity: "warn",
-      suggestion: "Ohne Endzustand im Kanal bleibt nur der Startzustand — der Effekt wird nicht nachgebaut.",
+      severity: finding.severity ?? "warn",
+      suggestion:
+        finding.suggestion ??
+        "Ohne Endzustand im Kanal bleibt nur der Startzustand — der Effekt wird nicht nachgebaut.",
     });
+  }
+  // The project XML describes the design canvas (Desktop: 1200px wide,
+  // `position: absolute`, `left: 99px`), not the published page. At 1440px the
+  // source fills the viewport and the document scrolls. Normalize the page
+  // frame once; the class rule's absolute box stays overridden by these inline
+  // props.
+  if (document.source.kind === "plugin") {
+    const pageRoot = context.nodes["root"];
+    const firstId = pageRoot?.children?.[0];
+    const first = firstId === undefined ? undefined : context.nodes[firstId];
+    // Only the project's design-canvas frame (`<Desktop>`, absolutely placed
+    // at 1200px) is normalized. A page XML whose root is a `<Page>` with a
+    // normal section as its first child keeps that section's own box.
+    if (first !== undefined && first.props["position"] === "absolute") {
+      first.props = {
+        ...first.props,
+        position: "relative",
+        left: "0px",
+        top: "0px",
+        width: "100%",
+        maxWidth: "none",
+        height: "auto",
+        minHeight: "100vh",
+        overflow: "hidden",
+      };
+    }
   }
   return {
     document: {
@@ -1943,6 +2327,7 @@ function appearRulesOf(
 ): CompileAppearResult & { nodeIdByAppearId: ReadonlyMap<string, string> } {
   const specs = document.appear ?? [];
   const nodeIdByAppearId = new Map<string, string>();
+  const measuredInlineIds = new Map<string, string>();
   if (specs.length === 0) {
     return { rules: [], findings: [], compiled: 0, nodeIdByAppearId };
   }
@@ -1964,10 +2349,23 @@ function appearRulesOf(
     }
     // A reveal MEASURED on the live page names its target by the IR key the
     // capture stamped on the element (`n4`), not by an appear id — the static
-    // JSON never names a word span. Without this line the measurement reaches
-    // the compiler and is dropped for "no node", which is exactly the effect
-    // that was missing: 67 measured reveals, 0 rules.
-    if (own !== undefined && !nodeIdByAppearId.has(node.key)) nodeIdByAppearId.set(node.key, own);
+    // JSON never names a word span. It resolves like the element's static twin:
+    // a folded element maps to its nearest mapped ancestor. Leaving folded
+    // elements out made 910 measured reveals look lost on Relay although their
+    // static or derived rule was already playing (10.11.2026).
+    if (mapped !== undefined && !nodeIdByAppearId.has(node.key)) nodeIdByAppearId.set(node.key, mapped);
+    // A folded word span gets its own class in the container's markup. Its
+    // measured twin must target that class, not the container, or every word
+    // collapses into one block animation.
+    const revealId = node.derivedAppearId ?? node.appearId;
+    if (
+      own === undefined &&
+      revealId !== null &&
+      revealId !== undefined &&
+      context.inlineRevealIds?.has(revealId) === true
+    ) {
+      measuredInlineIds.set(node.key, revealId);
+    }
     for (const child of node.children) index(child, mapped);
   };
   index(document.pages[0]?.root, undefined);
@@ -1994,8 +2392,22 @@ function appearRulesOf(
   };
   const ordered = [...compiled.rules].sort((a, b) => Number(measuredSpec(b)) - Number(measuredSpec(a)));
   const seen = new Set<string>();
+  const seenInline = new Set<string>();
   const rules: CompiledAppearRule[] = [];
-  const findings = [...compiled.findings];
+  // One warning for all measured reveals whose element is not in the visible
+  // tree. One warning per id turned a single cause into 910 entries on Relay.
+  const orphan = compiled.findings.filter((finding) => finding.reason.includes("keinem Knoten"));
+  const findings = compiled.findings.filter((finding) => !orphan.includes(finding));
+  if (orphan.length > 0) {
+    const sample = orphan.slice(0, 5).map((finding) => finding.appearId).join(", ");
+    findings.push({
+      appearId: "measured-orphans",
+      reason: `${orphan.length} gemessene Einblendung(en) ohne Ziel im sichtbaren Baum (Element entfernt oder in einer nicht übernommenen Kopie; ${sample}${orphan.length > 5 ? ", ..." : ""}). Die statische oder abgeleitete Einblendung bleibt, die gemessene Zeit entfällt.`,
+      severity: "warn",
+      suggestion:
+        "Wenn eines der Elemente sichtbar ist, die Messung am nächsten erhaltenen Knoten prüfen; sonst gehören die IDs zu entfernten Kopien.",
+    });
+  }
   let counted = 0;
   let inline = 0;
   for (const rule of ordered) {
@@ -2004,8 +2416,14 @@ function appearRulesOf(
     // class there (`senify-inline-<id>`). Its rule targets that class directly:
     // falling back to the container would play one block instead of eight
     // staggered words, which is exactly what the source does not do.
-    if (context.inlineRevealIds?.has(appearId) === true) {
-      const name = `senify-inline-${appearId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+    const inlineId =
+      context.inlineRevealIds?.has(appearId) === true ? appearId : measuredInlineIds.get(appearId);
+    if (inlineId !== undefined) {
+      const name = `senify-inline-${inlineId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+      // Measured rules come first (the sort above), so the browser's own timing
+      // wins over the derived 0.6 s default for the same span.
+      if (seenInline.has(name)) continue;
+      seenInline.add(name);
       rules.push({ ...rule, name, id: `${rule.id}-inline` });
       counted += rule.appearIds.length;
       inline += 1;
@@ -2022,13 +2440,17 @@ function appearRulesOf(
     findings.push({
       appearId: "inline",
       reason: `${inline} Wort-Einblendung(en) laufen auf ihrem eigenen <span> im Text (Klasse senify-inline-…), nicht auf dem Container — die Staffelung der Quelle bleibt damit erhalten.`,
+      severity: "info",
+      suggestion: "Die gemessene Zeit gilt für die Inline-Klasse; keine Änderung nötig.",
     });
   }
   const merged = compiled.rules.length - rules.length;
   if (merged > 0) {
     findings.push({
       appearId: rules.map((rule) => rule.appearIds[0] ?? "").find((id) => id !== "") ?? "appear",
-      reason: `${merged} Einblendung(en) teilen sich mit einer anderen ein Zielelement (die Wörter einer Überschrift liegen im selben Knoten) — die erste gilt, die Bewegung bleibt am Element erhalten.`,
+      reason: `${merged} Einblendung(en) teilen sich mit einer anderen ein Zielelement oder eine Inline-Klasse (die Wörter einer Überschrift liegen im selben Knoten) — die erste gilt, die Bewegung bleibt am Element erhalten.`,
+      severity: "info",
+      suggestion: "Die erste Regel trägt die Bewegung; die zusammengefassten IDs brauchen keine eigene Regel.",
     });
   }
   return { rules, findings, compiled: counted, nodeIdByAppearId };

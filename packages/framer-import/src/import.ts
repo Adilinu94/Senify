@@ -16,14 +16,22 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { captureFixture, captureHtml, pageFileOf, type CaptureHtmlInput } from "./capture-html.ts";
 import { mapUnframerProject } from "./unframer-ir.ts";
+import { enrichProjectDocument } from "./project-style-enrichment.ts";
 import {
   captureBrowser,
   type BrowserCaptureResult,
   type CaptureBrowserInput,
 } from "./capture-browser.ts";
 import type { FramerIrDocument, IrDevice, IrFinding, IrNode } from "./ir.ts";
-import { normalize, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
-import { mapDocument, type MapperResult, type ThemePatch } from "./mapper.ts";
+import { normalize, ruleScopeOf, type NormalizeMode, type NormalizeResult } from "./normalize.ts";
+import {
+  baseSignature,
+  mapDocument,
+  visibleDevicesOf,
+  type IrBreakpointMap,
+  type MapperResult,
+  type ThemePatch,
+} from "./mapper.ts";
 import { buildFidelityReport, type FidelityReport } from "./fidelity.ts";
 import { importAssets, type AssetReport, type AssetUploader } from "./assets.ts";
 import { extractPayloads, type ExtractedPayload } from "./payloads.ts";
@@ -33,6 +41,7 @@ import {
   type RuntimeFileLoader,
 } from "./runtime-payload.ts";
 import { mapFramerMotion } from "./motion-mapping.ts";
+import { nearestMappedNodeByIrKey } from "./motion-owner.ts";
 import { discoverPagePaths } from "./link-paths.ts";
 import { siteBreakpointsOf } from "./site-breakpoints.ts";
 
@@ -49,10 +58,22 @@ export type ImportSource =
   // `motion-absent`. `pagePath` is the page's path INSIDE the project (it must
   // match `<Page path>`, else the mapping refuses); the page's target path in
   // Senify is the run's own `pagePath`.
-  | { kind: "project"; projectXml: string; pageXml: string; pagePath: string };
+  | {
+      kind: "project";
+      projectXml: string;
+      pageXml: string;
+      pagePath: string;
+      // Optional published page for typography: the project XML names the
+      // family and weight but carries no colour and no font file. The page is
+      // read for those two only; its structure is ignored (ADR-0028).
+      styleUrl?: string;
+    };
 
 export type RunImportInput = {
   source: ImportSource;
+  // Internal building block for ADR-0032. The public import contract and
+  // persistence are added separately; absence preserves the original path.
+  output?: "original" | "structure";
   // How a URL source is read. Absent means `browser` with a fallback: the page
   // is loaded in Chromium first, because only the loaded page carries content a
   // script builds (the rating stars: 0 SVG static against 5 in the browser,
@@ -210,7 +231,14 @@ export async function fetchLinkedCss(html: string, pageUrl: string): Promise<str
 // the truth for the DEVICES; the browser stays the truth for the measured motion.
 // Nodes are matched by their IR key, which both captures assign in the same
 // pre-order over the same tree.
-export   // The states for the whole tree, matched by Framer's OWN class signature.
+// Framer classes that style an element without naming it (see `signature`).
+const GENERIC_FRAMER_CLASS = /^framer-(?:text|styles-preset-[\w-]+)$/;
+
+function ownClasses(node: { baseClasses?: string[] }): string[] {
+  return (node.baseClasses ?? []).filter((name) => !GENERIC_FRAMER_CLASS.test(name));
+}
+
+// The states for the whole tree, matched by Framer's OWN class signature.
 //
 // The IR key is per-document, and the HTML id exists only on sections — so
 // neither can carry a full merge. The base classes can: they are the source's
@@ -226,7 +254,7 @@ export   // The states for the whole tree, matched by Framer's OWN class signatu
 // class produced, which is the whole point: the product card link resolves
 // `padding: 30px; gap: 10px` at 390 px and `48px / 14px` at 1440 px, from
 // `framer-v-1f9jezn` and `framer-v-kmiuhn` respectively.
-function mergeStatesBySignature(
+export function mergeStatesBySignature(
   browser: FramerIrDocument,
   statik: FramerIrDocument,
   device: Exclude<IrDevice, "desktop">,
@@ -235,6 +263,7 @@ function mergeStatesBySignature(
     tag: string;
     htmlId?: string | null;
     baseClasses?: string[];
+    variantClasses?: string[];
     states: { device: IrDevice; hiddenAt: string[] }[];
     children: SigNode[];
   };
@@ -242,22 +271,54 @@ function mergeStatesBySignature(
   // with different ids are two elements, however equal their classes are. Without
   // it, a section that the other build does not contain could be paired with a
   // neighbour and take over its values.
-  const signature = (node: SigNode): string =>
-    `${node.tag}|${[...(node.baseClasses ?? [])].sort().join("|")}|${node.htmlId ?? ""}`;
+  //
+  // The variant class is part of it for the same reason: Framer components share
+  // their base classes and differ only in `framer-v-<hash>`. Measured on the
+  // Astra `/about` hero: the filled "Get started" button and the outline
+  // "Careers" button carry the same base classes, so the outline button's
+  // transparent background and inset border landed on the hero button: dark
+  // text on the transparent dark hero, the button disappeared.
+  const signature = (node: SigNode, context: string): string => {
+    const own = `${node.tag}|${[...(node.baseClasses ?? [])].sort().join("|")}|${[...(node.variantClasses ?? [])].sort().join("|")}|${node.htmlId ?? ""}`;
+    // An element without a class, a variant or an id has no name of its own:
+    // every such `<div>` shares the bare tag, and the pairing fell back to
+    // document order. Measured on Relay `/`: the portrait wrapper took the
+    // tablet state of a logo card (190 x 70 instead of the parent's aspect
+    // ratio), and one logo card took 330 x 210. The nearest classed ancestor
+    // supplies the missing context; elements with their own tokens keep the
+    // signature that the repeated cards rely on.
+    //
+    // A generic Framer class names no element either: `framer-text` sits on
+    // every paragraph, a `framer-styles-preset-*` on every text of that style.
+    // Measured on Chocolate `/`: 75 `p.framer-text` on desktop, 71 in the tablet
+    // build, five more header texts in front on desktop; the order paired the
+    // hero badge with a foreign paragraph (10 px and its colour instead of
+    // 19.8 px on tablet and phone).
+    const named =
+      ownClasses(node).length > 0 ||
+      (node.variantClasses ?? []).length > 0 ||
+      (node.htmlId ?? null) !== null;
+    return named ? own : `${own}|${context}`;
+  };
+  // The context a child inherits: the nearest ancestor with a class of its own.
+  const contextOf = (node: SigNode, context: string): string => {
+    const classes = ownClasses(node);
+    return classes.length > 0 ? [...classes].sort().join("|") : context;
+  };
   const bySignature = new Map<string, SigNode[]>();
-  const collect = (node: SigNode): void => {
-    const key = signature(node);
+  const collect = (node: SigNode, context: string): void => {
+    const key = signature(node, context);
     const list = bySignature.get(key) ?? [];
     list.push(node);
     bySignature.set(key, list);
-    for (const child of node.children) collect(child);
+    for (const child of node.children) collect(child, contextOf(node, context));
   };
-  collect(statik.pages[0]?.root as SigNode);
+  collect(statik.pages[0]?.root as SigNode, "");
 
   const used = new Map<string, number>();
   let merged = 0;
-  const apply = (node: SigNode): void => {
-    const key = signature(node);
+  const apply = (node: SigNode, context: string): void => {
+    const key = signature(node, context);
     const list = bySignature.get(key);
     const at = used.get(key) ?? 0;
     if (list !== undefined && at < list.length) {
@@ -295,10 +356,18 @@ function mergeStatesBySignature(
         }
       }
     }
-    for (const child of node.children) apply(child);
+    for (const child of node.children) apply(child, contextOf(node, context));
   };
-  apply(browser.pages[0]?.root as SigNode);
+  apply(browser.pages[0]?.root as SigNode, "");
   return merged;
+}
+
+// Two documents describe one page; their asset lists describe two sets of
+// pictures. The union keeps every address the merged page can name.
+function mergeAssets(target: FramerIrDocument, source: FramerIrDocument): void {
+  for (const asset of source.assets) {
+    if (!target.assets.some((entry) => entry.url === asset.url)) target.assets.push(asset);
+  }
 }
 
 export function mergeDeviceVariants(
@@ -448,6 +517,13 @@ export function mergeDeviceVariants(
   if (browser.breakpoints.length === 0 && statik.breakpoints.length > 0) {
     browser.breakpoints = statik.breakpoints;
   }
+  // Every build is its own document, so it collects its own assets: a picture
+  // that only this width uses (a data URL in a device-only style, an image
+  // that only the phone variant names) stands in THIS document's list. Without
+  // the union the merged page keeps the value but the asset pipeline never
+  // sees the address — measured on Relay `/`: two SVG data URLs existed only
+  // in the device builds, stayed in the style and were dropped at bake.
+  mergeAssets(browser, statik);
   // The per-device VALUES for every node, not only the sections: the width, the
   // padding, the font size, and the variant class the width resolved. Without it
   // the baked page uses the desktop variant at every width (measured: the product
@@ -465,6 +541,171 @@ export function mergeDeviceVariants(
     });
   }
   return browser;
+}
+
+// Framer's SSR renders one copy of a component per breakpoint, each hidden on
+// the other two. The browser capture at 1440 px keeps only the desktop copy,
+// and the id-based merge above pairs nodes only by HTML id. Id-less variant
+// wrappers therefore never reached the tree: the desktop navigation stayed
+// visible on every width, and the phone/tablet hero text was missing entirely.
+//
+// This pass walks the SSR tree and the desktop tree side by side and inserts
+// the missing device copies of every id-less sibling group whose copies are
+// disjointly visible. The copies come from the SSR document, so their variant
+// classes travel with them. Groups with an HTML id stay with the id merge.
+export function restoreIdLessDeviceVariants(
+  browser: FramerIrDocument,
+  statik: FramerIrDocument,
+  // The hydrated builds per width: they settle where SSR copies overlap.
+  deviceBuilds: Partial<Record<Exclude<IrDevice, "desktop">, FramerIrDocument>> = {},
+): number {
+  const browserRoot = browser.pages[0]?.root;
+  const staticRoot = statik.pages[0]?.root;
+  if (browserRoot === undefined || staticRoot === undefined) return 0;
+
+  const breakpointMap: IrBreakpointMap = new Map(
+    (browser.breakpoints.length > 0 ? browser.breakpoints : statik.breakpoints).map((entry) => [
+      entry.id,
+      { minWidth: entry.minWidth, maxWidth: entry.maxWidth },
+    ]),
+  );
+  const counterpart = new Map<IrNode, IrNode>();
+  const pairs: { statik: IrNode; browser: IrNode }[] = [];
+  collectPairs(staticRoot, browserRoot, breakpointMap, counterpart, pairs);
+
+  let inserted = 0;
+  const buildTexts = new Map<IrDevice, Set<string>>();
+  for (const [device, build] of Object.entries(deviceBuilds) as [IrDevice, FramerIrDocument | undefined][]) {
+    const root = build?.pages[0]?.root;
+    if (root !== undefined) buildTexts.set(device, leafTextsOf(root));
+  }
+  for (const pair of pairs) {
+    for (const group of deviceVariantGroups(pair.statik, breakpointMap)) {
+      settleOverlaps(group, buildTexts);
+      const desktopCopy = group.find((copy) => copy.visible.includes("desktop"));
+      if (desktopCopy === undefined) continue;
+      const browserDesktop = counterpart.get(desktopCopy.node);
+      if (browserDesktop === undefined) continue;
+      browserDesktop.visibleOn = [...desktopCopy.visible];
+
+      const signature = baseSignature(desktopCopy.node);
+      for (const copy of group) {
+        if (copy === desktopCopy) continue;
+        const devices: IrDevice[] = copy.visible.filter((device) => device !== "desktop");
+        if (devices.length === 0) continue;
+        const existing = pair.browser.children.find(
+          (child) =>
+            child !== browserDesktop &&
+            baseSignature(child) === signature &&
+            (variantVisibility(child, breakpointMap) ?? []).some((device) => devices.includes(device)),
+        );
+        if (existing !== undefined) {
+          existing.visibleOn = [...copy.visible];
+          continue;
+        }
+        const clone = structuredClone(copy.node);
+        clone.visibleOn = [...copy.visible];
+        let at = pair.browser.children.indexOf(browserDesktop);
+        for (const [index, child] of pair.browser.children.entries()) {
+          if (baseSignature(child) === signature) at = index;
+        }
+        pair.browser.children.splice(at + 1, 0, clone);
+        inserted += 1;
+      }
+    }
+  }
+  return inserted;
+}
+
+type DeviceVariantCopy = { node: IrNode; visible: IrDevice[] };
+
+function leafTextsOf(node: IrNode, out = new Set<string>()): Set<string> {
+  for (const state of node.states) {
+    const content = state.text?.content?.trim();
+    if (content !== undefined && content !== "") out.add(content);
+  }
+  for (const child of node.children) leafTextsOf(child, out);
+  return out;
+}
+
+// Framer's SSR can write two copies that BOTH claim a width: measured on
+// Chocolate `/price`, the card heading "Astra Starter" is hidden on tablet only,
+// "Meridian Starter" on desktop only, and below 810 px no rule hides either. The
+// runtime removes one of them; the build showed both and the card grew by 47 px.
+// The hydrated build of that width holds exactly the copy that applies there, so
+// a copy keeps the overlapping width only if its own text is in that build. No
+// build, no distinctive text, or no unique answer: the copies stay as they are.
+function settleOverlaps(group: DeviceVariantCopy[], buildTexts: ReadonlyMap<IrDevice, Set<string>>): void {
+  for (const device of ["tablet", "mobile"] as const) {
+    const texts = buildTexts.get(device);
+    if (texts === undefined) continue;
+    const claimants = group.filter((copy) => copy.visible.includes(device));
+    if (claimants.length < 2) continue;
+    const own = claimants.map((copy) => leafTextsOf(copy.node));
+    const present = claimants.filter((_, index) => {
+      const others = new Set(own.flatMap((set, other) => (other === index ? [] : [...set])));
+      const distinctive = [...(own[index] ?? [])].filter((text) => !others.has(text));
+      return distinctive.some((text) => texts.has(text));
+    });
+    if (present.length === 0 || present.length === claimants.length) continue;
+    for (const copy of claimants) {
+      if (!present.includes(copy)) copy.visible = copy.visible.filter((entry) => entry !== device);
+    }
+  }
+}
+
+function deviceVariantGroups(parent: IrNode, breakpoints: IrBreakpointMap): DeviceVariantCopy[][] {
+  const groups = new Map<string, DeviceVariantCopy[]>();
+  for (const child of parent.children) {
+    if (child.htmlId) continue;
+    const hiddenAt = child.states.find((state) => state.hiddenAt.length > 0)?.hiddenAt ?? [];
+    if (hiddenAt.length === 0) continue;
+    const visible = visibleDevicesOf(hiddenAt, new Set(), breakpoints);
+    if (visible.length === 0) continue;
+    const signature = baseSignature(child);
+    const group = groups.get(signature) ?? [];
+    group.push({ node: child, visible });
+    groups.set(signature, group);
+  }
+  return [...groups.values()].filter(
+    (group) => group.length >= 2 && group.some((copy) => copy.visible.includes("desktop")),
+  );
+}
+
+function variantVisibility(node: IrNode, breakpoints: IrBreakpointMap): IrDevice[] | undefined {
+  if (node.visibleOn !== undefined && node.visibleOn.length > 0 && node.visibleOn.length < 3) {
+    return node.visibleOn;
+  }
+  const hiddenAt = node.states.find((state) => state.hiddenAt.length > 0)?.hiddenAt ?? [];
+  if (hiddenAt.length === 0) return undefined;
+  return visibleDevicesOf(hiddenAt, new Set(), breakpoints);
+}
+
+function collectPairs(
+  staticNode: IrNode,
+  browserNode: IrNode,
+  breakpoints: IrBreakpointMap,
+  counterpart: Map<IrNode, IrNode>,
+  pairs: { statik: IrNode; browser: IrNode }[],
+): void {
+  counterpart.set(staticNode, browserNode);
+  pairs.push({ statik: staticNode, browser: browserNode });
+  const used = new Map<string, number>();
+  for (const staticChild of staticNode.children) {
+    const signature = baseSignature(staticChild);
+    const hiddenAt = staticChild.states.find((state) => state.hiddenAt.length > 0)?.hiddenAt ?? [];
+    if (hiddenAt.length > 0) {
+      const visible = visibleDevicesOf(hiddenAt, new Set(), breakpoints);
+      if (!visible.includes("desktop")) continue;
+    }
+    const occurrence = used.get(signature) ?? 0;
+    used.set(signature, occurrence + 1);
+    const candidates = browserNode.children.filter((child) => baseSignature(child) === signature);
+    const browserChild = candidates[occurrence];
+    if (browserChild !== undefined) {
+      collectPairs(staticChild, browserChild, breakpoints, counterpart, pairs);
+    }
+  }
 }
 
 function mirrorFolders(rootDir: string, pagePath: string): { root: string; pageDir: string } {  return { root: rootDir, pageDir: dirname(resolve(pageFileOf(rootDir, pagePath))) };
@@ -537,6 +778,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       // Each build is read as its OWN document and merged as that device: the
       // values it resolved are the ones its variant class produced, and only that
       // width ever sees them.
+      const deviceBuilds: Partial<Record<"tablet" | "mobile", FramerIrDocument>> = {};
       for (const device of ["tablet", "mobile"] as const) {
         const markup = fromBrowser.deviceMarkup?.[device];
         if (markup === undefined || markup === "") continue;
@@ -545,7 +787,34 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
           url: input.source.url,
           pagePath: input.pagePath ?? "/",
         });
+        // The texts are read before the merge moves phone-only sections over.
+        deviceBuilds[device] = structuredClone(deviceDocument);
         document = mergeDeviceVariants(document, deviceDocument, device);
+      }
+      // The device captures are hydrated and carry only the copy of their own
+      // width. The SSR HTML carries every breakpoint copy, so it is the
+      // document that can say which copy belongs to which width.
+      const staticCss = await fetchLinkedCss(html, input.source.url);
+      const staticDocument = captureHtml({
+        html,
+        url: input.source.url,
+        pagePath: input.pagePath ?? "/",
+        css: staticCss,
+      });
+      const restoredVariants = restoreIdLessDeviceVariants(document, staticDocument, deviceBuilds);
+      // The restored copies bring their own values (and pictures) from the
+      // server HTML; their asset addresses have to reach the merged document.
+      mergeAssets(document, staticDocument);
+      if (restoredVariants > 0) {
+        document.findings.push({
+          kind: "breakpoint-collapse",
+          nodeKey: null,
+          message: `${restoredVariants} id-lose Gerätevariante(n) für Tablet und Telefon ergänzt.`,
+          evidence: "SSR-Varianten mit disjunkter Sichtbarkeit",
+          severity: "info",
+          suggestion:
+            "Ohne die Ergänzung blieben Desktop-Fassungen auf Tablet und Telefon sichtbar oder Gerätefassungen fehlten.",
+        });
       }
       capturePath = "browser";
     } else {
@@ -569,6 +838,59 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
       projectXml: input.source.projectXml,
       pages: [{ path: input.source.pagePath, xml: input.source.pageXml }],
     });
+    // The project XML is the structure, but it has no text colours and no
+    // font files (measured on fluffy-rectangle, 14.11.2026). When the caller
+    // names the published page, read those two from it. A failure only leaves
+    // the typography as the XML delivered it; the structure import still runs.
+    if (input.source.styleUrl !== undefined && input.source.styleUrl !== "") {
+      try {
+        const response = await fetchPublic(input.source.styleUrl, {
+          signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
+          maxBytes: MAX_PAGE_BYTES,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const html = await response.text();
+        const css = await fetchLinkedCss(html, input.source.styleUrl);
+        const stats = enrichProjectDocument(document, {
+          html,
+          css,
+          url: input.source.styleUrl,
+        });
+        if (baseUrl === undefined) baseUrl = new URL(input.source.styleUrl).origin;
+        if (stats.colors > 0 || stats.fonts > 0 || stats.body || stats.images + stats.widgetImages > 0) {
+          document.findings.push({
+            kind: "font-mapping",
+            nodeKey: null,
+            message: `Typografie und Bilder aus der veröffentlichten Seite ergänzt: ${stats.colors} Textfarbe(n), ${stats.fonts} Schriftschnitt(e), ${stats.images + stats.widgetImages} Bild(er)${stats.body ? ", Body-Stil" : ""}. Die Projekt-XML trägt keine Textfarbe, keine Schriftdatei und bei manchen Bildrahmen keine Quelle.`,
+            evidence: input.source.styleUrl,
+            severity: "info",
+            suggestion:
+              "Nur Typografie und fehlende Bildquellen stammen aus der Seite. Struktur, Widgets und Code-Komponenten bleiben aus der Projekt-XML.",
+          });
+        }
+        if (stats.ambiguous > 0) {
+          document.findings.push({
+            kind: "unsupported-declaration",
+            nodeKey: null,
+            message: `${stats.ambiguous} Textknoten haben dieselben Worte mit mehreren Farben in der Quelle; ihre Farbe bleibt ungesetzt statt geraten.`,
+            evidence: input.source.styleUrl,
+            severity: "info",
+            suggestion:
+              "Die betroffenen Textstellen im Editor prüfen oder den Text eindeutig machen, dann erneut importieren.",
+          });
+        }
+      } catch (error) {
+        document.findings.push({
+          kind: "unsupported-declaration",
+          nodeKey: null,
+          message: `Die Stilquelle ${input.source.styleUrl} konnte nicht gelesen werden; Textfarben und Schriftdateien bleiben aus der Projekt-XML.`,
+          evidence: error instanceof Error ? error.message : String(error),
+          severity: "warn",
+          suggestion:
+            "Die veröffentlichte Seite prüfen oder den Import ohne styleUrl wiederholen; die Struktur ist davon nicht betroffen.",
+        });
+      }
+    }
   } else {
     const capture: CaptureHtmlInput = { html: input.source.html, pagePath: input.pagePath ?? "/" };
     if (input.source.url !== undefined) capture.url = input.source.url;
@@ -604,7 +926,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   // cannot express.
   const runtimeFindings: IrFinding[] = [];
   const runtimePayloads: ExtractedPayload[] = [];
-  if (sourceHtml !== null && input.source.kind === "url") {
+  if (input.output !== "structure" && sourceHtml !== null && input.source.kind === "url") {
     const pageUrl = input.source.url;
     const loadFile: RuntimeFileLoader = async (target) => {
       // Only the hosts a Framer site serves its runtime from (ADR-0016: no
@@ -661,7 +983,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
           "Die Seite läuft ohne die Original-Runtime; Animationen, die nur sie trägt, fehlen dann.",
       });
     }
-  } else if (input.source.kind === "mirror") {
+  } else if (input.output !== "structure" && input.source.kind === "mirror") {
     // Der Offline-Import: der Mirror trägt die Runtime-Dateien selbst. Sie
     // kommen **nur** aus dem Mirror (ADR-0016: ein Ordner liefert nur seine
     // eigenen Dateien) — ein Pfad, der ihn verlässt, wird nicht gelesen.
@@ -727,13 +1049,27 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     ...runtimePayloads,
   ];
   const normalized = normalize(document, { mode: input.mode ?? "dna" });
-  const mapped = mapDocument(document, normalized.rules, { mode: input.mode ?? "dna" });
+  // Framer reuses node ids like `fi27` on every page and `--token-*` color
+  // variables with the same token ids but different values per page. The bake
+  // compiles one site-wide stylesheet, so imported pages must not share data
+  // attributes or token custom properties; scope both by the page hash.
+  const pageScope = ruleScopeOf(document.pages[0]?.path ?? "/");
+  const nodeIdPrefix = `fi-${pageScope}-`;
+  const mapped = mapDocument(document, normalized.rules, {
+    mode: input.mode ?? "dna",
+    nodeIdPrefix,
+    tokenScope: pageScope,
+  });
   const motion = mapFramerMotion(
     document,
     input.baseDurationMs === undefined ? {} : { baseDurationMs: input.baseDurationMs },
   );
+  // A motion sample can name a folded node (a word inside a text link). It
+  // still belongs to the page: the nearest mapped ancestor carries it. This
+  // map is separate from `nodeIdByIrKey` so the node mapping stays untouched.
+  const motionTargets = nearestMappedNodeByIrKey(document.pages[0]?.root, mapped.nodeIdByIrKey);
   for (const mapping of motion.mappings) {
-    const editorNodeId = mapping.nodeKey === null ? undefined : mapped.nodeIdByIrKey[mapping.nodeKey];
+    const editorNodeId = mapping.nodeKey === null ? undefined : motionTargets.get(mapping.nodeKey);
     if (editorNodeId === undefined) continue;
     const editorNode = mapped.document.nodes[editorNodeId];
     if (editorNode === undefined) continue;
@@ -770,6 +1106,9 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     // which carries structure and no timing (ADR-0028).
     report.steps[0] =
       "Quelle gelesen (Framer-Projekt-XML; Struktur ohne Zeitsteuerung, die Laufzeitwirkung bleibt beim Browser-Capture)";
+  }
+  if (input.output === "structure") {
+    report.steps.push("Strukturausgabe gewählt; Runtime-Freiheit und vollständige Bearbeitbarkeit sind nicht geprüft.");
   }
   const byNodeKey = new Map(payloads.map((payload) => [payload.nodeKey, payload]));
   for (const node of Object.values(mapped.document.nodes)) {
@@ -810,6 +1149,9 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
   report.editableShare = pagePayload === undefined
     ? { editable: 100, original: 0, nodes: pageNodes }
     : { editable: 0, original: 100, nodes: pageNodes - carrierNodes };
+  // A structural tree can still contain unresolved components or partial
+  // payloads. Do not claim a 100% editable release before those are assessed.
+  if (input.output === "structure") delete report.editableShare;
   if (pagePayload !== undefined) {
     const root = mapped.document.nodes[mapped.document.rootNodeId];
     if (root !== undefined) {
@@ -872,7 +1214,7 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
     assets: assetReport,
     payloads,
     breakpoints: siteBreakpointsOf(document.breakpoints),
-    irHash: irHashOf(document),
+    irHash: input.output === "structure" ? `${irHashOf(document)}:output:structure` : irHashOf(document),
     discoveredPages: discoverPagePaths(
       document.pages[0]?.root ?? ({ children: [], href: null } as never),
       document.pages[0]?.path ?? "/",

@@ -53,8 +53,9 @@ export type CompileAppearResult = {
   rules: CompiledAppearRule[];
   // Appear ids that produced nothing, with the reason. The report shows them
   // instead of dropping them silently (that was finding U5 b: four of eleven
-  // pages lost every effect without a word).
-  findings: { appearId: string; reason: string }[];
+  // pages lost every effect without a word). `severity` separates a real loss
+  // from a handled inline reveal or a shared target.
+  findings: { appearId: string; reason: string; severity?: "info" | "warn"; suggestion?: string }[];
   // How many (id, variant) pairs became a rule.
   compiled: number;
 };
@@ -146,13 +147,32 @@ export function mediaConditionOf(hash: string, breakpoints: readonly IrBreakpoin
 // reveal). `withFilter` makes the frame spell the filter even when it is zero:
 // an animation from `blur(12px)` to `none` interpolates in the browser, but a
 // written `blur(0px)` says the same thing in a way every engine agrees on.
-function frameOf(state: IrAppearState | undefined, isStart: boolean, withFilter = false): string {
+function frameOf(state: IrAppearState | undefined, isStart: boolean, withFilter = false, withTransform = true): string {
   const opacity = state?.opacity;
   const resolved = opacity === undefined ? (isStart ? 0 : 1) : Math.min(1, Math.max(0, opacity));
   const blur = state?.blur;
   const filter =
     blur !== undefined || withFilter ? `;filter:blur(${round(Math.max(0, blur ?? 0))}px)` : "";
-  return `opacity:${round(resolved, 4)};transform:${appearTransform(state)}${filter}`;
+  // A fade-only variant must not write `transform:none`: the keyframe would
+  // override the element's own centring translate for the whole effect.
+  const transform = withTransform ? `;transform:${appearTransform(state)}` : "";
+  return `opacity:${round(resolved, 4)}${transform}${filter}`;
+}
+
+export function hasTransformChannel(state: IrAppearState | undefined): boolean {
+  if (state === undefined) return false;
+  return (
+    state.transformPerspective !== undefined ||
+    state.x !== undefined ||
+    state.y !== undefined ||
+    state.z !== undefined ||
+    state.scale !== undefined ||
+    state.rotate !== undefined ||
+    state.rotateX !== undefined ||
+    state.rotateY !== undefined ||
+    state.skewX !== undefined ||
+    state.skewY !== undefined
+  );
 }
 
 export type CompileAppearInput = {
@@ -180,6 +200,9 @@ export function compileAppearRules(input: CompileAppearInput): CompileAppearResu
         appearId: spec.appearId,
         reason:
           "Die appear-id gehört zu keinem Knoten des Imports (Element gefaltet oder entfernt) — der Effekt entfällt.",
+        severity: "warn",
+        suggestion:
+          "Wenn das Element sichtbar ist, die Einblendung am nächsten erhaltenen Knoten prüfen; sonst gehört die ID zu einer bewusst entfernten Kopie.",
       });
       continue;
     }
@@ -192,7 +215,20 @@ export function compileAppearRules(input: CompileAppearInput): CompileAppearResu
       if (variant === null || variant === undefined) return false;
       const animate = variant.animate;
       if (animate === undefined || animate === null) return false;
-      const name = `senify-appear-${safeId(spec.appearId)}-${safeId(hash)}`;
+      // A measured reveal that ends where it started is not settled: Framer
+      // first pins `opacity:0.001` and the real reveal was cut off in the
+      // probe. Written as the end state, the element would stay invisible for
+      // good (measured on the Astra hero eyebrow, 10.11.2026). Such a variant
+      // gets no rule; the element keeps its resting look instead.
+      const startOpacity = variant.initial?.opacity;
+      const endOpacity = (animate as { opacity?: number }).opacity;
+      if (startOpacity !== undefined && startOpacity <= 0.01 && endOpacity !== undefined && endOpacity <= 0.01) {
+        return false;
+      }
+      // The appear id is the browser's stamp key and starts at the same number
+      // on every page, so the shared stylesheet needs the page scope in the
+      // name: otherwise page two overwrites page one's `@keyframes`.
+      const name = `senify-appear-${safeId(input.scope)}-${safeId(spec.appearId)}-${safeId(hash)}`;
       const transition = (animate as { transition?: IrAppearTransition }).transition;
       const duration = round(appearSettleSeconds(transition), 3);
       const delay = round(Math.max(0, transition?.delay ?? 0), 3);
@@ -200,8 +236,9 @@ export function compileAppearRules(input: CompileAppearInput): CompileAppearResu
       // frames spell it (`blur(0px)` at rest): browsers interpolate a missing
       // filter as `none`, which is not the same as a zero blur to every engine.
       const withFilter = variant.initial?.blur !== undefined || (animate as { blur?: number }).blur !== undefined;
+      const withTransform = hasTransformChannel(variant.initial) || hasTransformChannel(animate);
       keyframes.push(
-        `@keyframes ${name}{from{${frameOf(variant.initial, true, withFilter)}}to{${frameOf(animate, false, withFilter)}}}`,
+        `@keyframes ${name}{from{${frameOf(variant.initial, true, withFilter, withTransform)}}to{${frameOf(animate, false, withFilter, withTransform)}}}`,
       );
       const declaration = `${name} ${duration}s ${easingOf(transition)} ${delay}s both`;
       if (condition === undefined) base["animation"] = declaration;
@@ -253,6 +290,8 @@ export function compileAppearRules(input: CompileAppearInput): CompileAppearResu
       findings.push({
         appearId: spec.appearId,
         reason: "Der Kanal nennt diesen Effekt, aber keinen Endzustand — es gibt nichts zu animieren.",
+        severity: "warn",
+        suggestion: "Den Endzustand im Kanal prüfen; ohne ihn bleibt das Element im Ruhezustand.",
       });
       continue;
     }
@@ -268,16 +307,6 @@ export function compileAppearRules(input: CompileAppearInput): CompileAppearResu
   }
 
   return { rules, findings, compiled };
-}
-
-// The reduced-motion policy for imported reveals: `static`. The element stays
-// visible and still, which is what the WCAG default asks for. Without this an
-// element whose animation a browser refuses to run would stay at `opacity:0` —
-// the reveal would become a blank spot on the page.
-export function appearReducedMotionCss(rules: readonly CompiledAppearRule[]): string {
-  if (rules.length === 0) return "";
-  const selectors = rules.map((rule) => `.${rule.name}`).join(",");
-  return `@media (prefers-reduced-motion: reduce){${selectors}{animation:none!important;opacity:1!important}}`;
 }
 
 // The selector a compiled rule is keyed on. Exported so a test can assert the

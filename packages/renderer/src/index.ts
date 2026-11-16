@@ -64,6 +64,7 @@ export {
 // bake time (no minified three build exists upstream, and the module build
 // pulls a second file). Node-only — the browser paths never import it.
 export { threeVersion, webglVendorCode } from "./webgl-vendor.ts";
+export { widgetFileName, widgetVendorCode } from "./widget-vendor.ts";
 export {
   BREAKPOINTS,
   overridesCss,

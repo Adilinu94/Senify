@@ -58,7 +58,29 @@ function localReference(value: string): string | undefined {
   if (trimmed.startsWith("//")) return undefined;
   const withoutQuery = trimmed.split(/[?#]/, 1)[0] ?? "";
   if (withoutQuery === "") return undefined;
-  return withoutQuery;
+  // The markup carries percent-encoded paths (`/work/dendezeiro%C2%AE`), the
+  // build lays them out as decoded folders. Without decoding, every such link
+  // misses although its page exists.
+  try {
+    return decodeURIComponent(withoutQuery);
+  } catch {
+    return withoutQuery;
+  }
+}
+
+// Where a reference lands in the build. A site path is baked as
+// `<path>/index.html` (`htmlFileFor` in `bake.ts`) and served the same way
+// (`previewFileTarget` in `http-build-files.ts`), so a link to a page is a link
+// to a folder. Comparing the bare path against the file system marked every
+// correct page link as missing — measured on the imported origin home, whose
+// internal `/contact`, `/studio` and `/work` references all resolve to a folder.
+function targetFiles(outDir: string, reference: string): string[] {
+  const base = join(outDir, reference.replace(/^\//, ""));
+  if (!reference.endsWith("/") && existsSync(base) && statSync(base).isDirectory()) {
+    return [join(base, "index.html")];
+  }
+  if (reference.endsWith("/")) return [join(base, "index.html")];
+  return [base];
 }
 
 export function runReleasePreChecks(input: { outDir: string }): ReleaseCheckResult {
@@ -85,22 +107,26 @@ export function runReleasePreChecks(input: { outDir: string }): ReleaseCheckResu
       if (local !== undefined) references.add(local);
     }
     for (const reference of references) {
-      const target = join(input.outDir, reference.replace(/^\//, ""));
-      if (!existsSync(target)) {
-        hard.push(
-          issue(
-            "release-missing-file",
-            "hard",
-            `${page}: Verweis "${reference}" zeigt auf keine Datei des Releases.`,
-          ),
-        );
-      }
+      const targets = targetFiles(input.outDir, reference);
+      if (targets.some((target) => existsSync(target))) continue;
+      hard.push(
+        issue(
+          "release-missing-file",
+          "hard",
+          `${page}: Verweis "${reference}" zeigt auf keine Datei des Releases.`,
+        ),
+      );
     }
 
-    // At least one stylesheet must be linked: without it the page ships
-    // unstyled (the parity gate would catch it, the check names it).
-    if (!/<link[^>]+rel="stylesheet"/i.test(html)) {
-      hard.push(issue("release-no-stylesheet", "hard", `${page}: kein Stylesheet verlinkt.`));
+    // At least one stylesheet must be present: without it the page ships
+    // unstyled (the parity gate would catch it, the check names it). The
+    // preview bake inlines local stylesheets as `<style>` (self-contained
+    // document, no file server) — a non-empty inline block is the same
+    // evidence as a link.
+    const linked = /<link[^>]+rel="stylesheet"/i.test(html);
+    const inline = /<style\b[^>]*>\s*\S[\s\S]*?<\/style>/i.test(html);
+    if (!linked && !inline) {
+      hard.push(issue("release-no-stylesheet", "hard", `${page}: kein Stylesheet vorhanden (weder verlinkt noch inline).`));
     }
 
     // Heading order: no level skips a step. A page that starts below h1 is

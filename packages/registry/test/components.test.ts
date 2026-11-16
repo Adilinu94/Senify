@@ -20,6 +20,36 @@ describe("imported image assets", () => {
   });
 });
 
+describe("widget props", () => {
+  it("resolves repeater media ids to delivery urls before the JSON attribute", () => {
+    const html = renderWithContext(
+      {
+        root: { id: "root", type: "page", props: {}, children: ["w"] },
+        w: {
+          id: "w",
+          type: "ribbon-gallery",
+          props: {
+            images: [
+              { image: "a1" },
+              { image: { assetId: "a2" } },
+              { image: "/media/direct.png" },
+            ],
+          },
+        },
+      },
+      { pagePaths: {}, assets: { a1: "/media/a1.png", a2: "/media/a2.png" } },
+    );
+    expect(html).toContain('src="/media/a1.png"');
+    const encoded = html.match(/data-props="([^"]*)"/)?.[1] ?? "";
+    const props = JSON.parse(encoded.replace(/&quot;/g, '"')) as { images: unknown };
+    expect(props.images).toEqual([
+      { image: "/media/a1.png" },
+      { image: "/media/a2.png" },
+      { image: "/media/direct.png" },
+    ]);
+  });
+});
+
 function render(nodes: Record<string, Node>, rootNodeId = "root"): string {
   return renderToStaticMarkup(
     SectionTree({ rootNodeId, nodes, ctx }),

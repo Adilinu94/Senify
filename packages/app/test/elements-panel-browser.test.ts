@@ -53,7 +53,7 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: true, slowMo: Number(process.env.SENIFY_BROWSER_SLOWMO ?? 0) });
     try {
       expect((await fetch(`${running.dashboardUrl}/editor.js`)).status).toBe(200);
       const site = (await (await post("/api/sites", { name: "Elemente-Panel" })).json()) as { id: string };
@@ -109,12 +109,12 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
         await expect.poll(() => elements.isVisible()).toBe(true);
       };
 
-      // Ohne Auswahl steht links das Elemente-Panel: 22 Kacheln in fuenf
+      // Ohne Auswahl steht links das Elemente-Panel: 28 Kacheln in fuenf
       // Kategorien, alle Symbole gezeichnet; der Inspektor ist weg (E5).
       await expect.poll(() => elements.isVisible()).toBe(true);
       expect(await inspector.isVisible()).toBe(false);
       expect(await tab.locator(".senify-elements__group").count()).toBe(5);
-      expect(await tab.locator(".senify-elements__tile").count()).toBe(22);
+      expect(await tab.locator(".senify-elements__tile").count()).toBe(28);
       const iconBox = await tab.locator(".senify-elements__tile .ic").first().boundingBox();
       expect(iconBox?.width).toBe(20);
 
@@ -127,7 +127,7 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await search.fill("divider");
       await expect.poll(() => tab.locator(".senify-elements__tile").count()).toBe(1);
       await search.press("Escape");
-      await expect.poll(() => tab.locator(".senify-elements__tile").count()).toBe(22);
+      await expect.poll(() => tab.locator(".senify-elements__tile").count()).toBe(28);
 
       // Ein Klick haengt das Element ans Ende der Seite und waehlt es aus (wie in
       // Elementor): die Einstellungen ersetzen das Panel. Suchtext und Panel
@@ -250,7 +250,24 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
         await backToElements();
       }
       const saveButton = tab.locator('[data-action="canvas-save"]');
-      await saveButton.click();
+      // Autosave (400 ms Ruhe, decided 18.09.) kann die Insertionen schon
+      // gespeichert haben, bevor der Klick kommt: unter Last vergehen zwischen
+      // Einfuegen und Klick mehr als 400 ms, der Knopf ist dann gesperrt
+      // (pending 0) und ein Klick wartet vergeblich auf "enabled" (Volllauf
+      // 12.11.2026, 30-s-Timeout). Beide Wege sind korrekt: manueller Flush,
+      // wenn der Knopf aktiv ist, sonst der schon gespeicherte Stand.
+      await expect.poll(async () => {
+        if (await saveButton.isEnabled()) {
+          try {
+            await saveButton.click({ timeout: 2000 });
+            return "flush";
+          } catch {
+            // Autosave war zwischen Pruefung und Klick schneller.
+          }
+        }
+        const status = (await tab.locator('[data-role="canvas-status"]').textContent())?.trim();
+        return status === "Gespeichert" ? "autosave" : "waiting";
+      }, { timeout: 20000 }).toMatch(/^(flush|autosave)$/);
       await expect.poll(async () => (await saveButton.textContent())?.trim()).toBe("Speichern");
       expect(await tab.getByText("nicht speicherbar").count()).toBe(0);
       const stored = (await (await fetch(`${running.dashboardUrl}/api/pages/${page.id}`)).json()) as {
@@ -301,7 +318,7 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: true, slowMo: Number(process.env.SENIFY_BROWSER_SLOWMO ?? 0) });
     try {
       const site = (await (await post("/api/sites", { name: "Sektionen-Panel" })).json()) as { id: string };
       const page = (await (
@@ -377,19 +394,27 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       await hero.waitFor({ timeout: 30000 });
       const saveButton = tab.locator('[data-action="canvas-save"]');
       const save = async (): Promise<void> => {
-        // Erst warten, bis der Knopf WIRKLICH freigeschaltet ist. Der Knopf
-        // ist `disabled`, solange nichts offen ist; ein Klick auf einen
-        // gesperrten Knopf wartet bei Playwright auf "enabled" und laeuft in
-        // seine Grenze.
-        //
-        // Der Fund vom 25.10.2026 (CI, verify-Job): unter Volllast stand dort
-        // "Speichern (1)" UND der Knopf war noch gesperrt - die Anzeige war
-        // also schon aktuell, der Klick aber zu frueh. Lokal nie reproduziert
-        // (15 s statt 33 s), deshalb ist die Ursache nicht bewiesen; der Test
-        // wartet jetzt auf den ZUSTAND statt auf einen Zeitpunkt. Ein Test,
-        // der auf die Uhr wartet, ist unter Last falsch.
-        await expect.poll(async () => saveButton.isEnabled(), { timeout: 30000 }).toBe(true);
-        await saveButton.click();
+        // Der Knopf ist `disabled`, solange nichts offen ist; ein Klick auf
+        // einen gesperrten Knopf wartet bei Playwright auf "enabled" und laeuft
+        // in seine Grenze. Zwei Wettlaeufe unter Last:
+        // 25.10.2026 (CI): Anzeige "Speichern (1)" war schon da, der Knopf aber
+        // noch gesperrt — deshalb auf den ZUSTAND warten, nicht auf die Uhr.
+        // 12.11.2026 (Volllauf): Autosave (400 ms Ruhe) kann die offenen
+        // Aenderungen schon speichern, bevor der Knopf je freigeschaltet wird —
+        // dann wird er nie aktiv. Beide Wege sind korrekt: manueller Flush,
+        // wenn der Knopf aktiv ist, sonst der schon gespeicherte Stand.
+        await expect.poll(async () => {
+          if (await saveButton.isEnabled()) {
+            try {
+              await saveButton.click({ timeout: 2000 });
+              return "flush";
+            } catch {
+              // Autosave war zwischen Pruefung und Klick schneller.
+            }
+          }
+          const status = (await tab.locator('[data-role="canvas-status"]').textContent())?.trim();
+          return status === "Gespeichert" ? "autosave" : "waiting";
+        }, { timeout: 30000 }).toMatch(/^(flush|autosave)$/);
         await expect.poll(async () => (await saveButton.textContent())?.trim()).toBe("Speichern");
       };
       // An inserted section is selected and its settings replace the panel: the
@@ -411,8 +436,10 @@ describe.skipIf(!browserAvailable)("elements panel in a real browser", () => {
       // faellt dann auf das Standardbild zurueck; in beiden Faellen steht ein
       // Bild, keine leere Kachel.
       // Die Route wurde WIRKLICH gefragt (202 oder 200) - das src-Attribut
-      // traegt nach dem Rueckfall auf das Standardbild dessen Pfad.
-      expect(sectionPreviewCalls.length).toBeGreaterThan(0);
+      // traegt nach dem Rueckfall auf das Standardbild dessen Pfad. Die Bilder
+      // fordert der Browser nach dem Rendern der Kacheln an; unter Last kam der
+      // erste Aufruf deshalb nach der Kachel-Zaehlung (CI-Lauf 16.11.2026).
+      await expect.poll(() => sectionPreviewCalls.length).toBeGreaterThan(0);
       expect(sectionPreviewCalls.every((url) => url.includes(`/api/sites/${site.id}/section-preview/`))).toBe(true);
       await expect
         .poll(() => firstImage.evaluate((img) => (img as unknown as { naturalWidth: number }).naturalWidth))

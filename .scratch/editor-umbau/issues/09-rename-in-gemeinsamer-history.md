@@ -3,7 +3,7 @@
 - Status: resolved
 - Prio: P1
 - Erstellt: 2026-11-05
-- Kontext: `.scratch/editor-umbau/review-07.md`, `docs/adr/0016-historische-tokenmigration-bei-umbenennung.md`
+- Kontext: `.scratch/editor-umbau/review-07.md`, `docs/adr/0030-historische-tokenmigration-bei-umbenennung.md`
 
 ## Ziel
 

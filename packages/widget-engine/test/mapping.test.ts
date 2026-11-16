@@ -48,9 +48,20 @@ describe("section mapping", () => {
   });
 
   // `payload` carries imported foreign code (ADR-0010) and has no v1 twin: no
-  // section ever produced one, so no block mapping can name it.
-  it("only leaves the document root and the payload carrier unused by the blocks", () => {
-    expect(unusedPrimitiveTypes()).toEqual(["payload", "root"]);
+  // section ever produced one, so no block mapping can name it. The widgets
+  // (`ribbon-gallery`, `wave-background`, the four DOM widgets) belong to no v1
+  // section, so the block mapping cannot name them either.
+  it("only leaves the document root, the payload carrier and the widgets unused by the blocks", () => {
+    expect(unusedPrimitiveTypes()).toEqual([
+      "payload",
+      "root",
+      "ribbon-gallery",
+      "wave-background",
+      "framer-navbar",
+      "framer-footer",
+      "framer-step",
+      "framer-reviews",
+    ]);
   });
 });
 

@@ -89,3 +89,60 @@
 # abgelaufen, sondern haetten den Scan bis Ende November stillgehalten - auch
 # fuer eine NEUE Advisory auf demselben Paket. Genau davor warnt der Kopf
 # dieser Datei.
+#
+# ---------------------------------------------------------------------------
+# Nachtrag 16.11.2026: neue Meldungen der OSV-Datenbank auf unveraendertem
+# Stand. `origin/master` traegt dieselben Versionen (hono 4.13.11, astro
+# 7.4.2, basic-ftp 5.3.1, extract-zip 2.0.1, minimatch 10.2.6, zod 3.25.76);
+# die Funde entstanden also zwischen dem letzten gruenen Lauf (27.10.2026) und
+# dem 16.11.2026, nicht durch eine Aenderung an diesem Branch.
+#
+# Drei Patch-Fixes sind als Override eingetragen (package.json):
+# `hono` 4.13.16, `@hono/node-server` 2.1.6, `astro` 7.4.7.
+#
+# Vier Pakete brauchen einen eigenen Schritt und stehen deshalb hier, jedes mit
+# Grund und Ablaufdatum (15.12.2026, dann meldet der Scanner sie wieder):
+#
+# - `basic-ftp` 5.3.1: Fix ist 6.2.4, ein Hauptversionssprung. Der Client
+#   haengt am Browser-Werkzeug (Playwright-Download); ein Major-Override
+#   braucht einen eigenen Testlauf.
+# - `minimatch` 10.2.6: Fix ist 11.0.1, ebenfalls ein Hauptversionssprung;
+#   die Kette laeuft ueber den Astro-Build.
+# - `zod` 3.25.76: Fix ist 4.6.6, ein Hauptversionssprung der Schema-API; die
+#   MCP-SDK-Aufrufer sind auf zod 3 geschrieben.
+# - `extract-zip` 2.0.1: der Scanner nennt keinen Fix.
+
+[[IgnoredVulns]]
+id = "GHSA-5pm8-86m8-9m6r"
+ignoreUntil = 2026-12-15
+reason = "basic-ftp 5.3.1: Fix 6.2.4 ist ein Hauptversionssprung (Browser-Werkzeug, eigener Testlauf noetig)."
+
+[[IgnoredVulns]]
+id = "GHSA-c475-qrg2-pj4r"
+ignoreUntil = 2026-12-15
+reason = "basic-ftp 5.3.1: Fix 6.2.4 ist ein Hauptversionssprung (Browser-Werkzeug, eigener Testlauf noetig)."
+
+[[IgnoredVulns]]
+id = "GHSA-r4jh-29pc-gfqr"
+ignoreUntil = 2026-12-15
+reason = "basic-ftp 5.3.1: Fix 6.2.4 ist ein Hauptversionssprung (Browser-Werkzeug, eigener Testlauf noetig)."
+
+[[IgnoredVulns]]
+id = "GHSA-7pqw-9j4j-h8q3"
+ignoreUntil = 2026-12-15
+reason = "extract-zip 2.0.1: der Scanner nennt keinen Fix."
+
+[[IgnoredVulns]]
+id = "GHSA-jmr9-qjv8-65gv"
+ignoreUntil = 2026-12-15
+reason = "extract-zip 2.0.1: der Scanner nennt keinen Fix."
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+ignoreUntil = 2026-12-15
+reason = "minimatch 10.2.6: Fix 11.0.1 ist ein Hauptversionssprung (Astro-Build, eigener Testlauf noetig)."
+
+[[IgnoredVulns]]
+id = "GHSA-mrhx-c7xc-m3w5"
+ignoreUntil = 2026-12-15
+reason = "zod 3.25.76: Fix 4.6.6 ist ein Hauptversionssprung der Schema-API (MCP-SDK nutzt zod 3)."

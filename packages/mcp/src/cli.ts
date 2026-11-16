@@ -392,6 +392,7 @@ export function createProgram(): Command {
       "Wie eine URL-Quelle gelesen wird: ohne Angabe browser mit Rueckfall auf static (ein fehlender Browser meldet sich als Fund), static (nur Server-HTML) oder browser (strikt, Fehler statt Rueckfall)",
     )
     .option("--mode <modus>", "fidelity für Originaltreue oder dna für Design-DNA")
+    .option("--output <ausgabe>", "Ausgabeart: original oder structure")
     .option("--report", "Vollen Bericht als JSON ausgeben")
     .option("--api <url>")
     .action(async (quelle, options) => {
@@ -423,6 +424,7 @@ export function createProgram(): Command {
         ...(options.applyTheme === true ? { applyTheme: true } : {}),
         ...(options.capture === undefined ? {} : { capture: String(options.capture) }),
         ...(options.mode === undefined ? {} : { mode: String(options.mode) }),
+        ...(options.output === undefined ? {} : { output: String(options.output) }),
       };
       const answer = await client.request<{
         job: { id: string; status: string; dryRun: boolean };
@@ -478,6 +480,10 @@ export function createProgram(): Command {
     )
     .option("--project-page <pfad>", "Pfad der Seite im Framer-Projekt", "/")
     .option(
+      "--style-url <url>",
+      "Veroeffentlichte Seite fuer Textfarben und Schriftdateien (optional; die Projekt-XML traegt beides nicht)",
+    )
+    .option(
       "--cms <datei>",
       "Sammlungen als Datei aus getCMSCollections (JSON oder XML, optional)",
     )
@@ -492,6 +498,7 @@ export function createProgram(): Command {
     .option("--page-id <pageId>", "In diese bestehende Seite schreiben statt neue anzulegen")
     .option("--base-draft-version <version>", "Aktuelle Draft-Version der Zielseite")
     .option("--apply-theme", "Theme-Font-Patch mit übernehmen")
+    .option("--output <ausgabe>", "Ausgabeart: original oder structure")
     .option("--report", "Vollen Bericht als JSON ausgeben")
     .option("--api <url>")
     .action(async (options) => {
@@ -539,6 +546,7 @@ export function createProgram(): Command {
             xml: readFileSync(String(options.project), "utf8"),
             pageXml: readFileSync(String(options.page), "utf8"),
             page: String(options.projectPage),
+            ...(options.styleUrl === undefined ? {} : { styleUrl: String(options.styleUrl) }),
             usage: "private",
             ...(options.cms === undefined
               ? {}
@@ -564,6 +572,7 @@ export function createProgram(): Command {
           ? {}
           : { baseDraftVersion: Number.parseInt(String(options.baseDraftVersion), 10) }),
         ...(options.applyTheme === true ? { applyTheme: true } : {}),
+        ...(options.output === undefined ? {} : { output: String(options.output) }),
       };
       const answer = await client.request<{
         job: { id: string; status: string; dryRun: boolean };
@@ -631,8 +640,10 @@ export function createProgram(): Command {
     .requiredOption("--site <siteId>", "Projekt-Id")
     .option("--write", "Seiten neu anlegen; vorhandene Seiten werden nicht überschrieben")
     .option("--source-url <url>", "Veröffentlichte URL für Sitemap und Browser-Capture flacher Unterseiten")
+    .option("--apply-theme", "Theme-Patch der ersten geschriebenen Seite übernehmen")
+    .option("--output <ausgabe>", "Ausgabeart: original oder structure")
     .option("--api <url>", "API-Basis-URL")
-    .action(async (quelle: string, options: { site: string; write?: boolean; api?: string; sourceUrl?: string }) => {
+    .action(async (quelle: string, options: { site: string; write?: boolean; api?: string; sourceUrl?: string; applyTheme?: boolean; output?: string }) => {
       const secret = programTokenSecret();
       if (secret === undefined) throw new SenifyError("validation", "Kein Programm-Token gefunden");
       const client = new EngineClient({ apiUrl: resolveApiUrl(options), token: secret });
@@ -641,6 +652,8 @@ export function createProgram(): Command {
         rootDir: quelle,
         write: options.write === true,
         ...(options.sourceUrl === undefined ? {} : { sourceUrl: options.sourceUrl }),
+        ...(options.applyTheme === true ? { applyTheme: true } : {}),
+        ...(options.output === undefined ? {} : { output: options.output as "original" | "structure" }),
       });
       console.log(JSON.stringify(result, null, 2));
       if (result.status === "blocked" || result.status === "partial") process.exitCode = 1;

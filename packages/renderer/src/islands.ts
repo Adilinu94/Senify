@@ -1,4 +1,5 @@
 import { webglSceneEnabled, type Node, type NodeTree } from "@senify/section-sdk";
+import { isWidgetPrimitive } from "@senify/widget-engine";
 
 export type IslandKind =
   | "menu"
@@ -10,7 +11,8 @@ export type IslandKind =
   | "embed-gate"
   | "modal"
   | "webgl-scene"
-  | "payload";
+  | "payload"
+  | "widget";
 
 export type Hydration =
   | { mode: "static" }
@@ -60,6 +62,10 @@ export function islandsForNode(node: Node): IslandKind[] {
   // the bake read this one table, so the island is linked exactly where a
   // placeholder is rendered.
   if (gatesExternalFrame(node)) add("embed-gate");
+  // Native widgets (Spec 2026-11-12) are vanilla cores shipped with the build:
+  // every widget primitive mounts through the same island, its type picks the
+  // module from the URL map.
+  if (isWidgetPrimitive(node.type)) add("widget");
   switch (node.type) {
     case "navbar":
       add("menu");

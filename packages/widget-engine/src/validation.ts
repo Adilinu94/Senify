@@ -4,7 +4,7 @@ import { getPrimitive, sectionTwinControls } from "./catalog.ts";
 import { matchesValueType } from "./controls.ts";
 import { baseKeyOf } from "./device.ts";
 import { isComponentPrimitive, STRUCTURAL_PROP_KEYS } from "./legacy.ts";
-import { camelToKebab, formatSpacing, isRecord, tokenRef } from "./css/format.ts";
+import { camelToKebab, formatGaps, formatSpacing, isRecord, tokenRef } from "./css/format.ts";
 import { translatableProperties } from "./css/properties.ts";
 import { isSafeCssProperty, parseCssValue } from "./css/value-grammar.ts";
 import type { PrimitiveDefinition } from "./types.ts";
@@ -102,12 +102,13 @@ function assertSafeValue(value: PropValue, field: string): void {
       }
       return;
     }
-    const formatted = formatSpacing(value);
+    const formatted = formatSpacing(value) ?? formatGaps(value);
     const parsed = formatted === undefined ? undefined : parseCssValue(formatted);
     if (parsed === undefined || !parsed.ok) {
       throw new SenifyError("validation", "Unsupported style value shape", {
         field,
-        suggestion: "Use a number, a string, a token reference or a four-side bag.",
+        suggestion:
+          "Use a number, a string, a token reference, a four-side bag or a row/column gap bag.",
       });
     }
     return;

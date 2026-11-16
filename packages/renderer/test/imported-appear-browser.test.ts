@@ -1,9 +1,25 @@
+import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { chromium } from "playwright";
 import { motionConfigsForTree, motionDataFor, renderPageScript } from "@senify/renderer";
 import type { NodeTree } from "@senify/section-sdk";
 
-describe("imported appear playback", () => {
+// Der Windows-Job installiert bewusst keinen Browser; dort ueberspringen die
+// Browser-Suiten sich selbst. Ohne diesen Guard scheiterte genau dieser Test
+// mit "Executable doesn't exist" (Lauf 16.11.2026), waehrend die Nachbardateien
+// still uebersprangen. Im Linux-Job setzt der Workflow
+// `SENIFY_REQUIRE_BROWSER=1`, dort laeuft der Fall.
+const BROWSER_REQUIRED = process.env["SENIFY_REQUIRE_BROWSER"] === "1";
+const browserAvailable = (() => {
+  try {
+    return existsSync(chromium.executablePath());
+  } catch {
+    return false;
+  }
+})();
+const describeBrowser = browserAvailable || BROWSER_REQUIRED ? describe : describe.skip;
+
+describeBrowser("imported appear playback", () => {
   it("matches the source WAAPI curve at multiple times without GSAP", async () => {
     const tween = { from: { opacity: 0.001, x: 0, y: 28, scale: 1 }, to: { opacity: 1, x: 0, y: 0, scale: 1 }, durationMs: 1000, delayMs: 200, easing: [0.22, 1, 0.36, 1] as [number, number, number, number] };
     const tree: NodeTree = { rootNodeId: "root", nodes: { root: { id: "root", type: "page", props: {}, children: ["example"] }, example: { id: "example", type: "frame", props: {}, motion: { preset: "imported-appear", trigger: "load", importedAppear: tween } } } };

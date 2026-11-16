@@ -40,7 +40,7 @@ describe("pseudo states at the rule (O11)", () => {
     expect(css).toContain("opacity: 0.5;");
   });
 
-  it("lets the rule state win over the node state", () => {
+  it("lets the local node state win over the rule state at the same condition", () => {
     const css = compile({
       nodes: [
         {
@@ -58,12 +58,16 @@ describe("pseudo states at the rule (O11)", () => {
         },
       ],
     });
-    const block = css.slice(css.indexOf(`[data-node-id="n1"].cta:hover {`));
-    expect(block).toContain("color: #00ff00;");
-    expect(block.slice(0, block.indexOf("}"))).not.toContain("#111111");
+    const ruleState = css.indexOf(`.cta:hover {`);
+    const nodeState = css.indexOf(`[data-node-id="n1"]:hover {`);
+    expect(ruleState).toBeGreaterThan(-1);
+    expect(nodeState).toBeGreaterThan(ruleState);
+    const block = css.slice(nodeState);
+    expect(block).toContain("color: #111111;");
+    expect(css.slice(ruleState)).toContain("color: #00ff00;");
   });
 
-  it("keeps the node state when the rule has none", () => {
+  it("keeps the node state separate when the rule has none", () => {
     const css = compile({
       nodes: [
         {
@@ -75,8 +79,9 @@ describe("pseudo states at the rule (O11)", () => {
       ],
       classRules: [{ name: "cta", props: { color: "#f00" } }],
     });
-    expect(css).toContain(`[data-node-id="n1"].cta:hover {`);
+    expect(css).toContain(`[data-node-id="n1"]:hover {`);
     expect(css).toContain("color: #111111;");
+    expect(css).not.toContain(`[data-node-id="n1"].cta:hover {`);
   });
 });
 

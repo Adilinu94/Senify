@@ -777,19 +777,38 @@ function attachTokenOptions(
   }
 }
 
+function conditionValues(
+  controls: readonly Control[],
+  node: EditorNode,
+  breakpoint: Device,
+): Record<string, PropValue> {
+  const values: Record<string, PropValue> = {};
+  for (const control of controls) {
+    const stored = resolveDeviceValue(node.props, control.key, breakpoint);
+    values[control.key] = stored === undefined ? control.default : stored;
+  }
+  return values;
+}
+
 function controlToField(
   control: Control,
   node: EditorNode,
   breakpoint: Device,
   theme: Theme | undefined,
+  conditionProps: Readonly<Record<string, PropValue>>,
 ): InspectorField {
-  const value = resolveDeviceValue(node.props, control.key, breakpoint);
+  const kind = kindForControl(control);
+  // A select cannot show "unset": the browser would display its first option
+  // while the renderer uses the catalog default. Only the shown value falls
+  // back; `base` and `overridden` keep describing what the node really stores.
+  const stored = resolveDeviceValue(node.props, control.key, breakpoint);
+  const value = stored === undefined && kind === "select" ? control.default : stored;
   const base = resolveDeviceValue(node.props, control.key, "desktop");
   const responsive = control.responsive !== false;
   const field: InspectorField = {
     key: control.key,
     label: control.label,
-    kind: kindForControl(control),
+    kind,
     commit: { kind: "prop" },
     value,
     base,
@@ -801,7 +820,7 @@ function controlToField(
         )
       : [],
     responsive,
-    hidden: !isControlVisible(control, node.props),
+    hidden: !isControlVisible(control, conditionProps),
     min: control.min,
     max: control.max,
     step: control.step,
@@ -810,7 +829,7 @@ function controlToField(
     alpha: control.alpha === true,
     linkable: control.linkable === true,
     fields: control.fields?.map((nested) =>
-      controlToField(nested, node, breakpoint, theme),
+      controlToField(nested, node, breakpoint, theme, conditionProps),
     ),
     minItems: control.minItems,
     maxItems: control.maxItems,
@@ -850,8 +869,9 @@ function overrideGroups(
       primitive: part.primitive,
       props: { ...part.props, ...partOverrides },
     };
+    const conditionProps = conditionValues(controls, merged, breakpoint);
     const fields = controls.map((control) => {
-      const field = controlToField(control, merged, breakpoint, theme);
+      const field = controlToField(control, merged, breakpoint, theme, conditionProps);
       return markOverride(field, part.id, partOverrides, part.props, breakpoint);
     });
     const name = definition?.name ?? part.primitive;
@@ -1401,8 +1421,9 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
   // parity gate: its controls must write the section's props, not the
   // primitive's (`sectionTwinControls`, widget-engine).
   const controls = sectionTwinControls(node.primitive) ?? definition?.controls ?? [];
+  const conditionProps = conditionValues(controls, node, breakpoint);
   const contentFields = controls.map((control) =>
-    controlToField(control, node, breakpoint, input.theme),
+    controlToField(control, node, breakpoint, input.theme, conditionProps),
   );
   const controlKeys = new Set(controls.map((control) => canonical(control.key)));
   // A section node (hero, features, …) has no catalog controls; its fields come
@@ -1443,13 +1464,33 @@ export function buildInspector(input: BuildInspectorInput): InspectorModel | nul
   const register = variantRegisterGroup(input.document, node);
   const isSetting = (field: InspectorField): boolean => SETTINGS_KEYS.has(canonical(field.key));
   const settingFields = contentFields.filter(isSetting);
+  // Content-Gruppen nach `control.group`; ohne group bleibt die bisherige
+  // Standardgruppe "Inhalt" (id "content/main") erhalten.
+  const contentControlGroups: InspectorGroup[] = [];
+  const groupIndex = new Map<string, InspectorGroup>();
+  controls.forEach((control, i) => {
+    const field = contentFields[i];
+    if (field === undefined || isSetting(field)) return;
+    const label = control.group ?? "Inhalt";
+    let group = groupIndex.get(label);
+    if (group === undefined) {
+      const id =
+        label === "Inhalt"
+          ? "content/main"
+          : `content/${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+      group = { id, label, fields: [] };
+      groupIndex.set(label, group);
+      contentControlGroups.push(group);
+    }
+    group.fields.push(field);
+  });
   const content: InspectorGroup[] = [
     // The layout comes first: pick the variant, then fill in the content.
     ...(sectionVariants === null ? [] : [sectionVariants]),
     ...(sectionGroups.length > 0
       ? sectionGroups
       : [
-          { id: "content/main", label: "Inhalt", fields: contentFields.filter((f) => !isSetting(f)) },
+          ...contentControlGroups,
           // Einstellungen: Tag/Link/ID des Elements plus Sichtbarkeit und Knoten-ID
           // (frueher der Tab "Advanced").
           {

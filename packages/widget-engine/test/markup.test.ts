@@ -162,11 +162,26 @@ describe("widget markup", () => {
       alt: "Haus",
       "data-asset": "img1",
     });
-    expect(spec("image", {}).attrs?.src).toBe("");
+    // No source means no `src` attribute: `src=""` makes the browser request
+    // the page itself and log a warning for every placeholder image.
+    expect(spec("image", {}).attrs?.src).toBeUndefined();
     expect(spec("image", { asset: { assetId: "img2" }, alt: "Motiv" }).attrs).toMatchObject({
       src: "/assets/img2",
       "data-asset": "img2",
     });
+    // An absolute address is the picture itself, not a library id: prefixing it
+    // with `/assets/` built `/assets/https://…`, which 404s (measured on the
+    // origin import, 14.11.2026).
+    const address = spec("image", {
+      asset: { assetId: "https://framerusercontent.com/images/zu-gross.gif" },
+    });
+    expect(address.attrs?.src).toBe("https://framerusercontent.com/images/zu-gross.gif");
+    expect(address.attrs?.["data-asset"]).toBeUndefined();
+    expect(spec("image", { src: "data:image/svg+xml,%3Csvg/%3E", alt: "Icon" }).attrs).toMatchObject({
+      src: "data:image/svg+xml,%3Csvg/%3E",
+      alt: "Icon",
+    });
+    expect(spec("image", { src: "data:image/svg+xml,%3Csvg/%3E" }).attrs?.["data-asset"]).toBeUndefined();
     expect(spec("payload", { poster: { assetId: "poster1" } }).children?.[0]?.attrs?.["data-asset"]).toBe("poster1");
     expect(spec("video", { url: "https://x/y.mp4", muted: true }).tag).toBe("video");
     expect(spec("video", { provider: "youtube", url: "https://y/x" }).tag).toBe("iframe");

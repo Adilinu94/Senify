@@ -11,6 +11,7 @@
 import { SenifyError } from "@senify/core";
 import { stylePropertyFor } from "@senify/registry";
 import { selectNodes } from "./outline.ts";
+import { STYLE_RULE_SCHEMA } from "./tools-schemas.ts";
 import {
   objectSchema,
   optionalNumber,
@@ -150,6 +151,7 @@ export const STYLE_TOOLS: ToolDefinition[] = [
       },
       ["siteId", "pageId", "nodeId", "styles"],
     ),
+    outputSchema: STYLE_RULE_SCHEMA,
     entity: (args) => `page:${String(args.pageId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");
@@ -217,6 +219,7 @@ export const STYLE_TOOLS: ToolDefinition[] = [
       },
       ["siteId", "styles"],
     ),
+    outputSchema: STYLE_RULE_SCHEMA,
     entity: (args) => `site:${String(args.siteId ?? "")}`,
     handler: async (context, args) => {
       const siteId = requireString(args, "siteId");

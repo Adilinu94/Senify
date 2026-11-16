@@ -1,6 +1,7 @@
 import { PAGE_ROOT_TYPE, type NodeTree } from "@senify/section-sdk";
 import { styleVarsFor } from "@senify/registry";
 import {
+  appearReducedMotionCss,
   compileCssReport,
   resolveBreakpoints,
   scopeNameFor,
@@ -183,7 +184,7 @@ export function styleRulesReport(
   }
   const classRules = remapScopedRules(pages, rules)
     .flatMap((rule) => {
-      if (rule.origin?.source !== "framer-import") return [rule];
+      if (rule.origin?.source !== "framer-import" || rule.origin.keepBase === true) return [rule];
       // A definition that attaches by selector and belongs to no node — the
       // source's `:root` colour variables — has no node prop that already
       // carries it, and dropping it loses every `var(--token-…)` on the page.
@@ -215,7 +216,14 @@ export function styleRulesReport(
     { nodes: [...nodes.values()], classRules },
     { breakpoints: resolveBreakpoints(siteBreakpoints) },
   );
-  return { css: report.css, diagnostics: report.diagnostics };
+  // Imported reveals stop under reduced motion and must stay visible. The gate
+  // lives here, next to the compiled class rules, so the bake and the canvas
+  // both get it. It is keyed on the class rule, not on a preset: the effect is
+  // the import's own `senify-appear-*` keyframes.
+  const reducedMotion = appearReducedMotionCss(
+    classRules.map((rule) => ({ name: rule.name, animation: rule.props["animation"] })),
+  );
+  return { css: `${report.css}${reducedMotion}`, diagnostics: report.diagnostics };
 }
 
 // A scoped rule is owned by exactly one node and generated (`createScopedRule`),

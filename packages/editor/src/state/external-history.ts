@@ -127,6 +127,10 @@ export class ExternalHistoryController {
     if (route === null || route.length === 0) return false;
     let changed = false;
     for (const step of route) {
+      // A flush yields control to observers and may add a new edit, discard a
+      // redo branch, or switch the document. Never navigate a different entry
+      // simply because the same direction is still available.
+      if (this.#store.history.navigationEntry(step.direction)?.id !== step.entry.id) return false;
       const external = step.entry.external === true;
       const ok = await this.navigate(step.direction);
       if (!ok) return false; // stopped at last confirmed step

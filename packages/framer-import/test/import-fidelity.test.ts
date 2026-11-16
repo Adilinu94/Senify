@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { captureHtml, mapDocument, normalize, ruleScopeOf } from "../src/index.ts";
 import { expandBox, splitDeclarations, splitSpaces } from "../src/css-util.ts";
+import { sanitizeSvgMarkup } from "../../widget-engine/src/svg-markup.ts";
 
 const page = (body: string, css = "", head = ""): string =>
   `<html lang="en"><head><title>t</title>${head}<style>${css}</style></head><body><div id="main" data-framer-hydrate-v2>${body}</div></body></html>`;
@@ -58,6 +59,22 @@ describe("capture fidelity", () => {
     expect(finding?.message).toContain("/projekt");
   });
 
+  it("does not leave unrendered children on a text-only link", () => {
+    const { nodes } = run(page('<a href="/projekt"><span>Projekt ansehen</span></a>'));
+    const link = nodes.find(
+      (node) => node.primitive === "link" && node.props["label"] === "Projekt ansehen",
+    );
+    expect(link).toBeDefined();
+    expect(link?.children ?? []).toEqual([]);
+  });
+
+  it("behaelt den direkten Text eines Links ohne Elementkinder", () => {
+    const { nodes } = run(page('<a href="/projekt">Projekt ansehen</a>'));
+    const link = nodes.find((node) => node.primitive === "link");
+    expect(link?.props["label"]).toBe("Projekt ansehen");
+    expect(link?.children ?? []).toEqual([]);
+  });
+
   it("keeps image alt text", () => {
     const { nodes } = run(page('<img src="a.png" alt="Logo Acme" width="100" height="50">'));
     expect(nodes.find((node) => node.primitive === "image")?.props["alt"]).toBe("Logo Acme");
@@ -101,6 +118,54 @@ describe("capture fidelity", () => {
     );
     const body = nodes.find((node) => String(node.props["html"] ?? "").includes("Erster"));
     expect(String(body?.props["html"])).toBe("<p>Erster</p><p><br></p><p>Dritter</p>");
+  });
+
+  it("resolves a local Framer SVG template into a sanitized editable icon", () => {
+    const source = page('<svg viewBox="0 0 24 24"><use href="#plus1"></use></svg>') + '<svg id="plus1" viewBox="0 0 24 24"><path d="M 0 0 L 16.5 0"></path></svg>';
+    const { nodes } = run(source);
+    const icon = nodes.find((node) => node.primitive === "icon");
+    const safe = sanitizeSvgMarkup(String(icon?.props["svg"] ?? ""));
+    expect(safe?.html).toContain("path");
+    expect(safe?.html).not.toContain("<use");
+  });
+
+
+  it("keeps an unknown Framer SVG as a sanitized icon", () => {
+    const { nodes } = run(page('<svg viewBox="0 0 24 24" fill="none" style="color:rgb(1,2,3)"><circle cx="12" cy="12" r="9" stroke="currentColor"></circle></svg>'));
+    const icon = nodes.find((node) => node.primitive === "icon");
+    expect(sanitizeSvgMarkup(String(icon?.props["svg"] ?? ""))?.html).toContain("<circle");
+    expect(icon?.props["color"]).toBe("rgb(1,2,3)");
+  });
+
+
+  it("removes executable SVG markup from the rendered graphic", () => {
+    const { nodes } = run(page('<svg viewBox="0 0 24 24"><script>alert(1)</script><path d="M 0 0"></path></svg>'));
+    const icon = nodes.find((node) => node.primitive === "icon");
+    const safe = sanitizeSvgMarkup(String(icon?.props["svg"] ?? ""));
+    expect(safe?.html).toContain("<path");
+    expect(safe?.html).not.toContain("script");
+    expect(safe?.html).not.toContain("alert");
+  });
+
+
+  it("keeps captured Framer color tokens and their source values", () => {
+    const token = "11111111-1111-1111-1111-111111111111";
+    const { mapped, nodes } = run(page(`<div class="x" style="color:var(--token-${token}, rgb(9,9,9))">Hallo</div>`, `:root{--token-${token}: rgb(1, 2, 3)}.x{background-color:var(--token-${token})}`));
+    const rootRule = mapped.document.styleRules.find((rule) => rule.selector === ":root");
+    expect(rootRule?.styles[`--token-${token}`]).toBe("rgb(1, 2, 3)");
+    expect(String(nodes.find((node) => node.props["color"] !== undefined)?.props["color"])).toContain("rgb(1, 2, 3)");
+  });
+
+
+  it("keeps unknown Framer tokens with their fallback", () => {
+    const { mapped } = run(
+      page(
+        '<div class="x">Hallo</div>',
+        '.x{background-color:var(--token-22222222-2222-2222-2222-222222222222, rgb(4, 5, 6))}',
+      ),
+    );
+    const values = mapped.document.styleRules.flatMap((rule) => Object.values(rule.styles)).join("|");
+    expect(values).toContain("var(--token-22222222-2222-2222-2222-222222222222, rgb(4, 5, 6))");
   });
 
   it("keeps the text between inline elements", () => {
@@ -423,6 +488,85 @@ describe("typography through custom properties", () => {
     expect(color).toContain("--token-11111111-2222-3333-4444-555555555555");
     expect(color).toContain("#d7ff6f");
     expect(color).not.toContain("130, 255, 31");
+  });
+
+  it("carries Framer token colors as fallbacks without losing their names", () => {
+    const { document, nodes } = run(page('<p class="fx">Marke</p>', 'body{--token-L6DGm0xys:#fff}.fx{color:var(--token-L6DGm0xys)}'));
+    expect(document.styles.colors).toContainEqual({ id: "L6DGm0xys", name: null, value: "#fff" });
+    expect(String(nodes.find((node) => node.props["text"] === "Marke")?.props["color"])).toContain("#fff");
+  });
+
+  it("carries the Framer body palette onto the root node", () => {
+    const token = "11111111-1111-1111-1111-111111111111";
+    const html = page(
+      '<div data-framer-name="Hero">Hallo</div>',
+      `body{background:var(--token-${token}, #fff);color:var(--token-${token}, #000)}@media (prefers-color-scheme: light){body{--token-${token}: #0f0e0d}}`,
+    );
+    const { document, mapped } = run(html);
+    expect(document.styles.body).toEqual({ background: "#0f0e0d", color: "#0f0e0d" });
+    const root = mapped.document.nodes["root"];
+    expect(root?.props["backgroundColor"]).toBe("#0f0e0d");
+    expect(root?.props["color"]).toBe("#0f0e0d");
+  });
+
+  it("preserves token colours in sanitized editable SVG markup", () => {
+    const token = "11111111-1111-1111-1111-111111111111";
+    const { mapped, nodes } = run(page(`<svg viewBox="0 0 24 24"><path d="M0 0" fill="var(--token-${token}, #000)"></path></svg>`, `:root{--token-${token}: rgb(250, 250, 249)}`));
+    const icon = nodes.find((node) => node.primitive === "icon");
+    const safe = sanitizeSvgMarkup(String(icon?.props["svg"] ?? ""));
+    expect(safe?.html).toContain(`--token-${token}`);
+    expect(mapped.document.styleRules.find((rule) => rule.selector === ":root")?.styles[`--token-${token}`]).toBe("rgb(250, 250, 249)");
+  });
+
+
+  it("resolves Framer color tokens with the light color scheme", () => {
+    const token = "11111111-1111-1111-1111-111111111111";
+    const html = page(
+      '<p class="fx">Marke</p>',
+      `:root{--token-${token}: #ffffff}.fx{color:var(--token-${token}, #000)}@media (prefers-color-scheme: light){:root{--token-${token}: #0f0e0d}}@media (prefers-color-scheme: dark){:root{--token-${token}: #ffffff}}`,
+    );
+    const { document, nodes } = run(html);
+    expect(document.styles.colors).toContainEqual({ id: token, name: null, value: "#0f0e0d" });
+    expect(String(nodes.find((node) => node.props["text"] === "Marke")?.props["color"])).toContain("#0f0e0d");
+  });
+
+  it("applies a Framer mobile media query with unitless zero", () => {
+    const { nodes } = run(page('<p class="fx">Mobil</p>', '.fx{font-size:68px}@media (max-width:809px) and (min-width:0){.fx{font-size:38px}}'));
+    const text = nodes.find((node) => node.props["text"] === "Mobil");
+    expect(text?.props["fontSize"]).toBe("68px");
+    expect(text?.props["fontSize_mobile"]).toBe("38px");
+  });
+
+  it("does not apply an unchecked attribute ancestor to unrelated text", () => {
+    const { nodes } = run(page('<p class="fx">Unrelated</p>', '[data-framer-component-text-autosized] *{white-space:pre}.fx{color:#fff}'));
+    const text = nodes.find((node) => node.props["text"] === "Unrelated");
+    expect(text?.props["color"]).toBe("#fff");
+    expect(text?.props["whiteSpace"]).not.toBe("pre");
+  });
+
+  it("requires every class in a Framer variant ancestor", () => {
+    const html = page('<div class="parent desktop"><div class="nav">Menu</div></div>', '.parent .nav{width:120px}.parent.mobile .nav{width:100%}');
+    const { nodes } = run(html);
+    const nav = nodes.find((node) => node.props["text"] === "Menu");
+    expect(nav?.props["width"]).toBe("120px");
+  });
+
+  it("does not combine classes from separate ancestors into one variant", () => {
+    const html = page('<div class="parent"><div class="mobile"><div class="nav">Menu</div></div></div>', '.parent .nav{width:120px}.parent.mobile .nav{width:100%}');
+    const { nodes } = run(html);
+    expect(nodes.find((node) => node.props["text"] === "Menu")?.props["width"]).toBe("120px");
+  });
+
+  it("matches descendant compounds in their declared ancestor order", () => {
+    const html = page('<div class="inner"><div class="outer"><div class="nav">Menu</div></div></div>', '.nav{width:120px}.outer .inner .nav{width:100%}');
+    const { nodes } = run(html);
+    expect(nodes.find((node) => node.props["text"] === "Menu")?.props["width"]).toBe("120px");
+  });
+
+  it("keeps a background gradient as an image instead of an invalid color", () => {
+    const gradient = "linear-gradient(rgba(10,10,10,.45),rgba(10,10,10,.82))";
+    const { nodes } = run(page('<div class="shade"></div>', `.shade{background:${gradient}}`));
+    expect(nodes.some((node) => node.props["backgroundImage"] === gradient)).toBe(true);
   });
 
   it("gives a lifted heading the typography of the heading, not the container's defaults", () => {

@@ -286,8 +286,8 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     const listed = await session.client.listTools();
     const byName = new Map(listed.tools.map((tool) => [tool.name, tool]));
 
-    // The tools that promise a shape. Only the reading ones: a write's result
-    // is a confirmation whose fields depend on which write it was.
+    // The tools that promise a shape: paginated reads plus the writes whose
+    // result a client has to branch on (ids, versions, deletion).
     for (const name of [
       "list_sites",
       "get_site",
@@ -296,7 +296,26 @@ describe("mcp workflow (Prüfstelle 3)", () => {
       "get_variable_usage",
       "list_assets",
       "list_references",
-    ]) {
+      "list_releases",
+      "list_bake_jobs",
+      "list_entries",
+      "list_image_jobs",
+      "create_site",
+      "create_page",
+      "apply_mutations",
+      "update_theme",
+      "publish_release",
+      "delete_page",
+      "upload_asset",
+      "create_style_rule",
+      "set_styles",
+      "update_asset",
+      "delete_asset",
+      "restore_asset",
+      "create_entry",
+      "update_entry",
+      "undo_batch",
+    ] as const) {
       const schema = byName.get(name)?.outputSchema as
         | { type?: string; required?: string[] }
         | undefined;
@@ -310,14 +329,27 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     const result = await session.client.callTool({ name: "list_sites", arguments: {} });
     expect(result.isError).not.toBe(true);
     const structured = result.structuredContent as
-      | { sites?: { id?: string }[] }
+      | { sites?: { id?: string }[]; page?: { limit: number; offset: number }; total?: number; exactTotal?: boolean; hasMore?: boolean }
       | undefined;
     expect(structured, "list_sites sent no structuredContent").toBeDefined();
     expect(Array.isArray(structured?.sites)).toBe(true);
+    expect(structured?.page).toEqual({ limit: 50, offset: 0 });
+    expect(typeof structured?.total).toBe("number");
+    expect(typeof structured?.exactTotal).toBe("boolean");
+    expect(typeof structured?.hasMore).toBe("boolean");
     for (const site of structured?.sites ?? []) {
       // The very promise the schema makes: an addressable id per entry.
       expect(typeof site.id).toBe("string");
     }
+
+    // A write result is structured too: the created id is what a caller uses
+    // for every following call, so it must not live only in prose.
+    const created = await session.client.callTool({
+      name: "create_site",
+      arguments: { name: "MCP Write Shape" },
+    });
+    expect(created.isError).not.toBe(true);
+    expect(typeof (created.structuredContent as { id?: string }).id).toBe("string");
 
     // A tool WITHOUT a schema must not receive structure: a client could not
     // tell whether the shape is guaranteed.
@@ -327,6 +359,59 @@ describe("mcp workflow (Prüfstelle 3)", () => {
     });
     expect(withoutSchema.isError).not.toBe(true);
     expect(withoutSchema.structuredContent).toBeUndefined();
+  });
+
+  it("führt limit und offset durch die MCP-Listentools", async () => {
+    const siteId = await createSite(env, "MCP Paging");
+    expect((await call(session, "create_page", { siteId, title: "Eins", path: "/eins" })).ok).toBe(true);
+    expect((await call(session, "create_page", { siteId, title: "Zwei", path: "/zwei" })).ok).toBe(true);
+    expect((await call(session, "create_page", { siteId, title: "Drei", path: "/drei" })).ok).toBe(true);
+    const all = await session.client.callTool({
+      name: "list_pages",
+      arguments: { siteId, limit: 200 },
+    });
+    expect(all.isError).not.toBe(true);
+    const total = (all.structuredContent as { total: number }).total;
+    expect(total).toBeGreaterThanOrEqual(3);
+
+    const second = await session.client.callTool({
+      name: "list_pages",
+      arguments: { siteId, limit: 1, offset: 1 },
+    });
+    expect(second.isError).not.toBe(true);
+    expect(second.structuredContent).toMatchObject({
+      page: { limit: 1, offset: 1 },
+      total,
+      exactTotal: true,
+      hasMore: true,
+    });
+    expect((second.structuredContent as { pages: unknown[] }).pages).toHaveLength(1);
+
+    const last = await session.client.callTool({
+      name: "list_pages",
+      arguments: { siteId, limit: 1, offset: total - 1 },
+    });
+    expect(last.isError).not.toBe(true);
+    expect(last.structuredContent).toMatchObject({ hasMore: false });
+    expect((last.structuredContent as { pages: unknown[] }).pages).toHaveLength(1);
+
+    const refused = await session.client.callTool({
+      name: "list_pages",
+      arguments: { siteId, limit: 100000 },
+    });
+    expect(refused.isError).toBe(true);
+  });
+
+  it("liefert strukturierte Paging-Umschläge für alle paginierten Site-Listen", async () => {
+    const siteId = await createSite(env, "MCP Listenformen");
+    for (const [name, key] of [
+      ["list_pages", "pages"], ["list_assets", "assets"], ["list_releases", "releases"],
+      ["list_bake_jobs", "jobs"], ["list_entries", "entries"], ["list_image_jobs", "jobs"],
+    ] as const) {
+      const result = await session.client.callTool({ name, arguments: { siteId, limit: 1, offset: 0 } });
+      expect(result.isError, name).not.toBe(true);
+      expect(result.structuredContent, name).toMatchObject({ [key]: expect.any(Array), page: { limit: 1, offset: 0 }, total: expect.any(Number), exactTotal: expect.any(Boolean), hasMore: expect.any(Boolean) });
+    }
   });
 
   it("sets the full annotation matrix (E4 slice 0)", async () => {

@@ -62,6 +62,11 @@ export type CaptureHtmlInput = {
   // tags. A URL import has no export folder, so without it every class-based
   // style (most of a Framer page) would be missing.
   css?: string;
+  // Framer often swaps its palette under `prefers-color-scheme`. The static
+  // CSS parser has no media evaluator, so resolve the requested scheme here.
+  // The browser capture pins light for deterministic IRs; dark remains an
+  // explicit opt-in for callers that know the source is dark-first.
+  colorScheme?: "light" | "dark";
 };
 
 /* ---------------------------------------------------------------- scanner */
@@ -178,6 +183,50 @@ function transitionPropertiesOf(transition: string): string[] {
   return namen;
 }
 
+// A `will-change:transform` inline style carries the state before a reveal, but
+// not every part of that transform is motion. A percentage translate centres
+// the element in its box and stays at rest; only the rest (scale, rotate, pixel
+// translate) belongs to the effect. Moving the whole string into
+// `appearInitial` put the pulsing dot of Relay `/` four pixels off its centre.
+const PERCENTAGE_TRANSLATE = new Set(["translate", "translateX", "translateY", "translate3d"]);
+
+function splitAppearTransform(transform: string): { layout: string; motion: string } {
+  const layout: string[] = [];
+  const motion: string[] = [];
+  let matched = false;
+  for (const match of transform.matchAll(/([a-zA-Z0-9]+)\(([^()]*)\)/g)) {
+    matched = true;
+    const name = match[1] ?? "";
+    const args = match[2] ?? "";
+    if (PERCENTAGE_TRANSLATE.has(name) && args.includes("%")) layout.push(match[0]);
+    else motion.push(match[0]);
+  }
+  if (!matched) return { layout: "", motion: transform.trim() };
+  return { layout: layout.join(" "), motion: motion.join(" ") };
+}
+
+// A reveal start state: almost transparent and either moving in, coming out
+// of a blur, or marked by `will-change:transform` alone. A deblur is a reveal
+// too (the word arrives in place), and so is the pure fade: Framer writes
+// `will-change:transform;opacity:0;transform:none` for scroll reveals that
+// only fade (measured on Chocolate: 44 elements of that shape, no appear id,
+// the runtime fades them in over ~990 ms). Without the marker as evidence
+// they froze at `opacity:0` for good.
+function isRevealStart(
+  opacity: string | undefined,
+  transform: string | undefined,
+  filter: string | undefined,
+  willChange?: string | undefined,
+): boolean {
+  const value = Number.parseFloat(opacity ?? "");
+  if (!Number.isFinite(value) || value > 0.01) return false;
+  const movement = (transform ?? "").trim();
+  if (movement !== "" && movement !== "none") return true;
+  const blur = Number.parseFloat(/blur\(([\d.]+)px\)/.exec(filter ?? "")?.[1] ?? "0");
+  if (Number.isFinite(blur) && blur > 0.5) return true;
+  return (willChange ?? "").includes("transform");
+}
+
 // The start state of an effect is no look, and the inner markup keeps the raw
 // declarations of the source. The words of a heading would come with
 // `opacity:0.001` and stay invisible for good — the same rule the visual
@@ -191,10 +240,9 @@ function ohneStartzustaende(markup: string): string {
       const paar = parseDeclaration(deklaration);
       if (paar !== null) werte.set(paar[0].toLowerCase(), paar[1]);
     }
-    const opacity = Number.parseFloat(werte.get("opacity") ?? "");
     const transform = (werte.get("transform") ?? "").trim();
     const startzustand =
-      (Number.isFinite(opacity) && opacity <= 0.01 && transform !== "" && transform !== "none") ||
+      isRevealStart(werte.get("opacity"), werte.get("transform"), werte.get("filter"), werte.get("will-change")) ||
       ((werte.get("will-change") ?? "").includes("transform") && transform !== "" && transform !== "none");
     const uebergangen = werte.has("transition") ? transitionPropertiesOf(werte.get("transition") ?? "") : [];
     const behalten = deklarationen.filter((deklaration) => {
@@ -229,7 +277,7 @@ function parseAttrs(raw: string): RawAttr {
   return attrs;
 }
 
-function decodeEntities(value: string): string {
+export function decodeEntities(value: string): string {
   return value
     .replace(/&quot;/g, '"')
     .replace(/&amp;/g, "&")
@@ -792,6 +840,10 @@ function kindFor(raw: RawNode): IrNodeKind {
   }
   if (tag === "img") return "image";
   if (tag === "video") return "video";
+  // A third-party frame is the `embed` primitive, not an empty frame: as a
+  // frame it kept its box and lost its address — measured on Relay `/contact`,
+  // where the Calendly widget disappeared without a finding.
+  if (tag === "iframe") return "embed";
   if (tag === "a") return "link";
   if (tag === "ul" || tag === "ol") return "list";
   if (tag === "h1" || tag === "h2" || tag === "h3" || tag === "h4" || tag === "h5" || tag === "h6") {
@@ -805,6 +857,23 @@ function kindFor(raw: RawNode): IrNodeKind {
 
 function rawHasDirectText(node: RawNode): boolean {
   return node.text !== null && node.text !== "" && node.children.length === 0;
+}
+
+// What a third-party frame carries: its address and accessible title, and
+// whether the import may load it. Only an https address is handed on — the
+// registry's embed refuses everything else and draws a visible placeholder.
+// `srcdoc` is a whole foreign document, not an address, and stays a
+// placeholder with a finding.
+function embedFieldsOf(tag: string, attrs: Record<string, string>): Pick<IrNode, "embedUrl" | "embedTitle" | "embedBlocked"> {
+  if (tag !== "iframe") return {};
+  const title = attrs["title"] !== undefined && attrs["title"] !== "" ? attrs["title"] : null;
+  if (attrs["srcdoc"] !== undefined) {
+    return { embedUrl: null, embedTitle: title, embedBlocked: "srcdoc" };
+  }
+  const src = (attrs["src"] ?? "").trim();
+  if (src === "") return { embedUrl: null, embedTitle: title, embedBlocked: "missing" };
+  if (!/^https:\/\//i.test(src)) return { embedUrl: src, embedTitle: title, embedBlocked: "scheme" };
+  return { embedUrl: src, embedTitle: title, embedBlocked: null };
 }
 
 // The attributes a stylesheet's selectors ask about (`[data-framer-component-type=Text]`):
@@ -840,10 +909,17 @@ type Counter = {
 function symbolsOf(html: string): Map<string, string> {
   const symbols = new Map<string, string>();
   const start = html.indexOf('<div id="svg-templates"');
-  if (start === -1) return symbols;
-  for (const child of scanNodes(html, start, html.length)[0]?.children ?? []) {
-    const id = child.attrs["id"];
-    if (child.tag === "svg" && child.svg !== null && id !== undefined && id !== "") symbols.set(id, child.svg);
+  if (start !== -1) {
+    for (const child of scanNodes(html, start, html.length)[0]?.children ?? []) {
+      const id = child.attrs["id"];
+      if (child.tag === "svg" && child.svg !== null && id !== undefined && id !== "") symbols.set(id, child.svg);
+    }
+  }
+  // Some exports put a named SVG outside the standard template container.
+  // Keep the outer element of the use site so its own palette is retained.
+  for (const match of html.matchAll(/<svg\b([^>]*)>([\s\S]*?)<\/svg\s*>/gi)) {
+    const id = /\bid\s*=\s*["']([A-Za-z0-9_-]+)["']/i.exec(match[1] ?? "")?.[1];
+    if (id !== undefined && !symbols.has(id)) symbols.set(id, match[2] ?? "");
   }
   return symbols;
 }
@@ -986,13 +1062,14 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
   const appearInitial: Record<string, string> = {};
   // Framer writes the same kind of start state for appear effects
   // (`data-framer-appear-id`) and for scroll reveals (`opacity:0` together with
-  // a `translate` that moves the element in). Those are never the intended look
-  // in a static import. A plain `opacity:0` is: the closed menu of a phone
-  // header, a collapsed FAQ answer, a hover overlay stay hidden as designed.
-  const startOpacity = Number.parseFloat(visual["opacity"] ?? "");
+  // a `translate` that moves the element in, or a blur it comes out of). Those
+  // are never the intended look in a static import. A plain `opacity:0` is: the
+  // closed menu of a phone header, a collapsed FAQ answer, a hover overlay
+  // stay hidden as designed.
   const movesIn = visual["transform"] !== undefined && visual["transform"].trim() !== "none";
   const hasStartState =
-    attrs["data-framer-appear-id"] !== undefined || (Number.isFinite(startOpacity) && startOpacity <= 0.01 && movesIn);
+    attrs["data-framer-appear-id"] !== undefined ||
+    isRevealStart(visual["opacity"], visual["transform"], visual["filter"], visual["will-change"]);
   if (hasStartState) {
     for (const property of START_STATE_PROPERTIES) {
       const value = visual[property];
@@ -1008,8 +1085,10 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
   // runtime. Kept as a permanent style, the testimonial quote stays scaled
   // to 60 % (672 px instead of 1125 px) for good.
   if (!hasStartState && movesIn && (visual["will-change"] ?? "").includes("transform")) {
-    appearInitial["transform"] = visual["transform"] as string;
-    delete visual["transform"];
+    const split = splitAppearTransform(visual["transform"] as string);
+    if (split.motion !== "") appearInitial["transform"] = split.motion;
+    if (split.layout !== "") visual["transform"] = split.layout;
+    else delete visual["transform"];
     delete visual["will-change"];
   }
   // The same convention for an effect that animates a property instead of
@@ -1111,6 +1190,7 @@ function toIrNode(raw: RawNode, counter: Counter, inheritedHidden: string[] = []
     ...(attrs["id"] !== undefined && attrs["id"] !== "" ? { htmlId: attrs["id"] } : {}),
     ...(attrs["alt"] !== undefined ? { alt: attrs["alt"] } : {}),
     ...(attrs["target"] !== undefined ? { target: attrs["target"] } : {}),
+    ...embedFieldsOf(raw.tag, attrs),
     ...(raw.innerHtml !== null ? { innerHtml: raw.innerHtml } : {}),
     ...(Object.keys(appearInitial).length > 0 ? { appearInitial } : {}),
     appearId: attrs["data-framer-appear-id"] ?? null,
@@ -1228,9 +1308,125 @@ export function countRuntimePlaceholders(root: IrNode): {
   };
 }
 
+function matchingBrace(text: string, open: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let index = open; index < text.length; index += 1) {
+    const char = text[index]!;
+    if (quote !== null) {
+      if (char === "\\") {
+        index += 1;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+// The static channel has no media-query evaluator. Framer writes the active
+// light/dark overrides as pure `prefers-color-scheme` media blocks; unwrap the
+// selected one and drop the other so tokens, class rules and inline styles all
+// see the same palette. Regular width/support media queries keep their wrapper.
+function applyColorSchemeToStyleBlocks(html: string, scheme: "light" | "dark"): string {
+  return html.replace(
+    /<style([^>]*)>([\s\S]*?)<\/style>/gi,
+    (_match, attributes: string, css: string) => `<style${attributes}>${applyColorScheme(css, scheme)}</style>`,
+  );
+}
+
+function applyColorScheme(css: string, scheme: "light" | "dark"): string {
+  let output = "";
+  let index = 0;
+  while (index < css.length) {
+    const start = css.indexOf("@media", index);
+    if (start < 0) {
+      output += css.slice(index);
+      break;
+    }
+    const open = css.indexOf("{", start);
+    if (open < 0) {
+      output += css.slice(index);
+      break;
+    }
+    const close = matchingBrace(css, open);
+    if (close < 0) {
+      output += css.slice(index);
+      break;
+    }
+    output += css.slice(index, start);
+    const condition = css.slice(start + 6, open).trim();
+    const inner = css.slice(open + 1, close);
+    const terms = condition
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .split(/\s+and\s+/)
+      .map((term) => term.trim().replace(/^\(|\)$/g, ""));
+    const colorTerm = terms.find((term) => term.startsWith("prefers-color-scheme"));
+    if (colorTerm !== undefined) {
+      const others = terms.filter((term) => !term.startsWith("prefers-color-scheme"));
+      if (colorTerm.includes(scheme)) {
+        const resolved = applyColorScheme(inner, scheme);
+        const wrapper = others.map((term) => `(${term})`).join(" and ");
+        output += wrapper === "" ? resolved : `@media ${wrapper} {${resolved}}`;
+      }
+    } else {
+      output += `@media ${condition} {${applyColorScheme(inner, scheme)}}`;
+    }
+    index = close + 1;
+  }
+  return output;
+}
+
+function bodyStyleOf(
+  cssText: string,
+  colors: readonly { id: string; value: string }[],
+): { background?: string; color?: string } | undefined {
+  const vars: Vars = {};
+  for (const token of colors) vars[`--token-${token.id}`] = token.value;
+  // resolveVars deliberately keeps token variables with their fallback so the
+  // theme mapping can see them. Page chrome needs the concrete paint value,
+  // because the body has no theme token of its own.
+  const concrete = (value: string): string => {
+    const match = /^var\(\s*--token-([a-z0-9_-]+)\s*(?:,[\s\S]*)?\)$/i.exec(value.trim());
+    if (match !== null) {
+      const found = colors.find((token) => token.id === match[1]);
+      if (found !== undefined) return found.value;
+    }
+    return resolveVars(value.trim(), vars);
+  };
+  let body: { background?: string; color?: string } | undefined;
+  for (const match of cssText.matchAll(/(?:^|[}\s])(?:html|body)\s*\{([^}]*)\}/gi)) {
+    const declarations = parseDeclarations(match[1] ?? "");
+    const background = declarations["background-color"] ?? declarations["background"];
+    if (background !== undefined) {
+      const resolved = concrete(background);
+      if (!/(?:url|gradient|image)\(/i.test(resolved)) {
+        body ??= {};
+        body.background = resolved;
+      }
+    }
+    if (declarations["color"] !== undefined) {
+      body ??= {};
+      body.color = concrete(declarations["color"]);
+    }
+  }
+  return body;
+}
 
 export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   const html = input.html;
+  const scheme = input.colorScheme ?? "light";
+  const styleHtml = applyColorSchemeToStyleBlocks(html, scheme);
   const findings: IrFinding[] = [];
   const assets: IrAsset[] = [];
   const contentHash = createHash("sha256").update(html).digest("hex").slice(0, 32);
@@ -1303,7 +1499,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     });
   }
 
-  const cssText = `${readAllCss(html, input.rootDir)}\n${input.css ?? ""}`;
+  const cssText = applyColorScheme(`${readAllCss(styleHtml, input.rootDir)}\n${input.css ?? ""}`, scheme);
   const attrNames = attributeNamesIn(cssText);
 
   // --- the element tree under #main
@@ -1364,11 +1560,17 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
 
   // --- styles: tokens, font faces, hidden rules
   const colors: { id: string; name: string | null; value: string }[] = [];
-  for (const match of html.matchAll(/--token-([a-f0-9-]{36}):\s*([^;}]+)/g)) {
+  for (const match of styleHtml.matchAll(/--token-([a-z0-9_-]+):\s*([^;}]+)/gi)) {
     const id = match[1] ?? "";
     const value = (match[2] ?? "").trim();
     if (id === "" || value === "") continue;
-    if (colors.some((entry) => entry.id === id)) continue;
+    const existing = colors.find((entry) => entry.id === id);
+    // The unwrapped color-scheme override sits after the base token; the
+    // cascade's last declaration wins.
+    if (existing !== undefined) {
+      existing.value = value;
+      continue;
+    }
     colors.push({ id, name: null, value });
   }
 
@@ -1461,6 +1663,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   );
   const applied = applyClassRules(root, cssText);
   applyFitTextBoxes(root);
+  const bodyStyle = bodyStyleOf(cssText, colors);
   if (applied.skippedPseudo > 0) {
     findings.push({
       kind: "unsupported-declaration",
@@ -1475,8 +1678,9 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
   // A graphic in a style value, carried as a data URL, cannot become a style
   // value: ADR-0005 keeps `data:image/svg+xml` out of CSS values, because SVG
   // can carry a script. The graphic becomes an asset instead — the asset
-  // pipeline cleans the SVG up and the value names the asset. What is left
-  // over (a data URL the pipeline could not turn into an asset) is reported.
+  // pipeline cleans the SVG up and the value names the asset. The finding
+  // counts the source; a failed takeover stays visible in the asset report and
+  // the build warnings.
   const dataUrlValues = dataUrlValuesOf(root);
   const wertAssets = dataUrlsInValues(root);
   for (const url of wertAssets) {
@@ -1497,11 +1701,11 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
     findings.push({
       kind: "unsupported-declaration",
       nodeKey: null,
-      message: `${dataUrlValues.length} Grafik(en) als Data-URL in einem Stilausdruck wurden nicht übernommen.`,
+      message: `${dataUrlValues.length} Grafik(en) als Data-URL in einem Stilausdruck werden als lokales Asset übernommen; im ausgelieferten CSS steht die Asset-Adresse (ADR-0005).`,
       evidence: dataUrlValues.slice(0, 3).join(", "),
-      severity: "warn",
+      severity: "info",
       suggestion:
-        "Ein Data-URL im Stilausdruck ist aus Sicherheitsgründen nicht zugelassen (ADR-0005). Die Grafik im Editor als Bild einsetzen.",
+        "Nichts zu tun. Schlägt die Übernahme einer Grafik fehl, nennen der Asset-Bericht und die Bau-Warnung die Stelle.",
     });
   }
 
@@ -1648,6 +1852,7 @@ export function captureHtml(input: CaptureHtmlInput): FramerIrDocument {
       colors,
       textPresets: readTextPresets(html, readLinkedCss(html, input.rootDir)),
       fonts,
+      ...(bodyStyle === undefined ? {} : { body: bodyStyle }),
     },
     assets,
     motion: readAppearMotion(html, root),
@@ -1727,7 +1932,8 @@ const DERIVED_STAGGER = 0.05;
 
 // Which elements are a reveal at all. A plain `opacity:0` without a movement is
 // a DESIGNED hidden state (closed menu, collapsed answer, hover overlay) and is
-// never derived.
+// never derived. The `will-change:transform` marker is the exception: it names
+// the pure fade, a reveal without movement (see `isRevealStart`).
 function isDerivedReveal(initial: Record<string, string>): boolean {
   const opacity = Number.parseFloat(initial["opacity"] ?? "1");
   if (!Number.isFinite(opacity) || opacity > 0.01) return false;
@@ -1735,7 +1941,7 @@ function isDerivedReveal(initial: Record<string, string>): boolean {
   const blur = Number.parseFloat(/blur\(([\d.]+)px\)/.exec(initial["filter"] ?? "")?.[1] ?? "0");
   const moves = transform !== "" && transform !== "none";
   // A deblur alone is a reveal too: the word arrives out of focus, in place.
-  return moves || (Number.isFinite(blur) && blur > 0.5);
+  return moves || (Number.isFinite(blur) && blur > 0.5) || (initial["will-change"] ?? "").includes("transform");
 }
 
 // A "Page Loader" is the opposite of a reveal: Framer shows it while the page
@@ -1745,9 +1951,10 @@ function isDerivedReveal(initial: Record<string, string>): boolean {
 // × 900, `z-index: 10`, and the source leaves it at `opacity: 0`; our baked page
 // showed a white splash over the hero.
 //
-// The tell is its own name: Framer labels the element `Page Loader`. A start
-// state that carries the word is not a reveal.
-const LOADER_NAME = /page[\s_-]*loader|loader|splash/i;
+// The tell is its own name: Framer labels the element `Page Loader`, the
+// published Origin page labels its overlay `Preloader (Show Once content)`.
+// A start state that carries one of these words is not a reveal.
+const LOADER_NAME = /page[\s_-]*loader|preloader|loader|splash|intro|curtain/i;
 
 function isLoader(node: IrNode): boolean {
   const name = node.name ?? "";
@@ -2524,7 +2731,7 @@ function ruleMatches(
   node: IrNode,
   rule: CompiledRule,
   own: ReadonlySet<string>,
-  ancestors: ReadonlySet<string>,
+  ancestors: readonly ReadonlySet<string>[],
 ): boolean {
   if (node.tag === "root") {
     if (rule.root) return true;
@@ -2543,7 +2750,22 @@ function ruleMatches(
   // down. The rule of a phone variant, `.framer-C.framer-v-phone .framer-part`,
   // reaches the parts of the phone copy only; `[data-x=y] div` the divs below an
   // element with that attribute, not every div of the page.
-  return rule.ancestors.every((compound) => tagHolds(compound, ancestors) && simpleHolds(compound, ancestors));
+  let index = ancestors.length - 1;
+  for (let part = rule.ancestors.length - 1; part >= 0; part -= 1) {
+    const compound = rule.ancestors[part];
+    if (compound === undefined) return false;
+    let found = false;
+    while (index >= 0) {
+      const candidate = ancestors[index];
+      index -= 1;
+      if (candidate !== undefined && tagHolds(compound, candidate) && simpleHolds(compound, candidate)) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
+  }
+  return true;
 }
 
 // The rules that apply to an element, in no particular order: the caller sorts
@@ -2552,7 +2774,7 @@ function matchingRules(
   index: RuleIndex,
   node: IrNode,
   own: ReadonlySet<string>,
-  ancestors: ReadonlySet<string>,
+  ancestors: readonly ReadonlySet<string>[],
 ): CompiledRule[] {
   const candidates = new Set<CompiledRule>(index.generic);
   for (const name of classesOf(node)) {
@@ -2610,7 +2832,7 @@ function cascade(classValues: readonly Record<string, string>[], inline: IrVisua
 
 // The name of a Framer theme token: `--token-` plus a UUID. Only these are
 // theme tokens; every other custom property keeps its name.
-const TOKEN_NAME = /^--token-[a-f0-9-]{36}$/;
+const TOKEN_NAME = /^--token-[a-z0-9_-]+$/i;
 
 // The definitions of the `--token-*` variables in a list of rules: what the
 // browser resolves `var(--token-x, fallback)` to. A value that is itself a
@@ -2653,7 +2875,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
   //
   // A definition in a media block is the one the browser shows at that width,
   // so it stands for the base definition on the devices the block reaches.
-  const baseTokens = tokenDefinitionsOf(parsed.rules, "erste");
+  const baseTokens = tokenDefinitionsOf(parsed.rules, "letzte");
   const tokensByDevice = {} as VarsByDevice;
   for (const device of DEVICES) {
     const mediaTokens = tokenDefinitionsOf(
@@ -2663,7 +2885,7 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
     tokensByDevice[device] = { ...baseTokens, ...mediaTokens };
   }
 
-  const visit = (current: IrNode, ancestors: ReadonlySet<string>, inherited: VarsByDevice, inheritedWhiteSpace?: string): void => {
+  const visit = (current: IrNode, ancestors: readonly ReadonlySet<string>[], inherited: VarsByDevice, inheritedWhiteSpace?: string): void => {
     const baseState = current.states[0];
     if (baseState === undefined) return;
     // The cascade: stylesheet rules first, the element's own inline style wins.
@@ -2791,11 +3013,11 @@ function applyClassRules(root: IrNode, css: string): { skippedPseudo: number } {
         visual: values,
       });
     }
-    const offered = new Set([...ancestors, ...ownTokens]);
+    const offered = [...ancestors, ownTokens];
     for (const child of current.children) visit(child, offered, varsByDevice, whiteSpace);
   };
   // Above the page element sit `html` and `body`; the page element is `#main`.
-  visit(root, new Set(["tag:html", "tag:body"]), tokensByDevice);
+  visit(root, [new Set(["tag:html"]), new Set(["tag:body"])], tokensByDevice);
   return { skippedPseudo };
 }
 

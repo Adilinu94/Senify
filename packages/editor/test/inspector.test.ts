@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createRegistry } from "@senify/registry";
 import { defaultTheme } from "@senify/tokens";
-import { createClassRule, createScopedRule } from "@senify/widget-engine";
+import {
+  createClassRule,
+  createScopedRule,
+  PRIMITIVES,
+  type PrimitiveDefinition,
+} from "@senify/widget-engine";
 import { buildInspector, motionSpecFrom, numberPart, tokenRefOf, unitOfValue } from "@senify/editor";
 import {
   createComponent,
@@ -9,6 +14,56 @@ import {
   setComponentVariants,
 } from "@senify/editor/state";
 import { baseStore } from "./state/fixtures.ts";
+
+// Task 1 (Control-Gruppen): der Katalog hat noch kein gruppiertes Primitive
+// (das kommt mit Task 3). Deshalb liefert dieses Mock nur für die beiden
+// Fixture-Typen ein zusätzliches Primitive; alles andere bleibt die echte
+// Implementierung, damit die übrigen Tests dieser Datei unverändert laufen.
+// Das Muster folgt packages/framer-import/test/runtime-payload-url-mode.test.ts.
+vi.mock("@senify/widget-engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@senify/widget-engine")>();
+  const fixtures: PrimitiveDefinition[] = [
+    {
+      type: "fixture-gruppen",
+      name: "Fixture Gruppen",
+      category: "basic",
+      description: "Test-Fixture für die Content-Gruppen des Inspectors.",
+      container: false,
+      allowedChildren: "none",
+      slots: {},
+      styleGroups: [],
+      // Katalog-Reihenfolge: speed (Bewegung), foo (ohne group), direction
+      // (Bewegung), anchorId (Settings-Key). Die Gruppe "Bewegung" taucht also
+      // vor der Default-Gruppe auf, ihre Felder bleiben in Katalog-Reihenfolge.
+      controls: [
+        { key: "speed", label: "Tempo", kind: "number", valueType: "number", default: 8, min: 0, max: 20, step: 1, group: "Bewegung" },
+        { key: "foo", label: "Foo", kind: "text", valueType: "string", default: "" },
+        { key: "direction", label: "Richtung", kind: "text", valueType: "string", default: "links", group: "Bewegung" },
+        { key: "anchorId", label: "Anker-ID", kind: "text", valueType: "string", default: "" },
+      ],
+    },
+    {
+      type: "fixture-slug",
+      name: "Fixture Slug",
+      category: "basic",
+      description: "Test-Fixture für den Gruppen-Slug und die Map-Wiederverwendung.",
+      container: false,
+      allowedChildren: "none",
+      slots: {},
+      styleGroups: [],
+      controls: [
+        { key: "alpha", label: "Alpha", kind: "text", valueType: "string", default: "", group: "Bewegung" },
+        { key: "beta", label: "Beta", kind: "text", valueType: "string", default: "", group: "Darstellung & Farbe" },
+        { key: "gamma", label: "Gamma", kind: "text", valueType: "string", default: "", group: "Bewegung" },
+      ],
+    },
+  ];
+  return {
+    ...actual,
+    getPrimitive: (type: string) =>
+      fixtures.find((fixture) => fixture.type === type) ?? actual.getPrimitive(type),
+  };
+});
 
 // Ticket 02, slice 1: the inspector model. The panel is generated from the
 // primitive controls (Content), the style property table filtered by the
@@ -71,6 +126,48 @@ describe("buildInspector", () => {
       .find((field) => field.key === "level");
     expect(level?.kind).toBe("select");
     expect(level?.options?.map((option) => option.value)).toContain("h2");
+  });
+
+  // Elementor-Abgleich 11.11.2026, Befund B1: a fresh heading carries no props,
+  // the canvas renders the catalog default h2, the select used to show the
+  // first option (h1). Shown value and rendered value must agree.
+  it("shows the catalog default in a select whose prop is not set", () => {
+    const store = baseStore();
+    store.apply({
+      op: "insertNode",
+      parent: { nodeId: "sec0000001" },
+      node: { primitive: "heading", id: "head000002", props: {} },
+    });
+    const model = buildInspector({ document: store.document, nodeId: "head000002", breakpoint: "desktop" });
+    const level = model?.tabs
+      .find((tab) => tab.id === "content")
+      ?.groups.flatMap((group) => group.fields)
+      .find((field) => field.key === "level");
+    expect(level?.value).toBe("h2");
+  });
+
+  it("falls back to the catalog default for every select control of the catalog", () => {
+    const store = baseStore();
+    const misses: string[] = [];
+    for (const [index, primitive] of PRIMITIVES.entries()) {
+      if (primitive.type === "root") continue;
+      const id = `probe${String(index).padStart(5, "0")}`;
+      store.apply({
+        op: "insertNode",
+        parent: { nodeId: "sec0000001" },
+        node: { primitive: primitive.type, id, props: {} },
+      });
+      const model = buildInspector({ document: store.document, nodeId: id, breakpoint: "desktop" });
+      const fields = model?.tabs.flatMap((tab) => tab.groups.flatMap((group) => group.fields)) ?? [];
+      for (const control of primitive.controls) {
+        if (control.kind !== "select" && control.kind !== "choose") continue;
+        const field = fields.find((entry) => entry.key === control.key);
+        if (field !== undefined && field.value !== control.default) {
+          misses.push(`${primitive.type}.${control.key}: ${String(field.value)} != ${String(control.default)}`);
+        }
+      }
+    }
+    expect(misses).toEqual([]);
   });
 
   // The twin names (divider/embed) are rendered by the running section until
@@ -788,5 +885,139 @@ describe("inspector value helpers", () => {
     expect(updated.importedAppear?.delayMs).toBe(400);
     expect(updated.importedAppear?.easing).toEqual([0.22, 1, 0.36, 1]);
     expect(updated.trigger).toBe("load");
+  });
+});
+
+// Task 1: der Content-Tab gruppiert Controls nach `control.group`. Diese Fälle
+// beweisen die Gruppierung direkt am Inspector-Modell (nicht nur am Schema).
+// Rot gegen die alte Ein-Gruppen-Implementierung: die kannte nur die Gruppen
+// "content/main" und "content/settings" — nie eine explizite Gruppe wie
+// "content/bewegung", und sie legte alle Nicht-Settings-Felder in "content/main".
+describe("Content-Gruppen nach control.group", () => {
+  it("gruppiert Content-Controls nach group in First-Appearance-Reihenfolge", () => {
+    const store = baseStore();
+    store.apply({
+      op: "insertNode",
+      parent: { nodeId: store.document.rootNodeId },
+      node: { primitive: "fixture-gruppen", id: "fix0000001", props: {} },
+    });
+    const model = buildInspector({
+      document: store.document,
+      nodeId: "fix0000001",
+      breakpoint: "desktop",
+    });
+    const groups = model?.tabs.find((tab) => tab.id === "content")?.groups ?? [];
+    // First-Appearance: "Bewegung" (speed) vor "Inhalt" (foo), Einstellungen zuletzt.
+    expect(groups.map((group) => group.id)).toEqual([
+      "content/bewegung",
+      "content/main",
+      "content/settings",
+    ]);
+    expect(groups.map((group) => group.label)).toEqual(["Bewegung", "Inhalt", "Einstellungen"]);
+    const bewegung = groups.find((group) => group.id === "content/bewegung");
+    // Katalog-Reihenfolge innerhalb der Gruppe: speed vor direction; das
+    // ungruppierte foo bleibt draußen.
+    expect(bewegung?.fields.map((field) => field.key)).toEqual(["speed", "direction"]);
+    const inhalt = groups.find((group) => group.id === "content/main");
+    expect(inhalt?.fields.map((field) => field.key)).toEqual(["foo"]);
+    // Das Settings-Control (anchorId steht in SETTINGS_KEYS) landet in
+    // "Einstellungen", nicht in den Content-Gruppen.
+    const settings = groups.find((group) => group.id === "content/settings");
+    expect(settings?.fields.map((field) => field.key)).toEqual(expect.arrayContaining(["anchorId"]));
+    expect(bewegung?.fields.some((field) => field.key === "anchorId")).toBe(false);
+    expect(inhalt?.fields.some((field) => field.key === "anchorId")).toBe(false);
+  });
+
+  it("bildet den Gruppen-Slug und behält die Default-Gruppe nur für ungruppierte Controls", () => {
+    const store = baseStore();
+    store.apply({
+      op: "insertNode",
+      parent: { nodeId: store.document.rootNodeId },
+      node: { primitive: "fixture-slug", id: "fix0000002", props: {} },
+    });
+    const model = buildInspector({
+      document: store.document,
+      nodeId: "fix0000002",
+      breakpoint: "desktop",
+    });
+    const groups = model?.tabs.find((tab) => tab.id === "content")?.groups ?? [];
+    // "Darstellung & Farbe" wird zum Slug "darstellung-farbe"; die Gruppe
+    // "Bewegung" erscheint nur einmal (Map), obwohl gamma sie erneut nutzt.
+    expect(groups.map((group) => group.id)).toEqual([
+      "content/bewegung",
+      "content/darstellung-farbe",
+      "content/settings",
+    ]);
+    const bewegung = groups.find((group) => group.id === "content/bewegung");
+    expect(bewegung?.fields.map((field) => field.key)).toEqual(["alpha", "gamma"]);
+    const darstellung = groups.find((group) => group.id === "content/darstellung-farbe");
+    expect(darstellung?.label).toBe("Darstellung & Farbe");
+    expect(darstellung?.fields.map((field) => field.key)).toEqual(["beta"]);
+    // Kein ungruppiertes Control: die Default-Gruppe "Inhalt" entfällt.
+    expect(groups.some((group) => group.id === "content/main")).toBe(false);
+  });
+
+  // Task 3: jetzt mit einem echten Katalog-Primitive — die Framer-Einstellungen
+  // der Ribbon Gallery erscheinen als eigene Content-Gruppen in Katalog-Reihenfolge
+  // ("Einstellungen" zuletzt).
+  it("gruppiert die Ribbon-Gallery-Einstellungen in Katalog-Reihenfolge", () => {
+    const store = baseStore();
+    store.apply({
+      op: "insertNode",
+      parent: { nodeId: store.document.rootNodeId },
+      node: { primitive: "ribbon-gallery", id: "rib0000001", props: {} },
+    });
+    const model = buildInspector({
+      document: store.document,
+      nodeId: "rib0000001",
+      breakpoint: "desktop",
+      theme: defaultTheme(),
+    });
+    const groups = model?.tabs.find((tab) => tab.id === "content")?.groups ?? [];
+    expect(groups.map((group) => group.label)).toEqual([
+      "Bilder",
+      "Seite",
+      "Bewegung",
+      "Form",
+      "Optik",
+      "Einblendung",
+      "Einstellungen",
+    ]);
+    expect(groups[groups.length - 1]?.id).toBe("content/settings");
+    const groupOf = (key: string) =>
+      groups.find((group) => group.fields.some((field) => field.key === key))?.label;
+    expect(groupOf("images")).toBe("Bilder");
+    expect(groupOf("speed")).toBe("Bewegung");
+    expect(groupOf("radius")).toBe("Form");
+    expect(groupOf("trigger")).toBe("Einblendung");
+    // Jedes Feld steht in genau einer Content-Gruppe; die Settings tragen die
+    // Struktur-Flags (Sonderfall) und wiederholen kein Katalog-Control.
+    const contentKeys = groups
+      .filter((group) => group.id !== "content/settings")
+      .flatMap((group) => group.fields.map((field) => field.key));
+    expect(new Set(contentKeys).size).toBe(contentKeys.length);
+    const fieldOf = (key: string) =>
+      groups.flatMap((group) => group.fields).find((field) => field.key === key);
+    expect(fieldOf("start")?.hidden).toBe(false);
+    expect(fieldOf("replay")?.hidden).toBe(false);
+    expect(fieldOf("delay")?.hidden).toBe(false);
+
+    store.apply({
+      op: "insertNode",
+      parent: { nodeId: store.document.rootNodeId },
+      node: { primitive: "ribbon-gallery", id: "rib0000002", props: { trigger: "none" } },
+    });
+    const noneGroups =
+      buildInspector({
+        document: store.document,
+        nodeId: "rib0000002",
+        breakpoint: "desktop",
+        theme: defaultTheme(),
+      })?.tabs.find((tab) => tab.id === "content")?.groups ?? [];
+    const noneFieldOf = (key: string) =>
+      noneGroups.flatMap((group) => group.fields).find((field) => field.key === key);
+    expect(noneFieldOf("start")?.hidden).toBe(true);
+    expect(noneFieldOf("replay")?.hidden).toBe(true);
+    expect(noneFieldOf("delay")?.hidden).toBe(true);
   });
 });

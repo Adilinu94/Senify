@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { captureFixture, captureHtml, fontFamilyName, normalize, mapDocument } from "@senify/framer-import";
+import { captureFixture, captureHtml, fontFamilyName, normalize, mapDocument, ruleScopeOf } from "@senify/framer-import";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,7 +21,23 @@ describe("mapDocument", () => {
     // Every rule carries the import provenance.
     for (const rule of mapped.document.styleRules) {
       expect(rule.origin?.source).toBe("framer-import");
+      // An HTML capture repeats its base declarations in the node props, so
+      // the bake may drop them from the rule. Only the project path needs the
+      // keepBase marker.
+      expect(rule.origin?.keepBase).toBeUndefined();
     }
+  });
+
+  it("scopes node ids per page so the site-wide CSS cannot collide", () => {
+    const document = captureFixture(join(FIXTURES, "framer-stupendous-football-158496"));
+    const normalized = normalize(document);
+    const first = mapDocument(document, normalized.rules, { nodeIdPrefix: "fi-aaaaaa-" });
+    const second = mapDocument(document, normalized.rules, { nodeIdPrefix: "fi-bbbbbb-" });
+    const firstIds = Object.keys(first.document.nodes).filter((id) => id !== "root");
+    const secondIds = new Set(Object.keys(second.document.nodes).filter((id) => id !== "root"));
+    expect(firstIds.length).toBeGreaterThan(0);
+    expect(firstIds.every((id) => id.startsWith("fi-aaaaaa-"))).toBe(true);
+    expect(firstIds.some((id) => secondIds.has(id))).toBe(false);
   });
 
   it("keeps structurally different header variants, each visible on its own device only", () => {
@@ -95,6 +111,38 @@ describe("mapDocument", () => {
       return typeof target === "object" && target !== null && "url" in target;
     });
     if (links.length > 0) expect(withUrl).toBeDefined();
+  });
+
+  it("keeps the full mixed text and inline markup of a text link", () => {
+    const document = captureHtml({
+      html:
+        `<html lang="de"><head><title>t</title></head><body>` +
+        `<div id="main" data-framer-hydrate-v2><div>` +
+        `<a href="/x">Hallo <strong>Welt</strong> fertig</a>` +
+        `</div></div></body></html>`,
+      pagePath: "/",
+    });
+    const mapped = mapDocument(document, normalize(document).rules);
+    const link = Object.values(mapped.document.nodes).find((node) => node.primitive === "link");
+    expect(link?.props["label"]).toBe("Hallo Welt fertig");
+    expect(String(link?.props["html"] ?? "")).toContain("<strong");
+    expect(String(link?.props["html"] ?? "")).toContain("Hallo");
+    expect(String(link?.props["html"] ?? "")).toContain("fertig");
+  });
+
+  it("keeps a plain link without an html prop", () => {
+    const document = captureHtml({
+      html:
+        `<html lang="de"><head><title>t</title></head><body>` +
+        `<div id="main" data-framer-hydrate-v2><div>` +
+        `<a href="/y">Direkt</a>` +
+        `</div></div></body></html>`,
+      pagePath: "/",
+    });
+    const mapped = mapDocument(document, normalize(document).rules);
+    const link = Object.values(mapped.document.nodes).find((node) => node.primitive === "link");
+    expect(link?.props["label"]).toBe("Direkt");
+    expect(link?.props["html"]).toBeUndefined();
   });
 
   it("derives a theme patch from the font faces", () => {
@@ -276,5 +324,107 @@ describe("mapDocument", () => {
         expect(mapped.document.nodes[child]).toBeDefined();
       }
     }
+  });
+
+  it("isoliert gleiche Farbtoken-IDs auf verschiedenen Seiten", () => {
+    const token = "11111111-1111-1111-1111-111111111111";
+    const page = (color: string, path: string): string =>
+      `<html lang="de"><head><title>${path}</title><style>:root{--token-${token}:${color}}.x{color:var(--token-${token}, ${color})}</style></head><body><div id="main" data-framer-hydrate-v2><div class="x" style="color:var(--token-${token}, ${color})">Text</div><svg viewBox="0 0 10 10"><path d="M0 0h10v10z" fill="var(--token-${token}, ${color})"/></svg></div></body></html>`;
+    const pathA = "/seite-a";
+    const pathB = "/seite-b";
+    const docA = captureHtml({ html: page("rgb(1, 1, 1)", pathA), pagePath: pathA });
+    const docB = captureHtml({ html: page("rgb(2, 2, 2)", pathB), pagePath: pathB });
+    const scopeA = ruleScopeOf(pathA);
+    const scopeB = ruleScopeOf(pathB);
+    const mappedA = mapDocument(docA, normalize(docA).rules, { nodeIdPrefix: `fi-${scopeA}-` });
+    const mappedB = mapDocument(docB, normalize(docB).rules, { nodeIdPrefix: `fi-${scopeB}-` });
+
+    const allRules = [...mappedA.document.styleRules, ...mappedB.document.styleRules];
+    const tokenRules = allRules.filter((rule) => rule.kind === "ambient" && Object.keys(rule.styles).some((name) => name.includes(`--token-`)));
+    expect(tokenRules).toHaveLength(2);
+    expect(new Set(tokenRules.map((rule) => rule.id)).size).toBe(2);
+    const tokenValues = tokenRules.flatMap((rule) => Object.entries(rule.styles).filter(([name]) => name.includes("--token-")).map(([, value]) => value));
+    expect(tokenValues).toContain("rgb(1, 1, 1)");
+    expect(tokenValues).toContain("rgb(2, 2, 2)");
+
+    const vars = (mapped: typeof mappedA): string[] => {
+      const values: string[] = [];
+      for (const rule of mapped.document.styleRules) {
+        for (const value of Object.values(rule.styles)) values.push(String(value));
+      }
+      for (const node of Object.values(mapped.document.nodes)) {
+        for (const value of Object.values(node.props)) values.push(String(value));
+      }
+      return values.filter((value) => value.includes(`--token-`));
+    };
+    expect(vars(mappedA).every((value) => value.includes(scopeA))).toBe(true);
+    expect(vars(mappedB).every((value) => value.includes(scopeB))).toBe(true);
+  });
+});
+
+describe("Überschriften-Hierarchie (Release-Tor)", () => {
+  // Das Release-Tor verbietet Ebenen-Sprünge (h1 → h4, hart) und empfiehlt h1
+  // als erste Überschrift (weich). Framer-Seiten tragen die Ebenen der Quelle:
+  // der Held ist eine h3, Abschnitte springen h2 → h4 (gemessen an Chocolate,
+  // 12.11.2026: 20 harte Sprung-Funde über 7 Seiten). Der Import normalisiert
+  // die Folge — erste Überschrift h1, kein Aufstieg um mehr als eine Stufe.
+  // Die Optik bleibt: die Typografie sitzt auf den Attribut-Selektoren der
+  // Knoten, nicht auf dem Tag (der einzige h1–h6-Tag-Selektor im Build ist der
+  // Preflight-Reset).
+  const page = (body: string): string =>
+    `<html lang="en"><head><title>t</title></head><body><div id="main" data-framer-hydrate-v2>${body}</div></body></html>`;
+
+  const mapped = (body: string) => {
+    const document = captureHtml({ html: page(body) });
+    return mapDocument(document, normalize(document).rules);
+  };
+
+  type Node = { primitive: string; props: Record<string, unknown>; children?: string[] };
+  const inOrder = (result: ReturnType<typeof mapped>): Node[] => {
+    const nodes = result.document.nodes as Record<string, Node>;
+    const out: Node[] = [];
+    const walk = (id: string): void => {
+      const node = nodes[id];
+      if (node === undefined) return;
+      out.push(node);
+      for (const child of node.children ?? []) walk(child);
+    };
+    walk(result.document.rootNodeId);
+    return out;
+  };
+
+  it("korrigiert Sprünge und startet mit h1", () => {
+    const result = mapped(`<h3>Hero</h3><h4>Sprung</h4><h2>Abschnitt</h2>`);
+    const levels = inOrder(result)
+      .filter((node) => node.primitive === "heading")
+      .map((node) => node.props["level"]);
+    expect(levels).toEqual(["h1", "h2", "h2"]);
+  });
+
+  it("korrigiert Überschriften im Inline-Markup eines Body", () => {
+    const result = mapped(
+      `<h1>Titel</h1><div data-framer-component-type="RichTextContainer"><h4>Rich</h4><p>Text</p></div>`,
+    );
+    const nodes = inOrder(result);
+    const heading = nodes.find((node) => node.primitive === "heading");
+    expect(heading?.props["level"]).toBe("h1");
+    const body = nodes.find((node) => node.primitive === "body");
+    expect(String(body?.props["html"] ?? "")).toContain("<h2>Rich</h2>");
+    expect(String(body?.props["html"] ?? "")).not.toContain("<h4");
+  });
+
+  it("lässt eine saubere Hierarchie unverändert", () => {
+    const result = mapped(`<h1>Titel</h1><h2>Abschnitt</h2><h3>Fein</h3>`);
+    const levels = inOrder(result)
+      .filter((node) => node.primitive === "heading")
+      .map((node) => node.props["level"]);
+    expect(levels).toEqual(["h1", "h2", "h3"]);
+    expect(result.findings.some((finding) => finding.kind === "heading-levels")).toBe(false);
+  });
+
+  it("nennt die Korrektur als Fund", () => {
+    const result = mapped(`<h3>Hero</h3><h4>Sprung</h4>`);
+    const finding = result.findings.find((entry) => entry.kind === "heading-levels");
+    expect(finding?.severity).toBe("info");
   });
 });

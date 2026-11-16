@@ -114,6 +114,14 @@ function annotate(
       const value = node.props[key];
       if (typeof value !== "string" || value.trim() === "") continue;
       const leaf = findLeafWithText(root, value);
+      // A root that was the text leaf before the text moved into a child (a heading
+      // that just got a link) keeps its old marker: React never touches it. Drop it,
+      // so a click on the heading's padding does not edit the wrong element.
+      if (leaf !== null && leaf !== root && root.getAttribute("data-prop-key") === key) {
+        root.removeAttribute("data-inline");
+        root.removeAttribute("data-inline-node");
+        root.removeAttribute("data-prop-key");
+      }
       if (!leaf || leaf.getAttribute("data-inline") !== null) continue;
       leaf.setAttribute("data-inline", "true");
       leaf.setAttribute("data-inline-node", nodeId);

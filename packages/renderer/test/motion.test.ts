@@ -223,7 +223,7 @@ describe("motion configs", () => {
       writeFileSync(
         islandsJs,
         renderIslandsScript(
-          new Set(["menu", "slider", "consent", "billing", "dismiss", "accordion", "webgl-scene"]),
+          new Set(["menu", "slider", "consent", "billing", "dismiss", "accordion", "webgl-scene", "widget"]),
         ),
       );
       execFileSync(process.execPath, ["--check", pageJs]);
@@ -360,6 +360,24 @@ describe("pure-CSS effects and the preloader (document presets)", () => {
     expect(preloader).toBe(true);
     expect(css).toBe("");
     expect(warnings).toEqual([]);
+  });
+
+  it("carries the origin loader configuration", () => {
+    // The origin (Preloader.tsx, read 14.11.2026) shows the wordmark, the
+    // studio place, a line, the count and a shutter exit; the Show Once
+    // wrapper suppresses it for 15 s. Before this, the native loader showed
+    // the bare word "Loading" and none of that.
+    const tree = treeWithMotion([{ id: "a", preset: "preloader-light" }]);
+    const { loader } = pageEffectsForTree(tree);
+    expect(loader).not.toBeNull();
+    expect(loader?.label).toBe("Origin®");
+    expect(loader?.place).toBe("Brand Studio, Dubai");
+    expect(loader?.counter).toBe(true);
+    expect(loader?.showOnceMs).toBe(15_000);
+    expect(loader?.background).toBe("#141414");
+    expect(loader?.color).toBe("#f2f2f2");
+    expect(loader?.muted).toBe("#8e8e8e");
+    expect(loader?.count).toBe("#b8b8b8");
   });
 
   it("builds every block with the intensity dial and the RM gate", () => {

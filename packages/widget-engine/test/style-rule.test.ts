@@ -183,7 +183,7 @@ describe("style rule parsing", () => {
     statePriorities: { hover: { padding: "important" } },
     contextStyles: { "(orientation: landscape)": { padding: 12 } },
     contextStylePriorities: { "(orientation: landscape)": { padding: "important" } },
-    origin: { source: "styles/main.css", ordinal: 3 },
+    origin: { source: "styles/main.css", ordinal: 3, keepBase: true },
     authoredBy: "user",
     createdAt: "2026-09-17T00:00:00.000Z",
     updatedAt: "2026-09-17T00:00:00.000Z",

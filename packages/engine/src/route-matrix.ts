@@ -268,6 +268,10 @@ const OVERRIDES: Record<string, Override> = {
     status: "Operator",
     note: "Auslieferung der Motion-Runtime (Editor/Preview)",
   },
+  "GET /api/widget-module": {
+    status: "Operator",
+    note: "Auslieferung der Widget-Kerne (Editor/Preview)",
+  },
   // Imported foreign code (ADR-0010): writing a payload is the import path
   // (CLI/editor today), reading it feeds the import report and the editor. The
   // MCP tools arrive with the component library (S6) — then the write route

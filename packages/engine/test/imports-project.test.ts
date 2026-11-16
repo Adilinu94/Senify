@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { sourceOf } from "../src/imports.ts";
 import {
   bootEngine,
   createTestSite,
@@ -79,6 +80,28 @@ describe("Framer-Projekt an der Import-Route", () => {
     expect(report.steps[0]).toContain("Framer-Projekt-XML");
     // Die Projekt-XML traegt keine Zeitsteuerung; der Bericht sagt es.
     expect(report.findings.some((finding) => finding.kind === "motion-absent")).toBe(true);
+  });
+
+  it("nimmt die optionale Stilquelle in den Projekt-Quellwert auf", () => {
+    const source = sourceOf({
+      source: {
+        project: {
+          xml: PROJECT_XML,
+          pageXml: PAGE_XML,
+          page: "/",
+          usage: "private",
+          styleUrl: "https://example.com/",
+        },
+      },
+    } as never);
+    expect(source).toMatchObject({ kind: "project", styleUrl: "https://example.com/" });
+
+    const without = sourceOf({
+      source: {
+        project: { xml: PROJECT_XML, pageXml: PAGE_XML, page: "/", usage: "private", styleUrl: "  " },
+      },
+    } as never);
+    expect(without).not.toHaveProperty("styleUrl");
   });
 
   it("write: legt die Seite als Revision an", async () => {

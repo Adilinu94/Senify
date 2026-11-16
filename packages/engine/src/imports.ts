@@ -160,6 +160,7 @@ export function editorDocumentToNodeTree(document: {
       id,
       type: isRoot ? PAGE_ROOT_TYPE : node.primitive,
       props: props as NodeTree["nodes"][NodeId]["props"],
+      ...(isRoot && node.framerImport !== undefined ? { framerImport: structuredClone(node.framerImport) } : {}),
       ...(node.variant !== undefined ? { variant: node.variant } : {}),
       ...(node.classes !== undefined ? { classes: [...node.classes] } : {}),
       ...(Object.keys(overrides).length > 0 ? { overrides } : {}),
@@ -173,6 +174,75 @@ export function editorDocumentToNodeTree(document: {
     };
   }
   return { rootNodeId: document.rootNodeId, nodes };
+}
+
+/* -------------------------------------------------------- output choice */
+
+export type ImportOutput = "original" | "structure";
+
+function outputOfDraft(draft: NodeTree): ImportOutput | undefined {
+  return draft.nodes[draft.rootNodeId]?.framerImport?.output;
+}
+
+// The output is part of the page, not of the request alone: a request that
+// does not name it keeps the page at `original` (the previous default) but
+// never switches a page away from `structure`. That would silently replace the
+// editable output with a page-wide runtime payload (ADR-0032).
+export function resolveImportOutput(input: {
+  requested: ImportOutput | undefined;
+  stored: ImportOutput | undefined;
+  existingPage: { path: string } | undefined;
+}): ImportOutput {
+  if (input.requested !== undefined) return input.requested;
+  if (input.stored === "structure") {
+    const page = input.existingPage === undefined
+      ? "Die Zielseite"
+      : `Die Seite "${input.existingPage.path}"`;
+    throw new SenifyError("conflict", `${page} ist auf die Strukturausgabe eingestellt`, {
+      field: "output",
+      suggestion:
+        'Für einen erneuten Import die Ausgabe ausdrücklich wählen: output "structure" behält die Strukturausgabe, output "original" wechselt zur Originalausgabe.',
+    });
+  }
+  return "original";
+}
+
+function draftWithOutput(draft: NodeTree, output: ImportOutput): NodeTree {
+  const root = draft.nodes[draft.rootNodeId];
+  if (root === undefined) {
+    throw new SenifyError("validation", "Der importierte Baum hat keinen Seitenwurzelknoten", {
+      field: "draft",
+    });
+  }
+  root.framerImport = { output };
+  return draft;
+}
+
+// ADR-0026: an absent `active` means the carrier is active. A structure write
+// must not store a field that says `structure` while the tree still delivers
+// the original page.
+function activePageCarrierId(draft: NodeTree): string | undefined {
+  return Object.values(draft.nodes).find(
+    (node) =>
+      node.type === "payload" &&
+      node.props["coversPage"] === true &&
+      node.props["active"] !== false,
+  )?.id;
+}
+
+function assertOutputCarrier(draft: NodeTree, output: ImportOutput): void {
+  if (output !== "structure") return;
+  const carrier = activePageCarrierId(draft);
+  if (carrier === undefined) return;
+  throw new SenifyError(
+    "conflict",
+    "Die Strukturausgabe würde einen aktiven seitenweiten Framer-Träger enthalten",
+    {
+      field: "output",
+      suggestion:
+        "Import erneut analysieren. Bleibt der Träger, ist die Strukturausgabe für diese Quelle nicht verfügbar.",
+    },
+  );
 }
 
 /* ------------------------------------------------------------ helpers */
@@ -261,6 +331,9 @@ export function sourceOf(body: CreateImportBody): FramerImportSource {
       projectXml: source.project.xml,
       pageXml: source.project.pageXml,
       pagePath: source.project.page ?? "/",
+      ...(source.project.styleUrl === undefined || source.project.styleUrl.trim() === ""
+        ? {}
+        : { styleUrl: source.project.styleUrl.trim() }),
     };
   }
   return {
@@ -280,7 +353,7 @@ export function framerImportKeys(input: {
   options?: Record<string, unknown>;
 }): { contentKey: string; requestFingerprint: string } {
   const target = input.pageId === undefined
-    ? { kind: "path", path: normalizeImportPath(input.pagePath) }
+    ? { kind: "path", path: importPagePath(input.pagePath) }
     : { kind: "page", pageId: input.pageId };
   const options = input.options === undefined ? {} : input.options;
   const contentMaterial = stableJson({
@@ -299,13 +372,34 @@ export function framerImportKeys(input: {
   return { contentKey, requestFingerprint };
 }
 
-function normalizeImportPath(path: string): string {
-  const trimmed = path.trim();
+// A page path as the site stores it: leading slash, no doubled or trailing
+// slash, and no percent escapes. A URL path carries them (`/work/dendezeiro%C2%AE`),
+// a site path does not — the bake lays the page out as a folder with the decoded
+// name, so an encoded path never matches its own static route.
+export function importPagePath(path: string | undefined): string {
+  const trimmed = (path ?? "").trim();
   if (trimmed === "") return "/";
   const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
   const collapsed = withSlash.replace(/\/{2,}/g, "/");
-  if (collapsed.length > 1 && collapsed.endsWith("/")) return collapsed.slice(0, -1);
-  return collapsed;
+  // A URL path is percent-encoded; a site path is not. Framer links to
+  // `/work/dendezeiro%C2%AE`, and the bake lays the page out as a folder with
+  // the decoded name (`work/dendezeiro®/index.html`). Keeping the encoding in
+  // the page path made Astro refuse the build with
+  // `NoMatchingStaticPathFound` for `/work/dendezeiro®/` — measured on the
+  // imported origin site, 14.11.2026. Each segment is decoded on its own, so an
+  // encoded slash stays part of the name instead of becoming a separator.
+  const decoded = collapsed
+    .split("/")
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join("/");
+  if (decoded.length > 1 && decoded.endsWith("/")) return decoded.slice(0, -1);
+  return decoded;
 }
 
 function stableJson(value: unknown): string {
@@ -438,8 +532,27 @@ export async function runFramerImportJob(
   },
 ): Promise<ImportRunResult> {
   const dryRun = input.body.write !== true;
-  const pagePath = input.body.pagePath ?? "/";
+  const pagePath = importPagePath(input.body.pagePath);
   const source = sourceOf(input.body);
+  // The pages of the site are read once: the output stored on the target, the
+  // breakpoint plan and the target itself all read them.
+  const sitePages = await store.listPageDrafts(input.siteId);
+  const existingTarget =
+    input.body.pageId === undefined
+      ? sitePages.find((page) => page.path === pagePath)
+      : undefined;
+  const pageById =
+    input.body.pageId === undefined ? undefined : await store.getPage(input.body.pageId);
+  const existingPage =
+    pageById !== undefined && pageById.siteId === input.siteId ? pageById : existingTarget;
+  // One resolution for dry run and write: the report and the write must not
+  // choose different outputs. A concurrent, unconfirmed switch is caught by
+  // the draft-version check under the write's row lock.
+  const output = resolveImportOutput({
+    requested: input.body.output,
+    stored: existingPage === undefined ? undefined : outputOfDraft(existingPage.draft),
+    existingPage,
+  });
   const includeAssets = !dryRun && input.body.assets !== "skip";
   const includeFonts = !dryRun && input.body.fonts !== "skip";
   const media = dryRun ? undefined : input.media;
@@ -489,6 +602,7 @@ export async function runFramerImportJob(
       includeFonts,
       pagePath,
       mode: input.body.mode ?? "dna",
+      output,
       baseDurationMs,
     });
   } catch (error) {
@@ -533,9 +647,6 @@ export async function runFramerImportJob(
       })),
     );
   }
-  // The pages the site holds, once: the plan for the breakpoints and the target
-  // of this write both read them.
-  const sitePages = await store.listPageDrafts(input.siteId);
   const site = await store.getSite(input.siteId);
   const breakpointsPlan = planImportBreakpoints({
     derived: run.breakpoints,
@@ -651,6 +762,13 @@ export async function runFramerImportJob(
   > = {
     jobId: input.jobId,
     dryRun,
+    ...(input.body.output === undefined ? {} : { requestedOutput: input.body.output }),
+    // The carrier this run actually produced. An original request without a
+    // page-wide payload delivers the editable structure; the report says so
+    // instead of repeating the request (ADR-0032).
+    runtimeCarrier: run.payloads.some((payload) => payload.scope === "page")
+      ? "page-payload"
+      : "structure",
     irHash: run.irHash,
     ...(run.discoveredPages.length > 0 ? { discoveredPages: run.discoveredPages } : {}),
     score: run.report.score,
@@ -756,6 +874,7 @@ export async function runFramerImportJob(
         }),
     steps: [
       ...run.report.steps,
+      ...(dryRun ? [] : [`Ausgabe "${output}" am Seitenwurzelknoten gespeichert.`]),
       ...(cmsPlan === null
         ? []
         : [
@@ -773,12 +892,6 @@ export async function runFramerImportJob(
           ]),
     ],
   };
-
-  // The page this path already holds (an import by path replaces its draft).
-  const existingTarget =
-    input.body.pageId === undefined
-      ? sitePages.find((page) => page.path === pagePath)
-      : undefined;
 
   if (dryRun) {
     const report: ImportReport = {
@@ -828,6 +941,11 @@ export async function runFramerImportJob(
     // answer replays its receipt, a changed one is a new import.
     ...(() => {
       const options: Record<string, string> = {};
+      if (input.body.createOnly === true) options.createOnly = "true";
+      // The chosen output is part of the request fingerprint. The structural
+      // IR hash already carries a suffix, but a receipt must never replay the
+      // other output even if the hashes ever converge.
+      if (output === "structure") options.output = "structure";
       if (cmsText !== undefined) {
         options.cms = createHash("sha256").update(cmsText, "utf8").digest("hex");
       }
@@ -836,12 +954,22 @@ export async function runFramerImportJob(
           .update(JSON.stringify(cmsItemsTexts), "utf8")
           .digest("hex");
       }
+      // The optional typography source changes the IR (fonts/text colours), so
+      // it belongs in the fingerprint: a re-run with a different styleUrl must
+      // not replay the earlier receipt.
+      const styleUrl = input.body.source.project?.styleUrl?.trim();
+      if (styleUrl !== undefined && styleUrl !== "") {
+        options.styleUrl = createHash("sha256").update(styleUrl, "utf8").digest("hex");
+      }
       return Object.keys(options).length === 0 ? {} : { options };
     })(),
   });
   const target =
     input.body.pageId !== undefined
       ? (() => {
+          if (input.body.createOnly === true) {
+            throw new SenifyError("validation", "createOnly erlaubt keine bestehende Zielseite", { field: "pageId" });
+          }
           if (input.body.baseDraftVersion === undefined) {
             throw new SenifyError("validation", "Für eine bestehende Zielseite ist baseDraftVersion erforderlich", {
               field: "baseDraftVersion",
@@ -854,11 +982,13 @@ export async function runFramerImportJob(
             baseDraftVersion: input.body.baseDraftVersion,
           } as const;
         })()
-      : existingTarget !== undefined
+      : existingTarget !== undefined && input.body.createOnly !== true
         ? ({ kind: "page", pageId: existingTarget.id, baseDraftVersion: existingTarget.draftVersion } as const)
         : ({ kind: "new", path: pagePath, title: run.document.pages[0]?.title ?? "Importierte Seite" } as const);
 
   try {
+    const draft = draftWithOutput(editorDocumentToNodeTree(run.mapped.document), output);
+    assertOutputCarrier(draft, output);
     const committed = await store.commitFramerImportPlan({
       siteId: input.siteId,
       jobId: input.jobId,
@@ -866,7 +996,7 @@ export async function runFramerImportJob(
       requestFingerprint: keys.requestFingerprint,
       author: authorOf(input.author),
       target,
-      draft: editorDocumentToNodeTree(run.mapped.document),
+      draft,
       pageMeta: pageMetaOf(run.document.pages[0]),
       payloads: preparedPayloads,
       styleRules: run.mapped.rules,
@@ -884,7 +1014,7 @@ export async function runFramerImportJob(
       // nor half content behind.
       collections: cmsPlan?.collections ?? [],
       entries: cmsEntriesPlan?.entries ?? [],
-      report: reportBase,
+      report: { ...reportBase, storedOutput: output },
     });
     return {
       report: committed.report,

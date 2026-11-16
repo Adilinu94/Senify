@@ -176,11 +176,18 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     //
     // Verglichen wird gegen `git ls-files`, also gegen die Wahrheit des
     // Repositorys, nicht gegen eine zweite selbstgebaute Liste. Jede
-    // versionierte Quelldatei unter `packages/` muss im Suchraum liegen.
+    // versionierte Top-Level-Quelldatei unter `packages/` muss im Suchraum
+    // liegen; die Bake-Vorlage im Astro-Ordner ist bewusst ausgenommen.
     const versioniert = execFileSync("git", ["ls-files", "packages"], { cwd: root, encoding: "utf8" })
       .split(/\r?\n/)
       .filter((p) => /\.(ts|js)$/.test(p) && !/\.d\.ts$/.test(p))
-      .filter((p) => /\/(src|public)\//.test(p));
+      // Nur die Top-Level-Module eines Pakets (`packages/<paket>/src` und
+      // `packages/<paket>/public`). Der Astro-Template-Ordner
+      // (`packages/renderer/astro-template/src`) ist eine Bake-Vorlage, kein
+      // Fachmodul: der Bake kopiert ihn als Ganzes, die Uebersicht fuehrt
+      // Engine, App und MCP. Ein Filter auf jedes beliebige `/src/` zaehlte
+      // die Vorlage mit und meldete sie als fehlend (14.11.2026).
+      .filter((p) => /^packages\/[^/]+\/(?:src|public)\//.test(p));
     const gesucht = new Set(quellDateien().map((p) => p.slice(root.length + 1).replace(/\\/g, "/")));
     const fehlend = versioniert.filter((p) => !gesucht.has(p)).sort();
     expect(fehlend).toEqual([]);
@@ -265,13 +272,34 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // Anteil entstehen erst nach der Klassen-Kaskade, nicht beim Baum-Bau.
     // Vorher 70: Punkt 13 (CSS-Bildadressen) hat `remoteUrlsInValues` ergaenzt;
     // 69 vor der fremden Browser-Capture-Aenderung (26.10.2026, 539b533).
-    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(72);
+    // Der Merge ergänzt vier Helfer für Farbschema-Auswertung und Body-Palette.
+    // 77 seit dem 10.11.2026: `isRevealStart` erkennt die reine
+    // Deblur-Einblendung als Startzustand.
+    // 78 seit dem 10.11.2026: `embedFieldsOf` liest Adresse, Titel und den
+    // Grund, warum ein iframe nicht uebernommen wird (`srcdoc`, Schema, fehlend).
+    // 79 seit dem 11.11.2026: `splitAppearTransform` haelt die prozentuale
+    // Zentrierung im Ruhezustand und verschiebt nur den Bewegungsanteil.
+    expect(funktionen(capture), "capture-html.ts hat eine andere Zahl Funktionen").toBe(79);
     // 57 seit dem 26.10.2026: der fremde Commit 7a5b838 (Browser-Abgriff der
     // Animationen) hat drei Funktionen ergaenzt. Der Waechter hat es sofort
     // gemeldet - genau dafuer steht er hier. Der Bericht nennt dieselbe Zahl.
     // 58 seit dem 01.11.2026: Punkt 15, Ursache 2 (die transparente
     // Textfuellung) hat `isTransparentTextColor` ergaenzt.
-    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(58);
+    // 63 seit dem 08.11.2026 (Integrations-Merge): fünf Helfer grenzen
+    // Framer-Token-IDs/Custom Properties pro Seite ein (`tokenVarName`,
+    // `scopedTokenText`, `scopedTokenValue`, `scopeTokenRules`,
+    // `scopeTokenNodes`), damit Mehrseitenimporte mit gleicher Token-ID aber
+    // unterschiedlichen Werten sich nicht gegenseitig überschreiben.
+    // 64 seit dem 10.11.2026: `flatTextOf` und `plainTextOfHtml` lesen den
+    // Volltext und das Inline-Markup eines Textlinks; `deepTextOf` ist entfallen.
+    // 65 seit dem 12.11.2026: `normalizeHeadingLevels` glättet die
+    // Überschriften-Hierarchie (erste Überschrift h1, keine Ebenen-Sprünge).
+    // 66 seit dem 14.11.2026: `widgetTypeForCodeComponent` ordnet portierte
+    // Framer-Code-Komponenten den nativen Widgets zu.
+    // 68 seit dem 15.11.2026: `mediaValue` und `widgetMediaProps` lösen die
+    // Bild-Defaults der DOM-Widgets gegen die Import-Assets auf; die
+    // Namensabbildung selbst liegt in `widget-mapping.ts`.
+    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(68);
 
     // Der CSS-Block wird ueber ANKER geprueft, nicht ueber Zeilennummern.
     //
@@ -291,7 +319,9 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
 
     // Und die Begruendung muss die Zahlen tragen, die sie behauptet.
     expect(module).toContain("(21 Funktionen)");
+    expect(module).toContain("79 Funktionen");
     expect(module).toContain("58 Funktionen");
+    expect(module).toContain("65 Funktionen");
     // `mapNode` ist mit der Datei gewachsen (289 -> 336).
     expect(module).toContain("336 Zeilen");
   });

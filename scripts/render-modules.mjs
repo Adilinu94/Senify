@@ -161,12 +161,18 @@ const BLEIBT = {
     "Formulare, Einsendungen und die Einsendungs-Ansicht. Der CSV-Export ist am 31.10.2026 als reine Formatierung nach `forms-csv.ts` gewandert (die Regeln einer Tabellenkalkulation: Trenner, RFC 4180, BOM, Formelanfang); was bleibt, ist das Fachgebiet - Snapshot, Token, Spam-Schutz, Benachrichtigungen, Sammlung aus dem Formular",
   "packages/engine/src/media.ts": "Assets, Ableitungen und Ordner",
   "packages/engine/src/types.ts": "die öffentlichen Typen der Engine; keine Logik",
+  "packages/engine/src/imports.ts":
+    "der Import-Auftrag in einem Fachgebiet: Quellenprüfung, Framer-Lauf, Asset-/CMS-Plan, Ausgabewahl und der eine Commit lesen dieselben Zwischenstände. Die Datei reißt die Schwelle seit der revisionssicheren Ausgabewahl; ein Schnitt müsste diese Zwischenstände als Parameter durchreichen",
   "packages/framer-import/src/capture-html.ts":
-    "der HTML-Capture des Imports - **gemessen am 26.10.2026, und der Schnitt wurde versucht und verworfen.** Der CSS-Block am Dateiende (21 Funktionen) sieht wie ein eigenes Fachgebiet aus, ist aber keine Senke: `applyClassRules` ist die einzige öffentliche Funktion und liest den BAUM (`SPACED_TEXT`, `KEEPS_SPACES`, `FRAMER_TEXT_PROPS`, `IrInteraction`, `IrVisual`, `elementStyleToParts`) und neun interne Helfer (`parseCssRules`, `buildIndex`, `devicesOf`, `tokenDefinitionsOf`, `matchingRules`, `cascade`, `resolveVars`, `tokensOf`, `Vars`). Ein Modul mit 15 Importen aus der Quelldatei waere keine Naht, sondern eine Verschiebung. Die anderen 50 Funktionen lesen denselben Rohtext (HTML-Scan, Appear-Ableitung, IR-Bau)",
+    "der HTML-Capture des Imports - **gemessen am 11.11.2026: 79 Funktionen; der Schnitt wurde versucht und verworfen.** Der CSS-Block am Dateiende (21 Funktionen) sieht wie ein eigenes Fachgebiet aus, ist aber keine Senke: `applyClassRules` liest den Baum (`SPACED_TEXT`, `KEEPS_SPACES`, `FRAMER_TEXT_PROPS`, `IrInteraction`, `IrVisual`, `elementStyleToParts`) und interne Helfer (`parseCssRules`, `buildIndex`, `devicesOf`, `tokenDefinitionsOf`, `matchingRules`, `cascade`, `resolveVars`, `tokensOf`, `Vars`). Die weiteren Funktionen lesen denselben Rohtext (HTML-Scan, Appear-Ableitung, IR-Bau); der Merge ergänzt Farbschema- und Body-Palette-Helfer",
   "packages/framer-import/src/mapper.ts":
-    "die Abbildung Framer nach NodeTree. **Gemessen am 01.11.2026:** 58 Funktionen, und `mapNode` allein sind 336 Zeilen. Sie liest dieselben Tabellen wie `mapDocument` und die Zustaende des Mappers - ein Schnitt muesste diese als Parameter durchreichen. Die Datei ist am 26.10.2026 um 190 Zeilen gewachsen (Browser-Abgriff der Animationen, `appearStyleRulesOf` und `ruleFamilyWeights`): der Abgriff liefert die Daten, die Abbildung auf den NodeTree bleibt hier",
+    "die Abbildung Framer nach NodeTree. **Gemessen am 01.11.2026:** 58 Funktionen, und `mapNode` allein sind 336 Zeilen; am 10.11.2026 sind es 64 Funktionen (`flatTextOf` und `plainTextOfHtml` für Textlinks), am 12.11.2026 sind es 65 Funktionen (`normalizeHeadingLevels` glättet die Überschriften-Hierarchie für das Release-Tor). Sie liest dieselben Tabellen wie `mapDocument` und die Zustaende des Mappers - ein Schnitt muesste diese als Parameter durchreichen. Die Datei ist am 26.10.2026 um 190 Zeilen gewachsen (Browser-Abgriff der Animationen, `appearStyleRulesOf` und `ruleFamilyWeights`): der Abgriff liefert die Daten, die Abbildung auf den NodeTree bleibt hier",
   "packages/framer-import/src/unframer-ir.ts":
     "der Leser des Unframer-Projekt-XML (ADR-0028): ein toleranter XML-Baum, die Stapel-/Box-/Text-Metadaten und die Ableitung ins Import-IR greifen auf dieselben Tabellen und denselben Elementbaum zu. Ein Schnitt wuerde den Baum und die Zustands-Tabellen als Parameter durchreichen; die Datei ist eine Uebersetzung mit einem Eingang und einem Ausgang",
+  "packages/framer-import/src/import.ts":
+    "Orchestriert Capture, Assetverarbeitung, Runtime-Payload, Mapping und Berichte. Die Datei überschreitet nach dem internen Strukturpfad die Schwelle; die Runtime-Payload-Extraktion ist ein Kandidat für einen eigenen geprüften Schnitt, bevor weitere Ausgabearten hier wachsen.",
+  "packages/framer-import/src/ir.ts":
+    "das gemeinsame Import-Zwischenmodell mit Typen und zugehörigen Schemas: Capture, Normalisierung, Mapper und Berichte teilen diesen Vertrag. Die Datei enthält überwiegend deklarative Strukturen; eine Aufteilung braucht getrennte stabile Importpfade und wird als eigener Schritt geprüft",
   "packages/editor/src/canvas/canvas.ts": "die Bühne des Editors",
   "packages/editor/src/inspector/model.ts": "das Modell des Inspektors",
   "packages/editor/src/state/operations.ts":
@@ -181,6 +187,12 @@ const BLEIBT = {
     "ERZEUGT von `scripts/render-manifest.mjs` aus `packages/mcp/src/tools.ts` (`pnpm manifest:check` haelt es). Die Zeilenzahl ist keine Entscheidung, sondern die Folge von 114 Werkzeugen mit je vier Angaben",
   "packages/mcp/src/tools-referenzen.ts":
     "die 32 Werkzeuge der Referenz- und Design-Arbeit: 24 Referenz, 4 Redesign, 4 Design. Am 26.10.2026 bei 993 Zeilen angelegt, am 01.11.2026 mit `set_design_contract` zu seinem Lese-Paar gewachsen (1 026). Der Block definiert keine lokalen Helfer (gemessen: 0 auf oberster Ebene) - die Groesse ist die Zahl der Werkzeug-Literale; ein Schnitt muesste die drei verwandten Fachgebiete trennen, die dieselben Schemas und Dokument-Arten lesen",
+  "packages/framer-import/src/capture-browser.ts":
+    "der Browser-Capture: ein zusammenhaengender Playwright-Lauf ueber Navigation, Ladephase, Seiten-Loader, Scroll-/Settle-Pass, Geraetevarianten, Hover und IR-Erzeugung. Die Schritte teilen den Browser-Kontext, die Laufzeit-Hooks und die Befunde; ein Schnitt wuerde die Reihenfolge (Loader vor Freeze, Scroll vor Startzustand-Restore) ueber Dateien verteilen. Geprueft in `capture-browser.test.ts`, `capture-browser-loader.test.ts`, `capture-browser-scroll.test.ts`",
+  "packages/widget-engine/src/markup.ts":
+    "der Markup-Serializer: er entscheidet pro Primitive ueber Tag, Klassen, Attribute, Poster/Platzhalter und den `data-props`-Kanal der Widgets. Die Faelle teilen die Default-Aufloesung, Asset-Referenzen und den HTML-Schreiber; ein Schnitt wuerde den gemeinsamen Vertrag (ein Element pro Primitive) auseinanderziehen. Geprueft in `markup.test.ts`, `widget-markup.test.ts`",
+  "packages/widgets/src/ribbon-gallery.ts":
+    "der 1:1 portierte Ribbon-Kern (Spec 2026-11-12, ADR-0035): Shader, Geometrie und Animationslogik bleiben verbatim aus der Framer-Quelle, damit die Parität prüfbar bleibt. Die Vanilla-Hülle (`mount`, `setProps`, `destroy`) ist klein und liegt am Ende; ein Schnitt würde den portierten Kern von seiner Quelle trennen",
 };
 
 /**

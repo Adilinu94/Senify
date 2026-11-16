@@ -49,6 +49,7 @@ Farbstile), `getNodeXml` für die gewünschte Seite die Seiten-XML. Beide als Da
 | Projekt-XML | die Datei aus `getProjectXml` |
 | Seiten-XML | die Datei aus `getNodeXml` für genau eine Seite |
 | Pfad der Seite im Framer-Projekt | der Pfad, unter dem die Seite im Projekt liegt (Voreinstellung `/`) |
+| Veröffentlichte Seite (optional) | die URL der veröffentlichten Seite; daraus kommen Textfarben und Schriftdateien, die in der Projekt-XML fehlen |
 | Sammlungen (optional) | die Datei aus `getCMSCollections` |
 | Einträge (optional) | eine Datei aus `getCMSItems` je Sammlung (Mehrfachauswahl) |
 
@@ -85,8 +86,8 @@ beschränkt. Eine Kundenarbeit wird von der Engine **vor dem Lesen der XML** mit
 ```bash
 senify import framer-project --site <projektId> \
   --project projekt.xml --page startseite.xml --usage private \
-  --project-page / --page-path / --cms sammlungen.json \
-  --cms-items blog.json --cms-items team.json --write
+  --project-page / --style-url https://beispiel.framer.app/ --page-path / \
+  --cms sammlungen.json --cms-items blog.json --cms-items team.json --write
 ```
 
 `--usage` ist Pflicht und akzeptiert nur `private`. `--cms` ist optional; ohne die Datei bleibt der Lauf ein reiner
@@ -97,8 +98,10 @@ würden und wie viele Werte wegfallen.
 
 **Was dieser Weg nicht kann.** Die Projekt-XML trägt Struktur und **keine Zeitsteuerung**: Erscheinungs- und
 Übergangs-Effekte stehen dort nicht. Der Bericht nennt das als Befund `motion-absent`; die Laufzeitwirkung bleibt
-beim Browser-Capture des URL-Wegs (ADR-0027). Es gibt keine Vorschau und keine „weiteren Seiten“ — die XML wird für
-eine Seite gelesen. Eine unlesbare oder nicht zur Seite passende XML ist ein Fehler; es wird nichts stillschweigend
+beim Browser-Capture des URL-Wegs (ADR-0027). Textfarben und Schriftdateien stehen ebenfalls nicht in der XML; dafür
+liest der Import die optionale veröffentlichte Seite (`styleUrl` in der Engine, `--style-url` in der CLI). Ohne diese
+Adresse bleibt die Typografie bei den Angaben aus der XML. Es gibt keine Vorschau und keine „weiteren Seiten“ — die
+XML wird für eine Seite gelesen. Eine unlesbare oder nicht zur Seite passende XML ist ein Fehler; es wird nichts stillschweigend
 auf eine andere Quelle ausgewichen.
 
 ## Was der Import mitnimmt
@@ -168,9 +171,32 @@ ersetzt der Original-Code den Baum, damit nichts doppelt steht.
 Gemessen an `notes.framer.website`: **0,54 / 0,90 / 1,16 %** Pixel-Differenz (Desktop / Tablet / Mobil) bei exakt
 gleicher Seitenhöhe, Payload 947 KB. Der Baum allein läge bei 1,46 / 2,23 / 6,19 %.
 
+## Native Widget-Klassen (Ribbon-Pilot)
+
+Framer-Code-Komponenten mit einem framework-neutralen Kern (WebGL/Canvas) können als **native Widgets** übernommen
+werden. Der Kern läuft ohne React und ohne Framer-Runtime; die Einstellungen stehen als Katalog-Controls im Inspector.
+
+- **Im Editor:** Das Widget erscheint in der Einfügen-Palette (z. B. „Ribbon Gallery"). Die Controls sind nach
+  Bildern, Seite, Bewegung, Form, Optik und Einblendung gruppiert. Bilder kommen aus der Medienablage, die Vorschau
+  mountet den Kern im Live-Modus.
+- **Im Release:** Der Bake bündelt nur die tatsächlich genutzten Widget-Kerne als eigene JS-Datei und mountet sie
+  beim Scrollen. Ohne JavaScript oder bei einem Fehler bleibt das Poster sichtbar.
+- **In der Bibliothek:** Ein Widget ist ein normaler Baustein. Speichern, Installieren, Abhängen, Wiederanhängen und
+  Instanz-Overrides laufen über den vorhandenen Bibliotheksweg. Herkunft und Lizenz werden am Baustein festgehalten.
+
+Der Pilot ist **Ribbon Gallery**. Weitere Shader-Komponenten folgen nach demselben Muster (ADR-0035). Die
+Framer-University-Lizenz der Komponenten ist noch nicht geprüft; deshalb wird kein Produktions-Bibliothekseintrag
+ohne Lizenznachweis angelegt.
+
+**Grenzen des Pilots:** Der Editor-Live-Modus lädt das iframe bei einer Änderung im Inspector neu; der Kern mountet
+dann frisch. `setProps` wird bei einem Re-Render ohne Neuaufbau genutzt. Die Parität wird über die Silhouette bei
+gleicher Box gemessen; ein pixelgenaues Gate müsste die Animationsphase und die Bildreihenfolge auf beiden Seiten
+fixieren.
+
 ## Grenzen
 
-- **Framer-Code und Shader** werden zu einem sichtbaren Platzhalter mit Befund. Echte Übernahme gibt es nicht.
+- **Framer-Code und Shader, die nicht als natives Widget portiert sind,** werden zu einem sichtbaren Platzhalter mit
+  Befund. Für den Ribbon-Piloten gibt es die native Widget-Klasse; die übrigen Komponenten folgen (ADR-0035).
 - **Inhalte, die erst im Browser entstehen, fehlen im Standardweg.** Der Import liest das Server-HTML. Was eine
   Framer-Code-Komponente erst beim Laden erzeugt, ist darin nicht enthalten - gemessen an der Earn-Vorlage: die fünf
   Bewertungssterne. Ihr Container hält im Server-HTML nur fünf leere `display:contents`-Platzhalter, die Sterne selbst

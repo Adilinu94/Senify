@@ -1,6 +1,12 @@
 ---
 import Section from "../components/Section.astro";
 import type { SectionContext } from "@senify/registry/components";
+import {
+  PRELOADER_CSS,
+  preloaderMarkup,
+  preloaderScript,
+  type PageLoader,
+} from "../lib/preloader.ts";
 import "../styles/global.css";
 
 type Props = {
@@ -22,8 +28,10 @@ type Props = {
     // the reveals that enter above the fold without the page script. Null
     // without any.
     motionCss: string | null;
-    // preloader-light: the page renders the loading curtain.
+    // preloader-light or the native root loader: the page renders the curtain.
     hasPreloader: boolean;
+    // Der native Seiten-Loader; null bei einer reinen preloader-light-Seite.
+    loader: PageLoader | null;
     jsonLd: string | null;
     flags: {
       hasMotion: boolean;
@@ -73,6 +81,19 @@ const ogImage = (() => {
     return page.ogImage;
   }
 })();
+// Framer paints its palette on <body>, not on the first section. The import
+// carries that computed chrome on the root node; apply it here so a dark-mode
+// page does not inherit Senify's light body behind white text.
+const rootNode = page.tree.nodes[page.tree.rootNodeId] as
+  | { props?: Record<string, unknown> }
+  | undefined;
+const rootProps = rootNode?.props ?? {};
+const bodyStyle = [
+  typeof rootProps.backgroundColor === "string" ? `background-color:${rootProps.backgroundColor}` : "",
+  typeof rootProps.color === "string" ? `color:${rootProps.color}` : "",
+]
+  .filter((entry) => entry !== "")
+  .join(";");
 
 // FOUC guard (payload-spec.md §3): the render paths stamp
 // `data-motion-pending` on nodes whose preset hides them until the page script
@@ -97,11 +118,10 @@ const lenisLateLoader = (lenisSrc: string): string =>
 // never flashes the content; the inline script removes it on load, at the
 // 2.5 s cap (soft budget) or instantly under reduced motion. Without JS the
 // <noscript> block hides it — it must never become the page.
-const PRELOADER_CSS =
-  ".senify-preloader{position:fixed;inset:0;z-index:9998;background:var(--bg-base,#ffffff);opacity:1;transition:opacity .4s ease;pointer-events:none;}";
 const PRELOADER_NOSCRIPT = ".senify-preloader{display:none}";
 const PRELOADER_SCRIPT =
   '(function(){var preloader=document.querySelector("[data-preloader]");if(!preloader)return;var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;var done=function(){if(!preloader.parentNode)return;if(reduce){preloader.remove();return;}preloader.style.opacity="0";setTimeout(function(){preloader.remove();},450);};if(document.readyState==="complete")done();else window.addEventListener("load",done);setTimeout(done,2500);})();';
+const loaderKey = `senify.preloader:${page.path}`;
 ---
 <html lang={lang}>
   <head>
@@ -161,14 +181,21 @@ const PRELOADER_SCRIPT =
     {page.flags.islands.length > 0 && <script src="/assets/islands.js" defer />}
     {page.flags.hasForm && <script src="/assets/forms.js" defer />}
   </head>
-  <body>
+  <body style={bodyStyle === "" ? undefined : bodyStyle}>
     {page.hasPreloader && (
       <>
-        <div class="senify-preloader" data-preloader aria-hidden="true"></div>
+        {page.loader ? (
+          <Fragment set:html={preloaderMarkup(page.loader)} />
+        ) : (
+          <div class="senify-preloader" data-preloader aria-hidden="true"></div>
+        )}
         <noscript>
           <style is:inline set:html={PRELOADER_NOSCRIPT} />
         </noscript>
-        <script is:inline set:html={PRELOADER_SCRIPT} />
+        <script
+          is:inline
+          set:html={page.loader ? preloaderScript(page.loader, loaderKey) : PRELOADER_SCRIPT}
+        />
       </>
     )}
     <Section tree={page.tree} ctx={{ ...ctx, currentPath: page.path, lang, gateEmbeds: true, cssEntry: true }} />

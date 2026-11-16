@@ -1,10 +1,22 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { importRoutes, parseSitemap } from "../src/route-manifest.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fetchSitemapRoutes, importRoutes, parseSitemap } from "../src/route-manifest.ts";
+
+vi.mock("@senify/core/net", async (original) => ({
+  ...(await original<typeof import("@senify/core/net")>()),
+  fetchPublic: (url: string, options: RequestInit) => fetch(url, options),
+}));
+afterEach(() => vi.unstubAllGlobals());
 
 describe("route manifest", () => {
+  it("beschränkt das Sitemap-Inventar auf die Origin der angefragten Site", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('<urlset><url><loc>https://other.test/</loc></url><url><loc>https://example.test/</loc></url><url><loc>http://127.0.0.1/admin</loc></url><url><loc>https://other.test/private</loc></url></urlset>'));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await fetchSitemapRoutes("https://example.test/start")).toEqual([{ pagePath: "/", url: "https://example.test/" }]);
+    expect(fetchMock).toHaveBeenCalledWith("https://example.test/sitemap.xml", expect.objectContaining({ maxBytes: 5_000_000 }));
+  });
   it("reads unique HTTP routes from a sitemap", () => {
     const routes = parseSitemap(`<?xml version="1.0" encoding="UTF-8"?>
       <urlset>
