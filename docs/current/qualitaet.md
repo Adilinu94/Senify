@@ -200,7 +200,7 @@ Der aktuelle Lauf auf `b05c1b8` (10.11.2026) ist grün: **193 Dateien bestanden,
      Nicht von Hand editieren: dieser Block ist ein Messwert, und `pnpm quality:check`
      lässt den Lauf rot werden, sobald Dokument und Lauf auseinanderlaufen. -->
 
-**Gemessen:** 2026-11-14 · vitest coverage (v8)
+**Gemessen:** 2026-11-16 · vitest coverage (v8)
 
 | Pfad | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
@@ -216,7 +216,7 @@ Der aktuelle Lauf auf `b05c1b8` (10.11.2026) ist grün: **193 Dateien bestanden,
 | `packages/engine/src/http-*.ts` (24 Dateien) | 88.13 bis 100.00 | 69.76 bis 100.00 | 89.47 bis 100.00 | 88.69 bis 100.00 |
 | `packages/editor/src/state/*` (18 Dateien) | 75.00 bis 100.00 | 65.67 bis 100.00 | 76.19 bis 100.00 | 80.00 bis 100.00 |
 
-**Über alle gemessenen Dateien:** Statements 92.09 · Branches 83.15 · Functions 95.41 · Lines 94.67
+**Über alle gemessenen Dateien:** Statements 92.10 · Branches 83.08 · Functions 95.41 · Lines 94.67
 
 <!-- messwerte:ende -->
 

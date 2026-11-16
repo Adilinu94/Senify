@@ -71,7 +71,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Browser fuer die Paritaets-Messung
-        run: pnpm exec playwright install --with-deps chromium
+        # `chromium-headless-shell` ist seit Playwright 1.49 ein eigenes
+        # Installationsziel. Ohne es scheitert `chromium.launch()` auf Windows
+        # mit "Executable doesn't exist" (gemessen im Lauf vom 16.11.2026,
+        # `imported-appear-browser.test.ts`), waehrend die Dateien mit
+        # Browser-Guard still ueberspringen.
+        run: pnpm exec playwright install --with-deps chromium chromium-headless-shell
       - name: Gate (Build, Lint, Tests)
         run: pnpm verify
       # Die Paketregeln (ADR-0019, P3-3) als eigener Schritt: sie sind ein
