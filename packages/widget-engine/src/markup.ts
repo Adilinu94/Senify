@@ -709,6 +709,7 @@ function describeOne(primitive: string, props: Record<string, PropValue>): Eleme
               "data-widget-type": primitive,
               "data-props": widgetPropsJson(primitive, props),
               "data-widget-state": "pending",
+              "data-widget-eager": "true",
             },
             html: renderDomWidget(primitive, widgetProps(primitive, props)),
             root: true,

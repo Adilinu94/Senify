@@ -137,9 +137,49 @@ describe("Projekt-XML plus veröffentlichte Seite", () => {
     expect(helloText.inline["color"]).toBe("rgb(1, 2, 3)");
     expect(stats.colors).toBe(0);
     expect(stats.ambiguous).toBe(1);
+    expect(stats.ambiguousTexts).toContain("Doppelt");
 
     const ambiguous = findByText(document, "Doppelt");
     expect(ambiguous?.states[0]?.text?.inline["color"]).toBeUndefined();
+  });
+
+  it("trennt mehrdeutige Worte über den DOM-Pfad, wenn die Quelle eindeutig ist", () => {
+    const projectXml = `<Project name="Pfad">
+      <Pages><Page nodeId="page-home" path="/" /></Pages>
+      <TextStyles />
+      <ColorStyles />
+    </Project>`;
+    const pageXml = `<Desktop nodeId="d" width="1200px">
+      <CardA nodeId="card-a"><Body nodeId="text-a">Gleicher Text</Body></CardA>
+      <CardB nodeId="card-b"><Body nodeId="text-b">Gleicher Text</Body></CardB>
+    </Desktop>`;
+    const document = mapUnframerProject({
+      projectXml,
+      pages: [{ path: "/", xml: pageXml }],
+      capturedAt: "2026-11-16T12:00:00.000Z",
+    });
+    const html = `<!doctype html><html><body><div id="main"><div>
+      <div data-framer-name="CardA"><div data-framer-name="Body"><p style="--framer-text-color: rgb(255, 0, 0)">Gleicher Text</p></div></div>
+      <div data-framer-name="CardB"><div data-framer-name="Body"><p style="--framer-text-color: rgb(0, 0, 255)">Gleicher Text</p></div></div>
+    </div></div></body></html>`;
+    const stats = enrichProjectDocument(document, { html });
+    expect(stats.ambiguous).toBe(0);
+    expect(stats.colors).toBe(2);
+
+    const colors: string[] = [];
+    const visit = (node: IrNode): void => {
+      const content = node.states[0]?.text?.content;
+      if (content === "Gleicher Text") {
+        const color = node.states[0]?.text?.inline["color"];
+        if (typeof color === "string") colors.push(color);
+      }
+      for (const child of node.children) visit(child);
+    };
+    const root = document.pages[0]?.root;
+    if (root === undefined) throw new Error("Seite fehlt");
+    visit(root);
+    expect(colors).toContain("rgb(255, 0, 0)");
+    expect(colors).toContain("rgb(0, 0, 255)");
   });
 
   it("plant die Bilder der DOM-Widget-Defaults als lokale Assets ein", () => {
@@ -160,12 +200,10 @@ describe("Projekt-XML plus veröffentlichte Seite", () => {
       pages: [{ path: "/", xml: pageXml }],
       capturedAt: "2026-11-15T12:00:00.000Z",
     });
-    const navLogo = widgetPrimitive("framer-navbar")?.controls.find((control) => control.key === "logo")?.default;
-    const reviewItems = widgetPrimitive("framer-reviews")?.controls.find((control) => control.key === "items")?.default;
-    if (typeof navLogo !== "string" || !Array.isArray(reviewItems)) throw new Error("Widget-Defaults fehlen");
-    const avatars = reviewItems
-      .map((entry) => (typeof entry === "object" && entry !== null ? (entry as { avatar?: unknown }).avatar : undefined))
-      .filter((value): value is string => typeof value === "string" && value !== "");
+    const navLogo = widgetPrimitive("framer-navbar")?.sourceMedia?.["logo"];
+    const reviewAvatars = widgetPrimitive("framer-reviews")?.sourceMedia?.["items.avatar"];
+    if (typeof navLogo !== "string" || !Array.isArray(reviewAvatars)) throw new Error("Widget-Quellbilder fehlen");
+    const avatars = reviewAvatars.filter((value): value is string => typeof value === "string" && value !== "");
     const html = `<!doctype html><html><body><div id="main"><div>
       <img src="${navLogo}" alt="Logo">
       ${avatars.map((url) => `<img src="${url}" alt="">`).join("")}
@@ -176,5 +214,79 @@ describe("Projekt-XML plus veröffentlichte Seite", () => {
     for (const avatar of avatars) {
       expect(document.assets).toContainEqual(expect.objectContaining({ url: avatar, kind: "image" }));
     }
+  });
+
+  it("klont Projektkarten, die nur die veröffentlichte Seite zeigt", () => {
+    const projectXml = `<Project name="Fluffy">
+      <Pages><Page nodeId="page-home" path="/" /></Pages>
+      <TextStyles />
+      <ColorStyles />
+    </Project>`;
+    const pageXml = `<Desktop nodeId="d" width="1200px">
+      <Projects nodeId="grid-one" layout="grid" gridColumns="2">
+        <Project nodeId="card-volmer" link="/projects/:slug" padding="70px 22px 22px 22px">
+          <Text nodeId="text-volmer">
+            <Top nodeId="top-volmer"><Date nodeId="date-volmer">5/31/26</Date></Top>
+            <Title nodeId="title-volmer">Volmer-Betonwerk.de</Title>
+            <Services nodeId="services-volmer">Web design &amp; Web development</Services>
+          </Text>
+          <Image nodeId="image-volmer" width="1fr" height="407px" aspectRatio="1.609" />
+        </Project>
+      </Projects>
+      <Projects nodeId="grid-two" layout="grid" gridColumns="2">
+        <Project nodeId="card-betreuung" link="/projects/:slug" padding="60px 22px 22px 22px">
+          <Text nodeId="text-betreuung">
+            <Top nodeId="top-betreuung"><Date nodeId="date-betreuung">6/20/24</Date></Top>
+            <Title nodeId="title-betreuung">Betreuung-Witten.de</Title>
+            <Services nodeId="services-betreuung">Web design &amp; Web development</Services>
+          </Text>
+          <Image nodeId="image-betreuung" width="1fr" height="407px" aspectRatio="1.609" />
+        </Project>
+      </Projects>
+    </Desktop>`;
+    const document = mapUnframerProject({
+      projectXml,
+      pages: [{ path: "/", xml: pageXml }],
+      capturedAt: "2026-11-16T12:00:00.000Z",
+    });
+    const html = `<!doctype html><html><body><div id="main"><div>
+      <a href="/projects/volmer-betonwerk.de"><div data-framer-name="Date">31.05.26</div><div data-framer-name="Title">Volmer-Betonwerk.de</div><div data-framer-name="Services">Web design &amp; Web development</div><img src="https://example.test/volmer.png" alt=""></a>
+      <a href="/projects/linasfotozauber.de"><div data-framer-name="Date">08.08.23</div><div data-framer-name="Title">Linasfotozauber.de</div><div data-framer-name="Services">Web design &amp; Web development</div><img src="https://example.test/linas.png" alt=""></a>
+      <a href="/projects/betreuung-witten.de"><div data-framer-name="Date">20.06.24</div><div data-framer-name="Title">Betreuung-Witten.de</div><div data-framer-name="Services">Web design &amp; Web development</div><img src="https://example.test/betreuung.png" alt=""></a>
+      <a href="/projects/eventlocation-ulrepforte"><div data-framer-name="Date">13.07.26</div><div data-framer-name="Title">Ulrepforte-Events.de</div><div data-framer-name="Services">Web design &amp; Web development</div><img src="https://example.test/ulrepforte.png" alt=""></a>
+    </div></div></body></html>`;
+    const stats = enrichProjectDocument(document, { html });
+    expect(stats.projectCards).toBe(2);
+    expect(stats.images).toBe(4);
+
+    const cards: IrNode[] = [];
+    const visit = (node: IrNode): void => {
+      if (node.name === "Project" && node.kind === "link") cards.push(node);
+      for (const child of node.children) visit(child);
+    };
+    const root = document.pages[0]?.root;
+    if (root === undefined) throw new Error("Seite fehlt");
+    visit(root);
+    expect(cards).toHaveLength(4);
+    const findByName = (node: IrNode, name: string): IrNode | undefined => {
+      if (node.name === name) return node;
+      for (const child of node.children) {
+        const found = findByName(child, name);
+        if (found !== undefined) return found;
+      }
+      return undefined;
+    };
+    const titles = cards.map((card) => findByName(card, "Title")?.states[0]?.text?.content ?? "");
+    expect(titles).toEqual(["Volmer-Betonwerk.de", "Linasfotozauber.de", "Betreuung-Witten.de", "Ulrepforte-Events.de"]);
+    const dates = cards.map((card) => findByName(card, "Date")?.states[0]?.text?.content ?? "");
+    expect(dates).toEqual(["31.05.26", "08.08.23", "20.06.24", "13.07.26"]);
+    expect(document.assets.map((asset) => asset.url)).toEqual(
+      expect.arrayContaining([
+        "https://example.test/volmer.png",
+        "https://example.test/linas.png",
+        "https://example.test/betreuung.png",
+        "https://example.test/ulrepforte.png",
+      ]),
+    );
   });
 });

@@ -7,6 +7,7 @@ describe("widget markup", () => {
     expect(spec.tag).toBe("div");
     expect(spec.attrs?.["data-island"]).toBe("widget");
     expect(spec.attrs?.["data-widget-type"]).toBe("ribbon-gallery");
+    expect(spec.attrs?.["data-widget-eager"]).toBeUndefined();
     const props = JSON.parse(String(spec.attrs?.["data-props"]));
     expect(props.speed).toBe(12);
     expect(props.side).toBe("right");
@@ -71,6 +72,7 @@ describe("DOM widget markup (ADR-0038)", () => {
     const spec = describePrimitive("framer-footer", {})!;
     expect(spec.attrs?.["data-island"]).toBe("widget");
     expect(spec.attrs?.["data-widget-type"]).toBe("framer-footer");
+    expect(spec.attrs?.["data-widget-eager"]).toBe("true");
     expect(spec.children).toBeUndefined();
     expect(spec.html).toContain("Bereit für deine neue Website?");
     expect(spec.html).toContain("w-framer-footer__root");

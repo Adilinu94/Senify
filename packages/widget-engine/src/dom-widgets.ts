@@ -227,14 +227,14 @@ function navbar(props: Props): string {
 function footer(props: Props): string {
   const headline = str(props["headline"], "Bereit für deine neue Website?");
   const subline = str(props["subline"]);
-  const formTitle = str(props["formTitle"], "Projekt anfragen");
+  const formTitle = str(props["formTitle"], "Unverbindliches Anfrageformular");
   const formText = str(props["formText"]);
-  const formLabel = str(props["formLabel"], "Formular öffnen");
+  const formLabel = str(props["formLabel"], "Formular laden");
   const formUrl = str(props["formUrl"]);
   const form =
     formUrl === ""
       ? ""
-      : `<a class="w-framer-footer__form-button" data-wf-part="form" href="${esc(href(formUrl))}"${linkAttrs(formUrl)}>${esc(formLabel)}</a>`;
+      : `<button type="button" class="w-framer-footer__form-button" data-wf-part="form-load">${esc(formLabel)}</button>`;
   const authorName = str(props["authorName"]);
   const authorRole = str(props["authorRole"]);
   const avatar =
@@ -266,10 +266,12 @@ function footer(props: Props): string {
       ${subline === "" ? "" : `<p>${esc(subline)}</p>`}
     </div>
     <div class="w-framer-footer__body">
-      <div class="w-framer-footer__form">
-        <p class="w-framer-footer__form-kicker">${esc(formTitle)}</p>
-        ${formText === "" ? "" : `<p class="w-framer-footer__form-text">${esc(formText)}</p>`}
-        ${form}
+      <div class="w-framer-footer__form" data-wf-part="form-card">
+        <div class="w-framer-footer__form-slot" data-wf-part="form-slot">
+          <p class="w-framer-footer__form-kicker">${esc(formTitle)}</p>
+          ${formText === "" ? "" : `<p class="w-framer-footer__form-text">${esc(formText)}</p>`}
+          ${form}
+        </div>
       </div>
       <aside class="w-framer-footer__info">
         <div class="w-framer-footer__author" data-wf-part="author">
@@ -488,11 +490,14 @@ export const DOM_WIDGET_CSS = `
 .w-framer-footer__cta h2 { margin: 0; font-size: clamp(3rem, 7vw, 6rem); line-height: 1; font-weight: 400; letter-spacing: -0.05em; }
 .w-framer-footer__cta p { margin: 60px 0 0; max-width: 1320px; font-size: 22px; line-height: 1.4; font-weight: 600; letter-spacing: -0.04em; color: var(--wf-muted); white-space: pre-line; }
 .w-framer-footer__body { display: grid; grid-template-columns: minmax(0, 860px) minmax(0, 400px); gap: 60px; align-items: start; }
-.w-framer-footer__form { min-height: 500px; padding: 40px; border: 1px solid var(--wf-line); border-radius: 20px; background: var(--wf-card); display: flex; flex-direction: column; justify-content: center; gap: 16px; }
-.w-framer-footer__form-kicker { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--wf-accent); }
-.w-framer-footer__form-text { margin: 0; max-width: 520px; font-size: 20px; line-height: 1.4; color: var(--wf-muted); }
-.w-framer-footer__form-button { align-self: flex-start; display: inline-flex; align-items: center; justify-content: center; margin-top: 16px; padding: 16px 28px; border-radius: 999px; background: var(--wf-accent); color: var(--wf-accent-ink); font-size: 16px; font-weight: 700; text-decoration: none; }
-.w-framer-footer__form-button:hover { filter: brightness(1.06); }
+.w-framer-footer__form { min-height: 518px; background: #d7ff6f; color: #111; overflow: hidden; }
+.w-framer-footer__form-slot { min-height: 518px; padding: 40px; display: flex; flex-direction: column; justify-content: center; gap: 16px; box-sizing: border-box; }
+.w-framer-footer__form[data-loaded="true"] .w-framer-footer__form-slot { padding: 0; display: block; }
+.w-framer-footer__form-kicker { margin: 0; max-width: 620px; font-size: clamp(22px, 2.2vw, 30px); line-height: 1.15; font-weight: 700; letter-spacing: -0.02em; color: #111; }
+.w-framer-footer__form-text { margin: 0; max-width: 620px; font-size: 16px; line-height: 1.45; color: rgba(17, 17, 17, 0.72); }
+.w-framer-footer__form-button { align-self: flex-start; display: inline-flex; align-items: center; justify-content: center; margin-top: 8px; padding: 16px 28px; border: 0; border-radius: 999px; background: #111; color: #d7ff6f; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer; }
+.w-framer-footer__form-button:hover { filter: brightness(1.15); }
+.w-framer-footer__iframe { display: block; width: 100%; min-height: 518px; border: 0; background: #d7ff6f; }
 .w-framer-footer__info { display: flex; flex-direction: column; gap: 40px; padding-top: 40px; }
 .w-framer-footer__author { display: flex; align-items: center; gap: 26px; }
 .w-framer-footer__author div { display: flex; flex-direction: column; gap: 4px; }
@@ -566,7 +571,8 @@ export const DOM_WIDGET_CSS = `
   .w-framer-navbar__panel:not([hidden]) { display: block; }
   .w-framer-footer__inner { padding: 80px 24px; gap: 56px; }
   .w-framer-footer__cta p { margin-top: 32px; font-size: 19px; }
-  .w-framer-footer__form { min-height: 0; padding: 28px; }
+  .w-framer-footer__form, .w-framer-footer__form-slot, .w-framer-footer__iframe { min-height: 420px; }
+  .w-framer-footer__form-slot { padding: 24px; }
   .w-framer-footer__email { font-size: 26px; }
   .w-framer-footer__bottom { flex-direction: column; align-items: flex-start; padding: 40px 24px; }
   .w-framer-step__card { grid-template-columns: minmax(0, 1fr); gap: 24px; padding: 40px 0; }

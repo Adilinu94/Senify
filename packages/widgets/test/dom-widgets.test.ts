@@ -16,16 +16,21 @@ describe("DOM widget renderer", () => {
     expect(html).toContain('data-wf-part="panel"');
   });
 
-  it("renders the footer with the source headline, form link and legal links", () => {
+  it("renders the footer with the source headline, consent form and legal links", () => {
     const html = renderDomWidget("framer-footer", {
-      formUrl: "https://forms.fillout.com/t/aDdzczda8Mus",
+      formUrl: "https://embed.fillout.com/t/aDdzczda8Mus",
+      formText: "Beim Laden werden Daten an Fillout übertragen.",
       legalLinks: [
         { label: "Impressum", link: "/impressum" },
         { label: "Datenschutzerklärung", link: "/datenschutz" },
       ],
     });
     expect(html).toContain("Bereit für deine neue Website?");
-    expect(html).toContain("forms.fillout.com");
+    expect(html).toContain("Unverbindliches Anfrageformular");
+    expect(html).toContain("Beim Laden werden Daten an Fillout übertragen.");
+    expect(html).toContain('data-wf-part="form-slot"');
+    expect(html).toContain('data-wf-part="form-load"');
+    expect(html).not.toContain("embed.fillout.com");
     expect(html).toContain("Impressum");
     expect(html).toContain("Datenschutzerklärung");
     expect(html).toContain("w-framer-footer__root");

@@ -41,10 +41,11 @@
 | [ADR-0036](0036-import-portierte-code-komponenten-als-widgets.md) | Der Import bildet portierte Code-Komponenten als native Widgets ab | angenommen |
 | [ADR-0037](0037-effekt-widgets-im-design-canvas.md) | Effekt-Widgets im Design-Canvas | angenommen |
 | [ADR-0038](0038-dom-widgets-fuer-framer-komponenten.md) | DOM-Widgets für Framer-Komponenten ohne XML-Innenleben | angenommen |
+| [ADR-0039](0039-offene-import-punkte.md) | Offene Import-Punkte nach den DOM-Widgets | angenommen |
 
 ## Nächste Nummer
 
-Die nächste freie Nummer ist `ADR-0039`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
+Die nächste freie Nummer ist `ADR-0040`. `ADR-0011` ist für die Entscheidung reserviert, ob und wann `EditorDocument` das interne kanonische Modell wird.
 
 ## Regeln
 

@@ -149,6 +149,11 @@ export type PrimitiveDefinition = {
   // Inhalt als HTML in den Host, der Kern baut dieselben Knoten beim Mount.
   // Ohne die Angabe ist ein Widget ein Canvas-/Effekt-Kern (ADR-0035).
   dom?: boolean;
+  // Quellbilder nur für den Import (ADR-0038): Der Katalog-Default bleibt
+  // leer, damit ein neu eingefügtes Widget keine Fremdanfrage auslöst. Der
+  // Import mappt diese Adressen über die `styleUrl`-Anreicherung auf lokale
+  // Assets. Schlüssel sind Control-Keys; bei Repeatmedien `control.field`.
+  sourceMedia?: Record<string, string | string[]>;
   // Stand-in for an existing section type whose real shape is not (yet) part of
   // the catalog (see `legacy.ts`). It marks the node as structurally tolerated:
   // the consistency check skips its slot rules, because their truth lives in the

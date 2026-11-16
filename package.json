@@ -10,6 +10,7 @@
   },
   "scripts": {
     "start": "tsx packages/mcp/src/cli.ts start",
+    "demo:fluffy": "tsx scripts/demo-fluffy.mts",
     "senify": "tsx packages/mcp/src/cli.ts",
     "route-matrix": "tsx packages/engine/scripts/route-matrix.ts",
     "route-matrix:check": "tsx packages/engine/scripts/route-matrix.ts --check",

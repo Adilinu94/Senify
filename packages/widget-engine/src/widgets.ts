@@ -83,7 +83,7 @@ const waveControls: Control[] = [
 const navbarControls: Control[] = [
   text("brand", "Marke", "NICK WEBDESIGN", "Inhalt"),
   url("home", "Startseite", "/", "Inhalt"),
-  media("logo", "Logo", "https://framerusercontent.com/images/K75U6dIeddSaktsQJqdpbyvHsM.webp?width=512&height=512", "Inhalt"),
+  media("logo", "Logo", "", "Inhalt"),
   ctrl("links", "Links", "repeater", "list", [
     { label: "Projekte", link: "/projects" },
     { label: "Über mich & Kontakt", link: "/contact" },
@@ -100,13 +100,13 @@ const navbarControls: Control[] = [
 const footerControls: Control[] = [
   text("headline", "Überschrift", "Bereit für deine neue Website?", "Inhalt"),
   area("subline", "Untertitel", "Lass uns über Dein Projekt sprechen.\nWir klären, was du brauchst und ob ich dir helfen kann.\nDanach entscheidest du in Ruhe, wie es weitergeht.", "Inhalt"),
-  text("formTitle", "Formular: Titel", "Projekt anfragen", "Formular"),
-  area("formText", "Formular: Text", "Das Formular wird über Fillout geladen. Öffne es in einem neuen Tab, um dein Projekt zu beschreiben.", "Formular"),
-  text("formLabel", "Formular: Knopf", "Formular öffnen", "Formular"),
-  url("formUrl", "Formular: Adresse", "https://forms.fillout.com/t/aDdzczda8Mus", "Formular"),
+  text("formTitle", "Formular: Titel", "Unverbindliches Anfrageformular", "Formular"),
+  area("formText", "Formular: Consent-Text", "Beim Laden wird das Formular von Fillout geladen. Dabei werden Daten an Fillout übertragen.", "Formular"),
+  text("formLabel", "Formular: Knopf", "Formular laden", "Formular"),
+  url("formUrl", "Formular: Adresse", "https://embed.fillout.com/t/aDdzczda8Mus?fillout-embed-type=standard&fillout-embed-dynamic-resize=true", "Formular"),
   text("authorName", "Name", "Adrian Nick", "Kontakt"),
   text("authorRole", "Rolle", "WordPress Webdesign Profi", "Kontakt"),
-  media("avatar", "Porträt", "https://framerusercontent.com/images/oJAubpok1FvUAyl0yzlWey1Jao.webp?width=561&height=701", "Kontakt"),
+  media("avatar", "Porträt", "", "Kontakt"),
   text("contactLabel", "Kontakt: Beschriftung", "Schreib mir", "Kontakt"),
   text("email", "E-Mail", "adrian@nick-webdesign.de", "Kontakt"),
   area("note", "Hinweis", "Wir klären, was du brauchst und ob ich dir helfen kann. Danach entscheidest du in Ruhe, wie es weitergeht.", "Kontakt"),
@@ -123,7 +123,7 @@ const footerControls: Control[] = [
     ],
   }),
   text("footerBrand", "Fußzeile: Marke", "Nick Webdesign", "Fußzeile"),
-  media("logo", "Fußzeile: Logo", "https://framerusercontent.com/images/8NulX8sEgiW5OAVpT1p8buN96DI.png?scale-down-to=512&width=1024&height=1024", "Fußzeile"),
+  media("logo", "Fußzeile: Logo", "", "Fußzeile"),
   text("legal", "Rechtlicher Text", "Copyright © Nick Webdesign, 2026", "Fußzeile"),
   ctrl("legalLinks", "Rechtliche Links", "repeater", "list", [
     { label: "Impressum", link: "/impressum" },
@@ -138,31 +138,31 @@ const reviewsControls: Control[] = [
       rating: "4.5",
       author: "Markus B.",
       quote: "Adrian hat unsere Website komplett neu aufgesetzt. Das Ergebnis war besser als erwartet - modern, schnell und genau auf unsere Zielgruppe zugeschnitten.",
-      avatar: "https://framerusercontent.com/images/jCTtgnV2B1AGNUeBE2tbucgeEQI.png?width=72&height=72",
+      avatar: "",
     },
     {
       rating: "5.0",
       author: "Hassan Hamdaoui",
       quote: "Für uns wurde eine richtig tolle Website erstellt. Modern, übersichtlich und genau auf unsere Bedürfnisse zugeschnitten. Wir sind wirklich super zufrieden mit dem Ergebnis!",
-      avatar: "https://framerusercontent.com/images/T5NZF22pmDIFSkLvOUYFDW2WdA.webp?width=320&height=318",
+      avatar: "",
     },
     {
       rating: "5.0",
       author: "Heike Kortmann",
       quote: "Top Arbeit! Die neue Seite läuft einwandfrei und die Ladezeiten sind deutlich besser als vorher. Sehr zufrieden.",
-      avatar: "https://framerusercontent.com/images/JjPTFX8Cq4fkN8njEQDVshGOhX0.png?width=72&height=72",
+      avatar: "",
     },
     {
       rating: "5.0",
       author: "Ahlam Lagmouchi",
       quote: "Adrian hat unser komplettes WordPress-Projekt übernommen und sauber umgesetzt. Klare Empfehlung für alle die eine zuverlässige Umsetzung suchen.",
-      avatar: "https://framerusercontent.com/images/vJ74FOiSnbR8L7xeuRKTKmy3pZM.webp?scale-down-to=512&width=573&height=485",
+      avatar: "",
     },
     {
       rating: "5.0",
       author: "Burhan Kaya",
       quote: "Schnelle Umsetzung, faire Preise und ein super Ergebnis. Genau das was man sich von einem Webdesigner wünscht.",
-      avatar: "https://framerusercontent.com/images/YEFLU55KbfAgBozm5M4ZlLTRig.png?scale-down-to=512&width=800&height=800",
+      avatar: "",
     },
   ], {
     group: "Inhalt", responsive: false, maxItems: 12,
@@ -227,6 +227,9 @@ export const WIDGET_PRIMITIVES: readonly PrimitiveDefinition[] = [
     controls: navbarControls,
     styleGroups: ["spacing", "size"],
     dom: true,
+    sourceMedia: {
+      logo: "https://framerusercontent.com/images/K75U6dIeddSaktsQJqdpbyvHsM.webp?width=512&height=512",
+    },
   },
   {
     type: "framer-footer",
@@ -239,6 +242,10 @@ export const WIDGET_PRIMITIVES: readonly PrimitiveDefinition[] = [
     controls: footerControls,
     styleGroups: ["spacing", "size"],
     dom: true,
+    sourceMedia: {
+      avatar: "https://framerusercontent.com/images/oJAubpok1FvUAyl0yzlWey1Jao.webp?width=561&height=701",
+      logo: "https://framerusercontent.com/images/8NulX8sEgiW5OAVpT1p8buN96DI.png?scale-down-to=512&width=1024&height=1024",
+    },
   },
   {
     type: "framer-step",
@@ -263,6 +270,15 @@ export const WIDGET_PRIMITIVES: readonly PrimitiveDefinition[] = [
     controls: reviewsControls,
     styleGroups: ["spacing", "size"],
     dom: true,
+    sourceMedia: {
+      "items.avatar": [
+        "https://framerusercontent.com/images/jCTtgnV2B1AGNUeBE2tbucgeEQI.png?width=72&height=72",
+        "https://framerusercontent.com/images/T5NZF22pmDIFSkLvOUYFDW2WdA.webp?width=320&height=318",
+        "https://framerusercontent.com/images/JjPTFX8Cq4fkN8njEQDVshGOhX0.png?width=72&height=72",
+        "https://framerusercontent.com/images/vJ74FOiSnbR8L7xeuRKTKmy3pZM.webp?scale-down-to=512&width=573&height=485",
+        "https://framerusercontent.com/images/YEFLU55KbfAgBozm5M4ZlLTRig.png?scale-down-to=512&width=800&height=800",
+      ],
+    },
   },
 ];
 

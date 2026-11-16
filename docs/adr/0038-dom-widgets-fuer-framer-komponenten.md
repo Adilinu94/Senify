@@ -3,6 +3,7 @@
 **Status:** Angenommen, 15.11.2026
 **Betrifft:** `packages/widget-engine`, `packages/widgets`, `packages/framer-import`, `packages/renderer`, `packages/editor`, `packages/engine`
 **Ergänzt:** ADR-0035, ADR-0036, ADR-0028
+**Ergänzt durch:** ADR-0039 (Projektkarten, Consent-Formular, Quellbild-Trennung, Eager-Mount, Farbpfad, Canvas-Erkennung, Demo)
 
 ## Kontext
 
@@ -67,11 +68,11 @@ Inhaltskomponenten wie eine Navigation oder einen Footer ist das zu spät.
   als Server-HTML im Build und brauchen keine Fremd-Laufzeit.
 - Die inneren Ebenen sind keine einzelnen Editor-Knoten; das ist das
   Widget-Modell. Die Controls decken die Inhalte ab.
-- Der Preview-Mount ist lazy (IntersectionObserver): Widgets unterhalb des
-  ersten Bildschirms bleiben `pending`, bis sie sichtbar werden. Der statische
-  Inhalt ist bereits da; im Editor-Live-Modus mounten alle sichtbaren Hosts.
-- Ein neu aus der Palette eingefügtes Widget trägt die Quellbild-URLs, bis der
-  Autor sie ersetzt; importierte Seiten bekommen lokale Assets.
+- Der Preview-Mount war lazy (IntersectionObserver); ADR-0039 stellt die
+  DOM-Widgets auf eager, die Canvas-Kerne bleiben lazy. Der statische Inhalt
+  ist ohnehin da.
+- Ein neu aus der Palette eingefügtes Widget trug die Quellbild-URLs; ADR-0039
+  trennt `sourceMedia` von den leeren Palette-Defaults.
 - Die Lizenzprüfung aus ADR-0035 gilt weiter: kein Produktions-
   Bibliothekseintrag ohne Nachweis.
 

@@ -869,14 +869,33 @@ export async function runImport(input: RunImportInput): Promise<ImportRun> {
           });
         }
         if (stats.ambiguous > 0) {
+          const examples = stats.ambiguousTexts
+            .slice(0, 5)
+            .map((text) => `"${text}"`)
+            .join(", ");
+          const detail =
+            examples === ""
+              ? ""
+              : ` Betroffen: ${examples}${stats.ambiguousTexts.length > 5 ? ", ..." : ""}.`;
           document.findings.push({
             kind: "unsupported-declaration",
             nodeKey: null,
-            message: `${stats.ambiguous} Textknoten haben dieselben Worte mit mehreren Farben in der Quelle; ihre Farbe bleibt ungesetzt statt geraten.`,
+            message: `${stats.ambiguous} Textknoten haben dieselben Worte mit mehreren Farben in der Quelle; ihre Farbe bleibt ungesetzt statt geraten.${detail}`,
             evidence: input.source.styleUrl,
             severity: "info",
             suggestion:
               "Die betroffenen Textstellen im Editor prüfen oder den Text eindeutig machen, dann erneut importieren.",
+          });
+        }
+        if (stats.projectCards > 0) {
+          document.findings.push({
+            kind: "cms",
+            nodeKey: null,
+            message: `Die Quelle zeigt ${stats.projectCards} Projektkarte(n) mehr als die Projekt-XML; die Karten wurden als native Knoten aus der veröffentlichten Seite ergänzt.`,
+            evidence: input.source.styleUrl,
+            severity: "info",
+            suggestion:
+              "Die Karten sind native, bearbeitbare Knoten. Bei einer Quelländerung den Import wiederholen.",
           });
         }
       } catch (error) {

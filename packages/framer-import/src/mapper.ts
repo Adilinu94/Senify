@@ -477,31 +477,79 @@ function mediaValue(value: unknown, assets: MapperAssets): PropValue {
   return asset.localUrl ?? "";
 }
 
-// Die Bild-Defaults eines DOM-Widgets, aufgelöst gegen die Assets des Laufs.
-// Repeater (Bewertungen, soziale Links) behalten ihre Textfelder und bekommen
-// nur die Medienfelder ersetzt.
+// Die Quellbilder eines DOM-Widgets, aufgelöst gegen die Assets des Laufs.
+// Sie stehen in `sourceMedia`, nicht in den Palette-Defaults. Repeater
+// (Bewertungen) behalten ihre Textfelder und bekommen nur die Medienfelder
+// ersetzt.
 function widgetMediaProps(type: string, assets: MapperAssets): Record<string, PropValue> {
   const definition = widgetPrimitive(type);
   if (definition?.dom !== true) return {};
+  const source = definition.sourceMedia ?? {};
   const out: Record<string, PropValue> = {};
   for (const control of definition.controls) {
     if (control.kind === "media") {
-      out[control.key] = mediaValue(control.default, assets);
+      out[control.key] = mediaValue(source[control.key], assets);
       continue;
     }
     if (control.kind !== "repeater" || !Array.isArray(control.default)) continue;
     const mediaFields = (control.fields ?? []).filter((field) => field.kind === "media");
     if (mediaFields.length === 0) continue;
-    out[control.key] = control.default.map((entry) => {
+    out[control.key] = control.default.map((entry, index) => {
       if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return entry;
       const record = { ...(entry as Record<string, PropValue>) };
       for (const field of mediaFields) {
-        record[field.key] = mediaValue(record[field.key], assets);
+        const urls = source[`${control.key}.${field.key}`];
+        record[field.key] = mediaValue(Array.isArray(urls) ? urls[index] : undefined, assets);
       }
       return record;
     });
   }
   return out;
+}
+
+// The project XML describes the design canvas (Desktop: 1200px wide,
+// `position: absolute`, `left: 99px`), not the published page. At 1440px the
+// source fills the viewport and the document scrolls. The canvas can sit
+// directly in the page root (fluffy) or inside a page wrapper (other projects);
+// only an absolute/fixed frame with a measured pixel width (or the only
+// top-level frame) is normalized.
+export function normalizeDesignCanvasFrame(
+  nodes: Record<string, EditorNode>,
+  root: EditorNode | undefined,
+): void {
+  if (root === undefined) return;
+  const children = (root.children ?? [])
+    .map((id) => nodes[id])
+    .filter((node): node is EditorNode => node !== undefined);
+  const positioned = (node: EditorNode): boolean => {
+    const position = node.props["position"];
+    return position === "absolute" || position === "fixed";
+  };
+  const measured = (node: EditorNode): boolean => {
+    const width = node.props["width"];
+    return typeof width === "string" && /^\d+(?:\.\d+)?px$/.test(width);
+  };
+  const directCandidates = children.filter(positioned);
+  const direct = directCandidates.find(measured) ?? (children.length === 1 ? directCandidates[0] : undefined);
+  const nested =
+    children.length === 1 && !positioned(children[0] as EditorNode)
+      ? (children[0]?.children ?? [])
+          .map((id) => nodes[id])
+          .find((node): node is EditorNode => node !== undefined && positioned(node) && measured(node))
+      : undefined;
+  const frame = direct ?? nested;
+  if (frame === undefined) return;
+  frame.props = {
+    ...frame.props,
+    position: "relative",
+    left: "0px",
+    top: "0px",
+    width: "100%",
+    maxWidth: "none",
+    height: "auto",
+    minHeight: "100vh",
+    overflow: "hidden",
+  };
 }
 
 function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null): EditorNode | null {
@@ -2252,25 +2300,7 @@ export function mapDocument(
   // frame once; the class rule's absolute box stays overridden by these inline
   // props.
   if (document.source.kind === "plugin") {
-    const pageRoot = context.nodes["root"];
-    const firstId = pageRoot?.children?.[0];
-    const first = firstId === undefined ? undefined : context.nodes[firstId];
-    // Only the project's design-canvas frame (`<Desktop>`, absolutely placed
-    // at 1200px) is normalized. A page XML whose root is a `<Page>` with a
-    // normal section as its first child keeps that section's own box.
-    if (first !== undefined && first.props["position"] === "absolute") {
-      first.props = {
-        ...first.props,
-        position: "relative",
-        left: "0px",
-        top: "0px",
-        width: "100%",
-        maxWidth: "none",
-        height: "auto",
-        minHeight: "100vh",
-        overflow: "hidden",
-      };
-    }
+    normalizeDesignCanvasFrame(context.nodes, context.nodes["root"]);
   }
   return {
     document: {

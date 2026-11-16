@@ -13,6 +13,7 @@ describe("widget island", () => {
     expect(script).toContain('[data-island="widget"]');
     expect(script).toContain("/assets/widgets/ribbon-gallery.abcd1234.js");
     expect(script).toContain("data-props");
+    expect(script).toContain("data-widget-eager");
     expect(script).toContain('getAttribute("data-widget-state") !== "failed"');
   });
   it("renders nothing without the widget kind", () => {

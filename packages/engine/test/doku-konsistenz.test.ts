@@ -299,7 +299,9 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // 68 seit dem 15.11.2026: `mediaValue` und `widgetMediaProps` lösen die
     // Bild-Defaults der DOM-Widgets gegen die Import-Assets auf; die
     // Namensabbildung selbst liegt in `widget-mapping.ts`.
-    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(68);
+    // 69 seit dem 16.11.2026: `normalizeDesignCanvasFrame` erkennt das
+    // Design-Canvas auch in einem Seiten-Wrapper und bevorzugt Pixelbreiten.
+    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(69);
 
     // Der CSS-Block wird ueber ANKER geprueft, nicht ueber Zeilennummern.
     //

@@ -1240,8 +1240,16 @@ export function renderIslandsScript(
         } catch (e) { host.setAttribute("data-widget-state", "failed"); }
       }).catch(function () { host.setAttribute("data-widget-state", "failed"); });
     };
+    var eager = [];
+    var lazy = [];
+    for (var i = 0; i < hosts.length; i += 1) {
+      if (hosts[i].getAttribute("data-widget-eager") === "true") eager.push(hosts[i]);
+      else lazy.push(hosts[i]);
+    }
+    for (var i = 0; i < eager.length; i += 1) mount(eager[i]);
+    if (lazy.length === 0) return;
     if (typeof IntersectionObserver !== "function") {
-      for (var i = 0; i < hosts.length; i += 1) mount(hosts[i]);
+      for (var i = 0; i < lazy.length; i += 1) mount(lazy[i]);
       return;
     }
     var observer = new IntersectionObserver(function (entries) {
@@ -1251,7 +1259,7 @@ export function renderIslandsScript(
         mount(entries[i].target);
       }
     }, { rootMargin: "300px" });
-    for (var i = 0; i < hosts.length; i += 1) observer.observe(hosts[i]);
+    for (var i = 0; i < lazy.length; i += 1) observer.observe(lazy[i]);
   })();`);
   }
   if (blocks.length === 0) return "";

@@ -65,6 +65,8 @@ type WidgetProbe = {
   step: string;
   reviewCards: number;
   panelHidden: boolean;
+  formFrames: number;
+  formLoaded: boolean;
 };
 
 describe.skipIf(!browserAvailable)("framer DOM widgets in the editor", () => {
@@ -104,6 +106,13 @@ describe.skipIf(!browserAvailable)("framer DOM widgets in the editor", () => {
       await tab.route(
         (url) => url.pathname === "/",
         (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: HARNESS }),
+      );
+      await tab.route("https://embed.fillout.com/**", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "text/html; charset=utf-8",
+          body: "<!doctype html><html><body>Fillout-Testformular</body></html>",
+        }),
       );
       await tab.goto(`${running.dashboardUrl}/`, { waitUntil: "load" });
       await tab.waitForFunction("window.__ready === true");
@@ -151,6 +160,8 @@ describe.skipIf(!browserAvailable)("framer DOM widgets in the editor", () => {
             step: text("framer-step"),
             reviewCards: doc.querySelectorAll('[data-widget-type="framer-reviews"] [data-wf-part="review"]').length,
             panelHidden: panel?.hasAttribute("hidden") ?? true,
+            formFrames: doc.querySelectorAll('[data-widget-type="framer-footer"] iframe').length,
+            formLoaded: host("framer-footer")?.querySelector('[data-wf-part="form-card"]')?.hasAttribute("data-loaded") ?? false,
           };
         });
 
@@ -172,7 +183,19 @@ describe.skipIf(!browserAvailable)("framer DOM widgets in the editor", () => {
       expect(first.reviewCards).toBe(4);
       expect(first.footer).toContain("Bereit für deine neue Website?");
       expect(first.footer).toContain("Impressum");
+      expect(first.footer).toContain("Unverbindliches Anfrageformular");
+      expect(first.formFrames).toBe(0);
+      expect(first.formLoaded).toBe(false);
       expect(first.panelHidden).toBe(true);
+
+      // Das Formular wird erst nach ausdrücklicher Einwilligung geladen.
+      const formButton = desktop.locator('[data-widget-type="framer-footer"] [data-wf-part="form-load"]');
+      await formButton.evaluate((button) => {
+        (button as unknown as { click(): void }).click();
+      });
+      await expect.poll(async () => (await probe(desktop)).formFrames, { timeout: 10000 }).toBe(1);
+      const loaded = await probe(desktop);
+      expect(loaded.formLoaded).toBe(true);
 
       // Mobilmenü: der Umschalter ist erst im schmalen Frame sichtbar.
       await tab.evaluate(() => {
