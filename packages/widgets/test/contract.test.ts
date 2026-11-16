@@ -10,6 +10,10 @@ describe("widget contract", () => {
       "framer-footer": expect.any(Function),
       "framer-reviews": expect.any(Function),
       "framer-step": expect.any(Function),
+      "framer-avatar-info": expect.any(Function),
+      "framer-button": expect.any(Function),
+      "framer-stats": expect.any(Function),
+      "framer-view-all": expect.any(Function),
     });
     for (const mount of Object.values(WIDGET_MODULES)) {
       expect(typeof mount).toBe("function");

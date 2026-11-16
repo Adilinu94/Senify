@@ -63,6 +63,55 @@ describe("DOM widget renderer", () => {
     expect(html).toContain("w-framer-reviews__track");
   });
 
+  it("renders a button with label, link, variant and arrow", () => {
+    const html = renderDomWidget("framer-button", {
+      label: "Projekt anfragen",
+      link: "/projects",
+      variant: "primary",
+    });
+    expect(html).toContain("Projekt anfragen");
+    expect(html).toContain('href="/projects"');
+    expect(html).toContain("w-framer-button--primary");
+    expect(html).toContain("w-framer-button__arrow");
+  });
+
+  it("renders the hero author with name, role and social links", () => {
+    const html = renderDomWidget("framer-avatar-info", {
+      name: "Adrian Nick",
+      role: "Webdesigner, Entwickler",
+      social: [{ label: "Instagram", link: "https://example.test/instagram", icon: "instagram" }],
+    });
+    expect(html).toContain("Adrian Nick");
+    expect(html).toContain("Webdesigner, Entwickler");
+    expect(html).toContain("Instagram");
+    expect(html).toContain("w-framer-avatar-info__mark");
+  });
+
+  it("renders both stats groups with values, labels and separators", () => {
+    const html = renderDomWidget("framer-stats", {
+      items: [
+        { value: "11+", label: "Jahre Erfahrung" },
+        { value: "95%", label: "Weiterempfehlungsrate" },
+      ],
+      speed: 65,
+    });
+    expect(html.match(/Jahre Erfahrung/g)).toHaveLength(2);
+    expect(html).toContain("11+");
+    expect(html).toContain("95%");
+    expect(html).toContain("w-framer-stats__star");
+  });
+
+  it("renders the view-all tile with label, link and arrow", () => {
+    const html = renderDomWidget("framer-view-all", {
+      label: "Alle Referenzen ansehen",
+      link: "/projects",
+    });
+    expect(html).toContain("Alle Referenzen ansehen");
+    expect(html).toContain('href="/projects"');
+    expect(html).toContain("w-framer-view-all__inner");
+    expect(html).toContain("w-framer-view-all__arrow");
+  });
+
   it("escapes text and refuses unsafe links", () => {
     const html = renderDomWidget("framer-footer", {
       headline: "<script>alert(1)</script>",

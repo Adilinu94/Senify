@@ -40,6 +40,10 @@ export const ELEMENT_ICONS: Readonly<Record<string, EditorIconName>> = {
   "framer-footer": "rows",
   "framer-step": "rows",
   "framer-reviews": "list",
+  "framer-avatar-info": "text",
+  "framer-button": "button",
+  "framer-stats": "list",
+  "framer-view-all": "collection",
 };
 
 export type ElementTile = {

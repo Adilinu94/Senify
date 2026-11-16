@@ -143,6 +143,41 @@ describe("Projekt-XML plus veröffentlichte Seite", () => {
     expect(ambiguous?.states[0]?.text?.inline["color"]).toBeUndefined();
   });
 
+  it("matcht Farben trotz fehlender Leerzeichen und Zeilenumbrüche", () => {
+    const projectXml = `<Project name="Zeilen">
+      <Pages><Page nodeId="page-home" path="/" /></Pages>
+      <TextStyles />
+      <ColorStyles />
+    </Project>`;
+    const pageXml = `<Desktop nodeId="d" width="1200px">
+      <Body nodeId="text-satz">Satz eins.Satz zwei.</Body>
+    </Desktop>`;
+    const document = mapUnframerProject({
+      projectXml,
+      pages: [{ path: "/", xml: pageXml }],
+      capturedAt: "2026-11-16T12:00:00.000Z",
+    });
+    const html = `<!doctype html><html><body><div id="main"><div>
+      <p style="--framer-text-color: rgb(12, 34, 56)"><span>Satz eins.</span><br><span>Satz zwei.</span></p>
+    </div></div></body></html>`;
+    const stats = enrichProjectDocument(document, { html });
+    expect(stats.colors).toBe(1);
+    expect(stats.ambiguous).toBe(0);
+
+    const root = document.pages[0]?.root;
+    const findSentence = (node: IrNode): IrNode | undefined => {
+      const content = node.states[0]?.text?.content;
+      if (content?.includes("Satz eins") === true) return node;
+      for (const child of node.children) {
+        const found = findSentence(child);
+        if (found !== undefined) return found;
+      }
+      return undefined;
+    };
+    const textNode = root === undefined ? undefined : findSentence(root);
+    expect(textNode?.states[0]?.text?.inline["color"]).toBe("rgb(12, 34, 56)");
+  });
+
   it("trennt mehrdeutige Worte über den DOM-Pfad, wenn die Quelle eindeutig ist", () => {
     const projectXml = `<Project name="Pfad">
       <Pages><Page nodeId="page-home" path="/" /></Pages>

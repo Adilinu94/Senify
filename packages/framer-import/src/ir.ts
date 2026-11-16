@@ -90,6 +90,9 @@ export type IrMotionSample = {
 
 export const IR_FINDING_KINDS = [
   "code-component",
+  // component-instance — a named Framer component whose implementation is not
+  // in the project XML. The mapper leaves a named plate and the report lists it.
+  "component-instance",
   "shader",
   "cms",
   "locale",

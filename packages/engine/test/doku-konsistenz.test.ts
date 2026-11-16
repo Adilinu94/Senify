@@ -301,7 +301,9 @@ describe("Doku-Waechter: die Moduluebersicht gehoert dem Generator", () => {
     // Namensabbildung selbst liegt in `widget-mapping.ts`.
     // 69 seit dem 16.11.2026: `normalizeDesignCanvasFrame` erkennt das
     // Design-Canvas auch in einem Seiten-Wrapper und bevorzugt Pixelbreiten.
-    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(69);
+    // 70 seit dem 16.11.2026: `instanceWidgetProps` liest Avatar-, Button-,
+    // Ticker- und View-all-Instanzwerte aus den XML-Attributen.
+    expect(funktionen(mapper), "mapper.ts hat eine andere Zahl Funktionen").toBe(70);
 
     // Der CSS-Block wird ueber ANKER geprueft, nicht ueber Zeilennummern.
     //

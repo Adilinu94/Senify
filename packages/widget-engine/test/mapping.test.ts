@@ -61,6 +61,10 @@ describe("section mapping", () => {
       "framer-footer",
       "framer-step",
       "framer-reviews",
+      "framer-avatar-info",
+      "framer-button",
+      "framer-stats",
+      "framer-view-all",
     ]);
   });
 });

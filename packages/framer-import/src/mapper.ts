@@ -18,8 +18,8 @@ import type {
 } from "@senify/editor/state";
 import { sanitizeInlineHtml, sanitizeSvgMarkup, widgetPrimitive, type DeviceValueMap, type PropValue, type StyleRule } from "@senify/widget-engine";
 import { stepWidgetProps } from "@senify/widget-engine/dom-widgets";
-import { widgetTypeForComponent } from "./widget-mapping.ts";
-export { widgetTypeForCodeComponent, widgetTypeForComponent } from "./widget-mapping.ts";
+import { widgetTypeForCapturedComponent, widgetTypeForCodeComponent, widgetTypeForComponent } from "./widget-mapping.ts";
+export { widgetTypeForCapturedComponent, widgetTypeForCodeComponent, widgetTypeForComponent } from "./widget-mapping.ts";
 import { decodeEntities } from "./capture-html.ts";
 import { brandColorOf } from "./brand-color.ts";
 import { neutralBaseOf, typeBaseOf } from "./theme-scales.ts";
@@ -448,6 +448,10 @@ type MapContext = {
   fontSlots: Map<string, string>;
   // The mode decides the fonts of the page (see `mapDocument`).
   mode: NormalizeMode;
+  // Regular Framer components are mapped only in the project-XML path. The
+  // HTML capture already contains their internals; replacing them with widget
+  // defaults would drop captured links and content (fixture gate, 16.11.2026).
+  projectXml: boolean;
   stats: { nodes: number; mergedVariants: number; placeholders: number };
   findings: IrFinding[];
   // Die Assets des Laufs: Quelladresse -> lokaler Beleg. DOM-Widgets setzen ihre
@@ -552,6 +556,61 @@ export function normalizeDesignCanvasFrame(
   };
 }
 
+function instanceWidgetProps(
+  type: string,
+  attrs: Readonly<Record<string, string>>,
+  componentType: string | null,
+): Record<string, PropValue> {
+  if (type === "framer-step") return stepWidgetProps(attrs);
+  if (type === "framer-avatar-info") {
+    const name = attrs["iWJIQRIQk"]?.trim() ?? "";
+    const role = attrs["vqHnFkhQ0"]?.trim() ?? "";
+    return {
+      ...(name === "" ? {} : { name }),
+      ...(role === "" ? {} : { role }),
+    };
+  }
+  if (type === "framer-button") {
+    const label = attrs["erbCBAez1"]?.trim() ?? "";
+    const link = attrs["l1gPDCIox"]?.trim() ?? "";
+    const key = (componentType ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\.[a-z0-9]+$/, "")
+      .replace(/[^a-z0-9]/g, "");
+    const variant = key === "button" ? "ghost" : key === "button3" ? "dark" : "primary";
+    return {
+      ...(label === "" ? {} : { label }),
+      ...(link === "" ? {} : { link }),
+      variant,
+    };
+  }
+  if (type === "framer-stats") {
+    const pairs: readonly (readonly [string, string])[] = [
+      ["eBqMtzQHE", "WFUNR5_Ok"],
+      ["mWirz3oxs", "U7MJejad2"],
+      ["kpxbnMuh9", "tinhmYfS8"],
+      ["wZIgtp_0x", "WuukyzOlW"],
+    ];
+    const items = pairs
+      .map(([valueKey, labelKey]) => ({
+        value: (attrs[valueKey] ?? "").trim(),
+        label: (attrs[labelKey] ?? "").trim(),
+      }))
+      .filter((item) => item.value !== "" || item.label !== "");
+    const speed = Number.parseInt(attrs["ocoluOEZo"] ?? "", 10);
+    return {
+      ...(items.length === 0 ? {} : { items }),
+      ...(Number.isFinite(speed) ? { speed } : {}),
+    };
+  }
+  if (type === "framer-view-all") {
+    const label = attrs["vZVzlwRQh"]?.trim() ?? "";
+    return label === "" ? {} : { label };
+  }
+  return {};
+}
+
 function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null): EditorNode | null {
   // The sibling device merge (S1.5): the capture keeps Framer's per-breakpoint
   // duplicates as separate nodes with `hiddenAt`; identical base signatures
@@ -570,9 +629,13 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
   // ADR-0036, ADR-0038). Die Defaults füllt der Markup-Serializer; Step 2
   // übernimmt die Instanzwerte aus der Projekt-XML.
   const widgetType =
-    node.kind === "placeholder" || node.kind === "component-instance"
-      ? widgetTypeForComponent(node.componentType)
-      : undefined;
+    node.kind === "placeholder"
+      ? widgetTypeForCodeComponent(node.componentType)
+      : node.kind === "component-instance"
+        ? context.projectXml
+          ? widgetTypeForComponent(node.componentType)
+          : widgetTypeForCapturedComponent(node.componentType)
+        : undefined;
   if (widgetType !== undefined) {
     primitive = widgetType;
     context.findings.push({
@@ -632,8 +695,26 @@ function mapNode(node: IrNode, context: MapContext, parent: IrNode | null = null
       suggestion: "Als Island-Payload importieren oder die Stelle manuell nachbauen.",
     });
   }
+  if (context.projectXml && node.kind === "component-instance" && widgetType === undefined) {
+    const evidence =
+      Object.values(node.attrs ?? {})
+        .map((value) => value.trim())
+        .filter((value) => value !== "")
+        .slice(0, 4)
+        .join(" / ")
+        .slice(0, 180) || (node.componentType ?? node.tag);
+    context.findings.push({
+      kind: "component-instance",
+      nodeKey: node.key,
+      message: `Framer-Komponente "${node.componentType ?? node.name ?? node.tag}" bleibt eine leere Fassade; ihr Innenleben steht nicht in der Projekt-XML.`,
+      evidence,
+      severity: "warn",
+      suggestion:
+        "Komponente als Widget portieren oder ihr Innenleben über Unframer getNodeXml nachziehen.",
+    });
+  }
   const widgetProps =
-    widgetType === "framer-step" ? stepWidgetProps(node.attrs ?? {}) : {};
+    widgetType === undefined ? {} : instanceWidgetProps(widgetType, node.attrs ?? {}, node.componentType);
   const props: Record<string, unknown> = { ...widgetProps };
   if (widgetType !== undefined) Object.assign(props, widgetMediaProps(widgetType, context.assets));
   if (node.kind === "placeholder" && widgetType === undefined) {
@@ -2135,6 +2216,7 @@ export function mapDocument(
     ),
     fontSlots: slots,
     mode: options.mode ?? "dna",
+    projectXml: document.source.kind === "plugin",
     stats: { nodes: 0, mergedVariants: 0, placeholders: 0 },
     nodeIdByIrKey: {},
     findings: [...document.findings],

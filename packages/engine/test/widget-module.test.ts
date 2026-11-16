@@ -38,4 +38,19 @@ describe("widget module route", () => {
     const response = await get("/api/widget-module");
     expect(response.status).toBe(404);
   });
+
+  it("does not spend the shared read rate limit on module bundles", async () => {
+    const tight = await bootEngine({
+      rateLimits: { perMinute: 1, burst: 1, destructivePerMinute: 1 },
+    });
+    try {
+      const headers = { authorization: `Bearer ${tight.token}` };
+      const first = await fetch(`${tight.server.origin}/api/widget-module?type=framer-avatar-info`, { headers });
+      const second = await fetch(`${tight.server.origin}/api/widget-module?type=framer-footer`, { headers });
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+    } finally {
+      await tight.close();
+    }
+  });
 });

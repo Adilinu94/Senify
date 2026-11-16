@@ -21,10 +21,25 @@ const HARNESS = `<!doctype html>
       version: 2,
       rootNodeId: "root000001",
       nodes: {
-        root000001: { id: "root000001", primitive: "root", props: {}, children: ["nav000001", "step000001", "rev000001", "foot000001"] },
+        root000001: { id: "root000001", primitive: "root", props: {}, children: ["nav000001", "avatar000001", "button000001", "stats000001", "viewall000001", "step000001", "rev000001", "foot000001"] },
         nav000001: { id: "nav000001", primitive: "framer-navbar", props: {
           brand: "NICK WEBDESIGN", logo: "", email: "hello@example.com",
           ctaLabel: "WhatsApp", ctaLink: "https://example.com/whatsapp"
+        } },
+        avatar000001: { id: "avatar000001", primitive: "framer-avatar-info", props: {
+          name: "Adrian Nick", role: "Webdesigner, Entwickler", avatar: "", social: []
+        } },
+        button000001: { id: "button000001", primitive: "framer-button", props: {
+          label: "Projekt anfragen", link: "/projects", variant: "primary"
+        } },
+        stats000001: { id: "stats000001", primitive: "framer-stats", props: {
+          speed: 65, items: [
+            { value: "11+", label: "Jahre Erfahrung" },
+            { value: "95%", label: "Weiterempfehlungsrate" }
+          ]
+        } },
+        viewall000001: { id: "viewall000001", primitive: "framer-view-all", props: {
+          label: "Alle Referenzen ansehen", link: "/projects"
         } },
         step000001: { id: "step000001", primitive: "framer-step", props: {
           nr: "07", title: "SEO", text: "Bessere Sichtbarkeit.",
@@ -63,6 +78,10 @@ type WidgetProbe = {
   footer: string;
   reviews: string;
   step: string;
+  avatar: string;
+  button: string;
+  stats: string;
+  viewAll: string;
   reviewCards: number;
   panelHidden: boolean;
   formFrames: number;
@@ -70,7 +89,7 @@ type WidgetProbe = {
 };
 
 describe.skipIf(!browserAvailable)("framer DOM widgets in the editor", () => {
-  it("mounts all four widgets, renders their content and opens the mobile menu", async () => {
+  it("mounts all eight widgets, renders their content and opens the mobile menu", async () => {
     const { chromium } = await import("playwright");
     const database = memoryDb();
     const dataDir = mkdtempSync(join(tmpdir(), "senify-framer-widgets-"));
@@ -123,7 +142,7 @@ describe.skipIf(!browserAvailable)("framer DOM widgets in the editor", () => {
       const waitMounted = async (device: "desktop" | "mobile") => {
         const frame = await frameFor(device);
         await frame.locator('[data-island="widget"]').first().waitFor();
-        await frame.locator('[data-widget-state="mounted"]').nth(3).waitFor();
+        await frame.locator('[data-widget-state="mounted"]').nth(7).waitFor();
         return frame;
       };
 
@@ -149,15 +168,25 @@ describe.skipIf(!browserAvailable)("framer DOM widgets in the editor", () => {
           const panel = host("framer-navbar")?.querySelector('[data-wf-part="panel"]');
           return {
             states: Object.fromEntries(
-              ["framer-navbar", "framer-step", "framer-reviews", "framer-footer"].map((type) => [
-                type,
-                host(type)?.getAttribute("data-widget-state") ?? null,
-              ]),
+              [
+                "framer-navbar",
+                "framer-avatar-info",
+                "framer-button",
+                "framer-stats",
+                "framer-view-all",
+                "framer-step",
+                "framer-reviews",
+                "framer-footer",
+              ].map((type) => [type, host(type)?.getAttribute("data-widget-state") ?? null]),
             ),
             navbar: text("framer-navbar"),
             footer: text("framer-footer"),
             reviews: text("framer-reviews"),
             step: text("framer-step"),
+            avatar: text("framer-avatar-info"),
+            button: host("framer-button")?.querySelector(".w-framer-button__label")?.textContent?.trim() ?? "",
+            stats: text("framer-stats"),
+            viewAll: text("framer-view-all"),
             reviewCards: doc.querySelectorAll('[data-widget-type="framer-reviews"] [data-wf-part="review"]').length,
             panelHidden: panel?.hasAttribute("hidden") ?? true,
             formFrames: doc.querySelectorAll('[data-widget-type="framer-footer"] iframe').length,
@@ -169,6 +198,10 @@ describe.skipIf(!browserAvailable)("framer DOM widgets in the editor", () => {
       const first = await probe(desktop);
       expect(first.states).toEqual({
         "framer-navbar": "mounted",
+        "framer-avatar-info": "mounted",
+        "framer-button": "mounted",
+        "framer-stats": "mounted",
+        "framer-view-all": "mounted",
         "framer-step": "mounted",
         "framer-reviews": "mounted",
         "framer-footer": "mounted",
@@ -176,6 +209,12 @@ describe.skipIf(!browserAvailable)("framer DOM widgets in the editor", () => {
       expect(first.navbar).toContain("NICK WEBDESIGN");
       expect(first.navbar).toContain("Projekte");
       expect(first.navbar).toContain("WhatsApp");
+      expect(first.avatar).toContain("Adrian Nick");
+      expect(first.avatar).toContain("Webdesigner, Entwickler");
+      expect(first.button).toBe("Projekt anfragen");
+      expect(first.stats).toContain("Jahre Erfahrung");
+      expect(first.stats).toContain("Weiterempfehlungsrate");
+      expect(first.viewAll).toContain("Alle Referenzen ansehen");
       expect(first.step).toContain("SEO");
       expect(first.step).toContain("Klare Texte:");
       expect(first.reviews).toContain("Markus B.");

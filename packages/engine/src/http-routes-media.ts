@@ -69,6 +69,9 @@ export const mediaRoutes: Route[] = [
     method: "GET",
     segments: ["api", "widget-module"],
     scope: "read",
+    // Static ESM, one request per widget type; a page with many widgets must
+    // not exhaust the shared read burst (12 modules already did in the editor).
+    rateLimit: false,
     handler: async (_context, _params, _req, url) => {
       const type = url.searchParams.get("type");
       if (type === null || !isWidgetPrimitive(type)) {

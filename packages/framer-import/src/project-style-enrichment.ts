@@ -12,7 +12,7 @@
 import { captureHtml } from "./capture-html.ts";
 import type { FramerIrDocument, IrFontFace, IrNode } from "./ir.ts";
 import { widgetPrimitive } from "@senify/widget-engine";
-import { widgetTypeForComponent } from "./widget-mapping.ts";
+import { widgetTypeForCodeComponent, widgetTypeForComponent } from "./widget-mapping.ts";
 
 export type ProjectStyleSource = {
   html: string;
@@ -106,7 +106,19 @@ function textOfNode(node: IrNode): string | null {
   const text = node.states[0]?.text;
   if (text === undefined || text === null) return null;
   const content = text.content.replace(/\s+/g, " ").trim();
-  return content === "" ? null : content;
+  if (content !== "") return content;
+  // Mixed inline text (a paragraph with <br> or word spans) carries its words
+  // in `innerHtml`, not in `text.content` (measured on the fluffy hero
+  // paragraph). Without this fallback, its colour never enters the lookup.
+  if (node.innerHtml !== null && node.innerHtml !== undefined) {
+    const plain = node.innerHtml
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (plain !== "") return plain;
+  }
+  return null;
 }
 
 function walk(node: IrNode, visit: (node: IrNode) => void): void {
@@ -138,7 +150,10 @@ function widgetTypesOf(document: FramerIrDocument): Set<string> {
   for (const page of document.pages) {
     walk(page.root, (node) => {
       if (node.kind !== "placeholder" && node.kind !== "component-instance") return;
-      const type = widgetTypeForComponent(node.componentType);
+      const type =
+        node.kind === "placeholder"
+          ? widgetTypeForCodeComponent(node.componentType)
+          : widgetTypeForComponent(node.componentType);
       if (type !== undefined) types.add(type);
     });
   }
@@ -164,6 +179,13 @@ function findIrDescendant(node: IrNode, predicate: (candidate: IrNode) => boolea
     if (found !== null) return found;
   }
   return null;
+}
+
+// XML and DOM differ in line breaks and spaces around sentence ends
+// ("andere.Ich" vs "andere.\nIch"). Colour/layout lookup uses both the exact
+// text and a whitespace-free key; the exact key still wins when it exists.
+function normalizeColorText(value: string): string {
+  return value.replace(/\s+/g, "").trim();
 }
 
 const GENERIC_PATH_TAGS = new Set([
@@ -413,24 +435,30 @@ export function enrichProjectDocument(
     const path = ownPart === null ? ancestors : [...ancestors, ownPart].slice(-4);
     if (!hiddenHere && color !== null) {
       const addPathColor = (content: string): void => {
-        for (const length of [3, 2]) {
-          if (path.length < length) continue;
-          const key = `${content}\u0000${path.slice(-length).join("/")}`;
-          const colors = colorsByPath.get(key) ?? new Set<string>();
-          colors.add(color);
-          colorsByPath.set(key, colors);
+        for (const contentKey of new Set([content, normalizeColorText(content)])) {
+          for (const length of [3, 2]) {
+            if (path.length < length) continue;
+            const key = `${contentKey}\u0000${path.slice(-length).join("/")}`;
+            const colors = colorsByPath.get(key) ?? new Set<string>();
+            colors.add(color);
+            colorsByPath.set(key, colors);
+          }
         }
       };
       const addColor = (content: string): void => {
-        const colors = colorsByText.get(content) ?? new Set<string>();
-        colors.add(color);
-        colorsByText.set(content, colors);
+        for (const contentKey of new Set([content, normalizeColorText(content)])) {
+          const colors = colorsByText.get(contentKey) ?? new Set<string>();
+          colors.add(color);
+          colorsByText.set(contentKey, colors);
+        }
         addPathColor(content);
       };
       const addLayout = (key: string, layout: HtmlTextLayout): void => {
-        const entries = layoutsByText.get(key) ?? [];
-        entries.push({ color, layout });
-        layoutsByText.set(key, entries);
+        for (const layoutKey of new Set([key, normalizeColorText(key)])) {
+          const entries = layoutsByText.get(layoutKey) ?? [];
+          entries.push({ color, layout });
+          layoutsByText.set(layoutKey, entries);
+        }
       };
       const inline = htmlTextLayoutOf(node);
       const content = textOfNode(node);
@@ -464,7 +492,7 @@ export function enrichProjectDocument(
       if ((text.inline["color"] ?? "").trim() !== "") return;
       const content = textOfNode(node);
       if (content === null) return;
-      const found = colorsByText.get(content);
+      const found = colorsByText.get(content) ?? colorsByText.get(normalizeColorText(content));
       if (found === undefined) return;
       let color: string | null = found.size === 1 ? ([...found][0] as string) : null;
       // Mehrdeutige Worte: Der DOM-Pfad kann sie trennen, wenn die Quelle den
@@ -473,12 +501,15 @@ export function enrichProjectDocument(
       // müssen übereinstimmen. Kein Treffer heißt weiterhin: Farbe auslassen.
       if (color === null) {
         const parts = pathPartsForNode(node, parents);
-        for (const length of [3, 2]) {
-          if (parts.length < length) continue;
-          const byPath = colorsByPath.get(`${content}\u0000${parts.slice(-length).join("/")}`);
-          if (byPath !== undefined && byPath.size === 1) {
-            color = [...byPath][0] as string;
-            break;
+        for (const contentKey of new Set([content, normalizeColorText(content)])) {
+          if (color !== null) break;
+          for (const length of [3, 2]) {
+            if (parts.length < length) continue;
+            const byPath = colorsByPath.get(`${contentKey}\u0000${parts.slice(-length).join("/")}`);
+            if (byPath !== undefined && byPath.size === 1) {
+              color = [...byPath][0] as string;
+              break;
+            }
           }
         }
       }
@@ -494,7 +525,10 @@ export function enrichProjectDocument(
       // string and carries non-breaking spaces; without regular spaces the
       // line runs past its 806px box. `text-wrap: balance` then picks the
       // source's break.
-      const layout = (layoutsByText.get(content) ?? []).find((entry) => entry.color === color)?.layout;
+      const layout =
+        (layoutsByText.get(content) ?? layoutsByText.get(normalizeColorText(content)) ?? []).find(
+          (entry) => entry.color === color,
+        )?.layout;
       if (layout !== undefined) {
         if (layout.content.trim() !== "") {
           text.content = layout.content.replace(/\u00a0/g, " ");

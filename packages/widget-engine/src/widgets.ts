@@ -193,6 +193,54 @@ const stepControls: Control[] = [
   toneControl(),
 ];
 
+const avatarInfoControls: Control[] = [
+  text("name", "Name", "Adrian Nick", "Inhalt"),
+  text("role", "Rolle", "Webdesigner, Entwickler", "Inhalt"),
+  media("avatar", "Porträt", "", "Inhalt"),
+  ctrl("social", "Soziale Links", "repeater", "list", [
+    { label: "Instagram", link: "https://www.instagram.com/nickwebdesign/", icon: "instagram" },
+    { label: "WhatsApp", link: "https://api.whatsapp.com/send?phone=4915224458557&text=&source=&data=", icon: "whatsapp" },
+    { label: "E-Mail", link: "mailto:adrian@nick-webdesign.de", icon: "mail" },
+  ], {
+    group: "Kontakt", responsive: false, maxItems: 8,
+    fields: [
+      linkField(),
+      targetField(),
+      choose("icon", "Symbol", [["instagram", "Instagram"], ["whatsapp", "WhatsApp"], ["mail", "E-Mail"], ["website", "Website"]], "website", "Inhalt"),
+    ],
+  }),
+  toneControl(),
+];
+
+const buttonControls: Control[] = [
+  text("label", "Beschriftung", "Projekt anfragen", "Inhalt"),
+  url("link", "Ziel", "/", "Inhalt"),
+  choose("variant", "Variante", [["primary", "Primär (lime)"], ["ghost", "Glas"], ["dark", "Dunkel"], ["small", "Klein"]], "primary", "Darstellung"),
+  toggle("arrow", "Pfeil", true, "Darstellung"),
+  toneControl(),
+];
+
+const statsControls: Control[] = [
+  ctrl("items", "Werte", "repeater", "list", [
+    { value: "11+", label: "Jahre Erfahrung" },
+    { value: "95%", label: "Weiterempfehlungsrate" },
+    { value: "100%", label: "zufriedene Kunden" },
+    { value: "114", label: "abgeschlossene Projekte" },
+  ], {
+    group: "Inhalt", responsive: false, maxItems: 8,
+    fields: [text("value", "Wert", "", "Inhalt"), text("label", "Beschriftung", "", "Inhalt")],
+  }),
+  slider("speed", "Laufzeit", 65, 10, 180, 1, "Bewegung", ["s"]),
+  toggle("pause", "Bei Hover anhalten", true, "Bewegung"),
+  toneControl(),
+];
+
+const viewAllControls: Control[] = [
+  text("label", "Beschriftung", "Alle Referenzen ansehen", "Inhalt"),
+  url("link", "Ziel", "/projects", "Inhalt"),
+  toneControl(),
+];
+
 export const WIDGET_PRIMITIVES: readonly PrimitiveDefinition[] = [
   {
     type: "ribbon-gallery",
@@ -279,6 +327,57 @@ export const WIDGET_PRIMITIVES: readonly PrimitiveDefinition[] = [
         "https://framerusercontent.com/images/YEFLU55KbfAgBozm5M4ZlLTRig.png?scale-down-to=512&width=800&height=800",
       ],
     },
+  },
+  {
+    type: "framer-avatar-info",
+    name: "Framer Autor",
+    category: "layout",
+    description: "Autor-Karte aus der Framer-Komponente Avatar & info: Porträt, Name, Rolle und soziale Links.",
+    container: false,
+    allowedChildren: "none",
+    slots: {},
+    controls: avatarInfoControls,
+    styleGroups: ["spacing", "size"],
+    dom: true,
+    sourceMedia: {
+      avatar: "https://framerusercontent.com/images/oJAubpok1FvUAyl0yzlWey1Jao.webp?width=561&height=701",
+    },
+  },
+  {
+    type: "framer-button",
+    name: "Framer Button",
+    category: "layout",
+    description: "Button aus den Framer-Komponenten Button/Button 2: Label, Ziel, Glas-, Primär- oder Dunkelvariante und optionaler Pfeil.",
+    container: false,
+    allowedChildren: "none",
+    slots: {},
+    controls: buttonControls,
+    styleGroups: ["spacing", "size"],
+    dom: true,
+  },
+  {
+    type: "framer-stats",
+    name: "Framer Statistik-Ticker",
+    category: "basic",
+    description: "Laufband aus der Framer-Komponente Ticker: Zahlen und Beschriftungen mit lime Separator, hält bei Hover an.",
+    container: false,
+    allowedChildren: "none",
+    slots: {},
+    controls: statsControls,
+    styleGroups: ["spacing", "size"],
+    dom: true,
+  },
+  {
+    type: "framer-view-all",
+    name: "Framer Alle Referenzen",
+    category: "layout",
+    description: "Große View-all-Kachel aus der Framer-Komponente View all 2: Label, Link und Pfeil auf lime Fläche.",
+    container: false,
+    allowedChildren: "none",
+    slots: {},
+    controls: viewAllControls,
+    styleGroups: ["spacing", "size"],
+    dom: true,
   },
 ];
 

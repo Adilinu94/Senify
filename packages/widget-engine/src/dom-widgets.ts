@@ -378,9 +378,99 @@ function step(props: Props): string {
 </div>`;
 }
 
+/* ---------------------------------------------------- avatar, buttons, stats */
+
+function arrowIcon(): string {
+  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function avatarInfo(props: Props): string {
+  const name = str(props["name"], "Adrian Nick");
+  const role = str(props["role"], "Webdesigner, Entwickler");
+  const avatar =
+    img(props["avatar"], "w-framer-avatar-info__avatar", name) ||
+    `<span class="w-framer-avatar-info__avatar w-framer-avatar-info__avatar--fallback" aria-hidden="true">${esc(initials(name))}</span>`;
+  const social = entries(props["social"])
+    .map((item) => {
+      const label = str(item["label"]);
+      if (label === "") return "";
+      return `<a class="w-framer-avatar-info__social-link" href="${esc(href(item["link"]))}"${linkAttrs(item["link"])} aria-label="${esc(label)}" title="${esc(label)}">${socialIcon(str(item["icon"], label))}</a>`;
+    })
+    .join("");
+  return `<div class="${esc(toneClass("w-framer-avatar-info__root", props))}">
+    <div class="w-framer-avatar-info__portrait">
+      <span class="w-framer-avatar-info__mark" aria-hidden="true">N</span>
+      ${avatar}
+    </div>
+    <div class="w-framer-avatar-info__body">
+      <span class="w-framer-avatar-info__name" data-wf-part="name">${esc(name)}</span>
+      <span class="w-framer-avatar-info__role" data-wf-part="role">${esc(role)}</span>
+      ${social === "" ? "" : `<span class="w-framer-avatar-info__social" data-wf-part="social">${social}</span>`}
+    </div>
+  </div>`;
+}
+
+function button(props: Props): string {
+  const label = str(props["label"], "Projekt anfragen");
+  const link = str(props["link"], "/");
+  const requested = str(props["variant"], "primary");
+  const variant = ["primary", "ghost", "dark", "small"].includes(requested) ? requested : "primary";
+  const arrow = props["arrow"] !== false;
+  const tone = str(props["tone"]) === "light" ? " w-framer-button__root--light" : "";
+  return `<a class="w-framer-button__root w-framer-button--${variant}${tone}" data-wf-part="button" href="${esc(href(link))}"${linkAttrs(link)}>
+    <span class="w-framer-button__label">${esc(label)}</span>
+    ${arrow ? `<span class="w-framer-button__arrow" aria-hidden="true">${arrowIcon()}</span>` : ""}
+  </a>`;
+}
+
+function stats(props: Props): string {
+  const items = entries(props["items"])
+    .map((item) => ({ value: str(item["value"]).trim(), label: str(item["label"]).trim() }))
+    .filter((item) => item.value !== "" || item.label !== "");
+  if (items.length === 0) return "";
+  const itemHtml = items
+    .map(
+      (item, index) =>
+        `<li class="w-framer-stats__item"><strong>${esc(item.value)}</strong><span>${esc(item.label)}</span></li>${
+          index < items.length - 1 ? '<li class="w-framer-stats__star" aria-hidden="true">✳</li>' : ""
+        }`,
+    )
+    .join("");
+  const speed = Math.max(10, Math.round(num(props["speed"], 65)));
+  const pause = props["pause"] === true ? ' data-pause="true"' : "";
+  return `<div class="${esc(toneClass("w-framer-stats__root", props))}" style="--wfs-duration: ${speed}s">
+    <div class="w-framer-stats__viewport"${pause}>
+      <div class="w-framer-stats__track">
+        <ul class="w-framer-stats__group">${itemHtml}</ul>
+        <ul class="w-framer-stats__group" aria-hidden="true">${itemHtml}</ul>
+      </div>
+    </div>
+  </div>`;
+}
+
+function viewAll(props: Props): string {
+  const label = str(props["label"], "Alle Referenzen ansehen");
+  const link = str(props["link"], "/projects");
+  return `<a class="${esc(toneClass("w-framer-view-all__root", props))}" data-wf-part="view-all" href="${esc(href(link))}"${linkAttrs(link)}>
+    <span class="w-framer-view-all__inner">
+      <span class="w-framer-view-all__label">${esc(label)}</span>
+      <span class="w-framer-view-all__arrow" aria-hidden="true">${arrowIcon()}</span>
+    </span>
+  </a>`;
+}
+
 /* ---------------------------------------------------------- public API */
 
-export const DOM_WIDGET_TYPES = ["framer-navbar", "framer-footer", "framer-reviews", "framer-step"] as const;
+export const DOM_WIDGET_TYPES = [
+  "framer-navbar",
+  "framer-footer",
+  "framer-reviews",
+  "framer-step",
+  "framer-avatar-info",
+  "framer-button",
+  "framer-stats",
+  "framer-view-all",
+] as const;
 export type DomWidgetType = (typeof DOM_WIDGET_TYPES)[number];
 
 export function isDomWidgetType(type: string): type is DomWidgetType {
@@ -397,6 +487,14 @@ export function renderDomWidget(type: string, props: Readonly<Record<string, Pro
       return reviews(props as Props);
     case "framer-step":
       return step(props as Props);
+    case "framer-avatar-info":
+      return avatarInfo(props as Props);
+    case "framer-button":
+      return button(props as Props);
+    case "framer-stats":
+      return stats(props as Props);
+    case "framer-view-all":
+      return viewAll(props as Props);
     default:
       return "";
   }
@@ -423,7 +521,11 @@ export const DOM_WIDGET_CSS = `
 .w-framer-navbar__root,
 .w-framer-footer__root,
 .w-framer-reviews__root,
-.w-framer-step__root {
+.w-framer-step__root,
+.w-framer-avatar-info__root,
+.w-framer-button__root,
+.w-framer-stats__root,
+.w-framer-view-all__root {
   --wf-fg: #ffffff;
   --wf-muted: rgba(255, 255, 255, 0.6);
   --wf-faint: rgba(255, 255, 255, 0.5);
@@ -438,7 +540,11 @@ export const DOM_WIDGET_CSS = `
 .w-framer-navbar__root--light,
 .w-framer-footer__root--light,
 .w-framer-reviews__root--light,
-.w-framer-step__root--light {
+.w-framer-step__root--light,
+.w-framer-avatar-info__root--light,
+.w-framer-button__root--light,
+.w-framer-stats__root--light,
+.w-framer-view-all__root--light {
   --wf-fg: #111111;
   --wf-muted: rgba(17, 17, 17, 0.6);
   --wf-faint: rgba(17, 17, 17, 0.55);
@@ -556,6 +662,51 @@ export const DOM_WIDGET_CSS = `
 .w-framer-step__point span { color: var(--wf-faint); }
 .w-framer-step__right { min-height: 1px; }
 
+/* Autor */
+.w-framer-avatar-info__root { display: flex; align-items: center; gap: 26px; }
+.w-framer-avatar-info__portrait { position: relative; display: flex; align-items: center; width: 125px; height: 90px; flex: none; }
+.w-framer-avatar-info__mark { position: absolute; left: 0; top: 0; width: 64px; height: 90px; display: flex; align-items: center; font-size: 72px; line-height: 1; font-weight: 700; letter-spacing: -0.08em; color: var(--wf-fg); }
+.w-framer-avatar-info__avatar { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 90px; height: 90px; margin-left: 35px; border-radius: 50%; object-fit: cover; background: var(--wf-bg); color: var(--wf-fg); font-size: 28px; font-weight: 600; }
+.w-framer-avatar-info__body { display: flex; flex-direction: column; gap: 6px; }
+.w-framer-avatar-info__name { font-size: 22px; line-height: 1.2; font-weight: 600; letter-spacing: -0.03em; }
+.w-framer-avatar-info__role { font-size: 15px; line-height: 1.3; color: var(--wf-muted); }
+.w-framer-avatar-info__social { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.w-framer-avatar-info__social-link { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; color: var(--wf-muted); }
+.w-framer-avatar-info__social-link svg { width: 22px; height: 22px; }
+.w-framer-avatar-info__social-link:hover { color: var(--wf-fg); }
+
+/* Button */
+.w-framer-button__root { display: inline-flex; align-items: center; justify-content: space-between; gap: 16px; box-sizing: border-box; min-height: 60px; padding: 0 11px 0 28px; border-radius: 999px; background: var(--wf-accent); color: var(--wf-accent-ink); text-decoration: none; font-size: 16px; font-weight: 600; line-height: 1.2; white-space: nowrap; }
+.w-framer-button__arrow { display: inline-flex; align-items: center; justify-content: center; width: 46px; height: 46px; flex: none; border-radius: 50%; background: #ffffff; color: #111111; }
+.w-framer-button--ghost { min-height: 70px; padding: 0 15px 0 30px; gap: 20px; background: rgba(255, 255, 255, 0.22); color: #ffffff; }
+.w-framer-button--ghost .w-framer-button__arrow { background: rgba(255, 255, 255, 0.35); color: #ffffff; }
+.w-framer-button--dark { min-height: 56px; padding: 0 30px; background: #111111; color: var(--wf-accent); }
+.w-framer-button--dark .w-framer-button__arrow { background: var(--wf-accent); color: #111111; }
+.w-framer-button--small { min-height: 48px; padding: 0 24px; gap: 12px; }
+.w-framer-button__root:hover { filter: brightness(1.05); }
+.w-framer-button__root:focus-visible { outline: 2px solid var(--wf-accent); outline-offset: 3px; }
+.w-framer-button__root--light.w-framer-button--ghost { background: rgba(17, 17, 17, 0.08); color: #111111; }
+.w-framer-button__root--light.w-framer-button--ghost .w-framer-button__arrow { background: rgba(17, 17, 17, 0.12); color: #111111; }
+
+/* Statistik-Ticker */
+.w-framer-stats__root { width: 100%; min-height: 100px; display: flex; align-items: center; overflow: hidden; }
+.w-framer-stats__viewport { width: 100%; overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent); }
+.w-framer-stats__track { display: flex; width: max-content; animation: w-framer-stats-scroll var(--wfs-duration, 65s) linear infinite; }
+.w-framer-stats__viewport[data-pause="true"]:hover .w-framer-stats__track { animation-play-state: paused; }
+.w-framer-stats__group { display: flex; align-items: center; gap: 70px; padding: 0 70px 0 0; margin: 0; list-style: none; flex: none; }
+.w-framer-stats__item { display: flex; align-items: baseline; gap: 12px; white-space: nowrap; }
+.w-framer-stats__item strong { font-size: 36px; line-height: 1.1; font-weight: 600; letter-spacing: -0.04em; color: var(--wf-accent); }
+.w-framer-stats__item span { font-size: 20px; line-height: 1.2; font-weight: 600; color: var(--wf-fg); }
+.w-framer-stats__star { color: var(--wf-accent); font-size: 30px; line-height: 1; }
+@keyframes w-framer-stats-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* Alle Referenzen */
+.w-framer-view-all__root { display: flex; width: 100%; height: 100%; min-height: 563px; box-sizing: border-box; background: rgba(18, 18, 18, 0.72); color: #111111; text-decoration: none; }
+.w-framer-view-all__inner { flex: 1; margin: 22px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; background: var(--wf-accent); border-radius: 14px; }
+.w-framer-view-all__label { font-size: 24px; line-height: 1.2; font-weight: 600; letter-spacing: -0.02em; }
+.w-framer-view-all__arrow { display: inline-flex; align-items: center; justify-content: center; width: 45px; height: 45px; border-radius: 50%; background: #2f2f2f; color: #ffffff; }
+.w-framer-view-all__root:hover .w-framer-view-all__arrow { transform: translateX(2px); }
+
 @media (max-width: 1100px) {
   .w-framer-footer__body { grid-template-columns: minmax(0, 1fr); }
   .w-framer-footer__inner { padding-top: 100px; }
@@ -578,9 +729,27 @@ export const DOM_WIDGET_CSS = `
   .w-framer-step__card { grid-template-columns: minmax(0, 1fr); gap: 24px; padding: 40px 0; }
   .w-framer-step__content { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-right: 0; }
   .w-framer-reviews__card { width: min(82vw, 423px); height: auto; min-height: 420px; padding: 28px; }
+  .w-framer-avatar-info__root { gap: 16px; }
+  .w-framer-avatar-info__portrait { width: 100px; height: 72px; }
+  .w-framer-avatar-info__mark { width: 52px; height: 72px; font-size: 58px; }
+  .w-framer-avatar-info__avatar { width: 72px; height: 72px; margin-left: 28px; font-size: 22px; }
+  .w-framer-avatar-info__name { font-size: 20px; }
+  .w-framer-avatar-info__role { font-size: 14px; }
+  .w-framer-button__root { min-height: 54px; font-size: 15px; }
+  .w-framer-button--ghost { min-height: 60px; padding: 0 12px 0 24px; }
+  .w-framer-button__arrow { width: 40px; height: 40px; }
+  .w-framer-stats__group { gap: 40px; padding-right: 40px; }
+  .w-framer-stats__item strong { font-size: 28px; }
+  .w-framer-stats__item span { font-size: 16px; }
+  .w-framer-stats__star { font-size: 24px; }
+  .w-framer-view-all__root { min-height: 360px; }
+  .w-framer-view-all__inner { margin: 14px; }
+  .w-framer-view-all__label { font-size: 20px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .w-framer-reviews__track { animation: none; }
   .w-framer-reviews__viewport { overflow-x: auto; }
+  .w-framer-stats__track { animation: none; }
+  .w-framer-stats__viewport { overflow-x: auto; mask-image: none; }
 }
 `;

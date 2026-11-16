@@ -5,6 +5,7 @@
 **Betrifft:** `packages/framer-import`, `packages/widget-engine`, `packages/widgets`, `packages/renderer`, `scripts`
 
 **Ergänzt:** ADR-0038, ADR-0037, ADR-0028
+**Ergänzt durch:** ADR-0040 (Komponentenabdeckung, innerHtml-Farben, Modul-Limit)
 
 ## Kontext
 
