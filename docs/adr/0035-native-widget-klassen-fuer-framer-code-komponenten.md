@@ -66,6 +66,20 @@ Damit ist ein Port mechanisch möglich, ohne die Shader-, Geometrie- oder Animat
   Für Framer-Komponenten ohne XML-Innenleben (Navbar, Footer, Step 2, Bewertungs-Ticker) gilt die
   DOM-Variante aus ADR-0038: derselbe Katalog, aber serverseitig gerenderter Inhalt statt Canvas.
 
+## Nachtrag 16.11.2026: Lizenz der Quelle geprüft
+
+Die FAQ der Komponentenquelle (`https://frameruni.link/cc`, führt zu `https://framer.university/`)
+beantwortet „Where can I use your resources?“ mit „everywhere“ und ergänzt: Die Komponenten und
+Ressourcen dürfen in **kommerziellen Projekten** verwendet werden. Genau eine Bedingung nennt die
+Quelle: Viele Ressourcen sind Nachbauten fremder Arbeit (auf der jeweiligen Ressourcenseite
+gekennzeichnet); dort muss die Umsetzung so geändert werden, dass keine fremde Arbeit kopiert wird.
+
+Damit ist die Lizenzfrage beantwortet: Die Nutzung ist erlaubt, die Nachbau-Prüfung bleibt eine
+Pflicht je Komponente. Für die portierten Widgets (Ribbon Gallery, Wave Background, Navbar, Footer,
+Step 2, Bewertungs-Ticker) ist keine solche Kennzeichnung bekannt; ein Produktions-
+Bibliothekseintrag bleibt trotzdem zurückgehalten, bis die Nachbau-Prüfung je Komponente
+dokumentiert ist. Beleg: Abruf der FAQ am 16.11.2026.
+
 ## Belege
 
 - Katalog und Markup: `packages/widget-engine/src/widgets.ts`,
