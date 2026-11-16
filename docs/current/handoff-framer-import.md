@@ -1,10 +1,32 @@
 # Handoff: Framer-Projektimport und WaveBackground
 
-Stand: 15.11.2026
-Branch: `feat/framer-widget-klassen`
-Letzter Commit: `81dbe71 fix(import): Projektlayout und Quellenbilder fuer die Vorschau`
-Weitere Commits auf dem Branch: `c980f44`, `7e06f3b`, `21d8756`, `ef0ef15`, `90fd2a1`
-Branch ist mit `origin/feat/framer-widget-klassen` synchron.
+Stand: 16.11.2026
+Branch: `feat/framer-open-points`
+Letzter Commit: `5ebda5d feat(import): Live-Fixes fuer Framer-Komponenten und Fixture-Gate`
+Vorherige Commits auf dem Branch: `0819110`, `fce8942`, `79dd9be`
+
+## Fixture-Gate am 16.11.2026 repariert
+
+Das Football-Gate war rot (Links 19→17, Verhältnis 0,895). Die Ursache lag
+nicht im Mapper oder im Widget-Katalog, sondern in `DOM_WIDGET_CSS`: Beim
+Einfügen der vier neuen Widget-Blöcke ging die öffnende Zeile
+`@media (max-width: 1100px) {` verloren. Mit 227 öffnenden gegen 228
+schließende Klammern verwarf der Browser den gesamten Rest des Basis-
+Stylesheets, also auch `.w-frame` und `.w-frame--block`. Der Social-Anker im
+Footer blieb dadurch `display: inline`, kollabierte auf 0×0 und fiel aus der
+Sichtbarkeitszählung des Gates.
+
+Nach dem Wiederherstellen der Media-Zeile (Klammerbilanz 173:173):
+
+- Fixture-Gate 3/3 grün, Football 0,2–0,3 % Pixelabweichung bei Höhe
+  4 919→4 919 und Links 19→20.
+- Fluffy 0,3 %, Easier-Train 2,6 %.
+- Alle Pflichtgates grün; die Suite über `framer-import`, `widget-engine`,
+  `widgets` und `renderer` läuft mit 150 Dateien/1314 Tests (2 übersprungen).
+
+Lehre für die nächste Runde: Ein CSS-Block in einem Template-String braucht
+eine Klammerprobe. Der Fehler war im Quelltext nicht zu sehen, nur im
+gerenderten Stylesheet.
 
 ## Ziel
 
